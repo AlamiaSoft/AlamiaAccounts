@@ -93,10 +93,10 @@ class LedgerInitializationSeeder extends Seeder
 
             // Assets Sub-accounts
             ['code' => '1100', 'name' => 'Current Assets', 'category' => true, 'debit' => true, 'parent_code' => '1000'],
-            ['code' => '1110', 'name' => 'Cash', 'debit' => true, 'parent_code' => '1000'],
-            ['code' => '1120', 'name' => 'Bank Accounts', 'debit' => true, 'parent_code' => '1000'],
-            ['code' => '1200', 'name' => 'Accounts Receivable', 'debit' => true, 'parent_code' => '1000'],
-            ['code' => '1300', 'name' => 'Inventory', 'debit' => true, 'parent_code' => '1000'],
+            ['code' => '1110', 'name' => 'Cash', 'debit' => true, 'parent_code' => '1100'],
+            ['code' => '1120', 'name' => 'Bank Accounts', 'category' => true, 'debit' => true, 'parent_code' => '1100'],
+            ['code' => '1200', 'name' => 'Accounts Receivable', 'debit' => true, 'parent_code' => '1100'],
+            ['code' => '1300', 'name' => 'Inventory', 'debit' => true, 'parent_code' => '1100'],
 
             // Liabilities Sub-accounts
             ['code' => '2100', 'name' => 'Accounts Payable', 'credit' => true, 'parent_code' => '2000'],

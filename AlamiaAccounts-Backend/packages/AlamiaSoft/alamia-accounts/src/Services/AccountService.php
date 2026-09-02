@@ -267,7 +267,7 @@ class AccountService
     /**
      * Update an account.
      */
-    public function updateAccount(string $code, string $name, ?string $parentCode = null, ?string $category = null): LedgerAccount
+    public function updateAccount(string $code, string $name, ?string $parentCode = null, $category = null): LedgerAccount
     {
         $account = $this->getAccountByCode($code);
         if (!$account) {
@@ -282,10 +282,21 @@ class AccountService
             $message->parent = new EntityRef($parentCode);
         }
         if ($category !== null) {
-            $message->category = ($category === 'true' || $category === true || $category === 1);
+            $isCategory = ($category === 'true' || $category === true || $category === 1 || $category === '1');
+            $message->category = $isCategory;
         }
 
-        return $this->accountController->update($message);
+        $updated = $this->accountController->update($message);
+
+        if ($category !== null) {
+            $isCategory = ($category === 'true' || $category === true || $category === 1 || $category === '1');
+            if ($updated->category !== $isCategory) {
+                $updated->category = $isCategory;
+                $updated->save();
+            }
+        }
+
+        return $updated;
     }
 
     /**

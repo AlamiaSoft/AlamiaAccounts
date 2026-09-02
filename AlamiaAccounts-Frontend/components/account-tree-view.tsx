@@ -27,11 +27,11 @@ export default function AccountTreeView({ accounts, onEditAccount, onDeleteAccou
 }
 
 function TreeNode({ account, onEditAccount, onDeleteAccount, level }) {
-  const [isExpanded, setIsExpanded] = useState(level < 1) // Expand first level by default
+  const isCategory = !!account.category
+  const [isExpanded, setIsExpanded] = useState(isCategory || level < 2)
   const [copiedAccountCode, setCopiedAccountCode] = useState(null)
 
   const hasChildren = account.children && account.children.length > 0
-  const isCategory = !!account.category
 
   const copyToClipboard = (text, accountId) => {
     navigator.clipboard.writeText(text)

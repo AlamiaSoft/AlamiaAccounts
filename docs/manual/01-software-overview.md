@@ -65,10 +65,10 @@ All operational and architectural documentation is maintained under the `/docs` 
 ```text
 docs/
 ├── manual/
-│   ├── 01-software-overview.md             <-- System architecture & modules overview
-│   ├── 02-custom-voucher-builder.md        <-- Custom fields, validations, and formulas
-│   ├── 03-chart-of-accounts-management.md  <-- COA hierarchy & balance rollup rules
-│   └── 04-financial-reporting-engine.md    <-- Trial balance, P&L, balance sheet specs
+│   ├── 01-software-overview.md                 <-- System architecture & modules overview
+│   ├── 02-custom-voucher-builder.md            <-- Custom fields, validations, and formulas
+│   ├── 03-chart-of-accounts-and-multi-tenancy.md <-- COA roles, folder/posting accounts, and multi-tenant setup
+│   └── 04-financial-reporting-engine.md        <-- Trial balance, P&L, balance sheet specs
 └── testing/
     └── accounting-workflows-verification-guide.md <-- End-to-end testing protocol
 ```

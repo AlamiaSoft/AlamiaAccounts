@@ -10,6 +10,7 @@ use AlamiaSoft\AlamiaAccounts\Http\Controllers\Api\ReportController;
 use AlamiaSoft\AlamiaAccounts\Http\Controllers\Api\CustomVoucherTypeController;
 use AlamiaSoft\AlamiaAccounts\Http\Controllers\Api\SearchController;
 use AlamiaSoft\AlamiaAccounts\Http\Controllers\Api\PrintController;
+use AlamiaSoft\AlamiaAccounts\Http\Controllers\Api\UserController;
 
 // Public routes
 Route::post('/login', [AuthController::class, 'login']);
@@ -27,6 +28,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/companies/{code}/switch', [CompanyController::class, 'switch']);
     Route::get('/companies/current', [CompanyController::class, 'current']);
     Route::apiResource('companies', CompanyController::class);
+    
+    // Users
+    Route::apiResource('users', UserController::class);
     
     // Accounts
     Route::apiResource('accounts', AccountController::class);

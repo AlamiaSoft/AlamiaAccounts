@@ -26,7 +26,37 @@ import { useCompanies } from "@/hooks/use-companies"
 import { Loader2 } from "lucide-react"
 
 export default function Home() {
-  const [currentPage, setCurrentPage] = useState("dashboard")
+  const [currentPage, setCurrentPage] = useState<string>("dashboard")
+
+  // Load active page from URL query param or localStorage on client mount
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const urlParams = new URLSearchParams(window.location.search)
+      const pageParam = urlParams.get("page")
+      if (pageParam) {
+        setCurrentPage(pageParam)
+      } else {
+        const savedPage = localStorage.getItem("current_page")
+        if (savedPage) {
+          setCurrentPage(savedPage)
+          const url = new URL(window.location.href)
+          url.searchParams.set("page", savedPage)
+          window.history.replaceState({}, "", url.toString())
+        }
+      }
+    }
+  }, [])
+
+  const handlePageChange = (page: string) => {
+    setCurrentPage(page)
+    if (typeof window !== "undefined") {
+      localStorage.setItem("current_page", page)
+      const url = new URL(window.location.href)
+      url.searchParams.set("page", page)
+      window.history.replaceState({}, "", url.toString())
+    }
+  }
+
   const [userRole] = useState<"admin" | "accountant" | "viewer">("admin")
   const [selectedVoucher, setSelectedVoucher] = useState<Voucher | null>(null)
   const [voucherViewMode, setVoucherViewMode] = useState<"view" | "create">("create")
@@ -59,7 +89,16 @@ export default function Home() {
   )
 
   const currentCompany = useMemo(() => {
-    if (!apiCurrentCompany) return null
+    if (!apiCurrentCompany) {
+      if (companies.length > 0) return companies[0]
+      return {
+        id: "MAIN",
+        code: "MAIN",
+        name: "Main Company",
+        industry: "General",
+        currency: "PKR",
+      }
+    }
     return {
       ...apiCurrentCompany,
       id: apiCurrentCompany.code || apiCurrentCompany.id || "MAIN",
@@ -68,7 +107,7 @@ export default function Home() {
       industry: apiCurrentCompany.industry || "General",
       currency: apiCurrentCompany.currency || "PKR",
     }
-  }, [apiCurrentCompany])
+  }, [apiCurrentCompany, companies])
 
   const [printSettings, setPrintSettings] = useState<PrintSettings>({
     companyName: currentCompany?.name || "Acme Corporation",
@@ -192,7 +231,14 @@ export default function Home() {
   }
 
   const handleDeleteCompany = (id: string) => {
-    deleteCompany.mutate(id)
+    deleteCompany.mutate(id, {
+      onSuccess: () => {
+        if (currentCompany?.code === id || currentCompany?.id === id) {
+          const fallback = companies.find((c) => c.id !== id)?.code || "MAIN"
+          switchCompany.mutate(fallback)
+        }
+      }
+    })
   }
 
   if (isLoadingCompanies && !currentCompany) {
@@ -332,10 +378,10 @@ export default function Home() {
     <div className="flex h-screen bg-background">
       <Sidebar
         currentPage={currentPage}
-        onPageChange={setCurrentPage}
+        onPageChange={handlePageChange}
         userRole={userRole}
         companies={companies}
-        currentCompany={currentCompany}
+        currentCompany={currentCompany || companies[0]}
         onCompanyChange={handleCompanyChange}
         onAddCompany={handleAddCompany}
       />
@@ -345,11 +391,11 @@ export default function Home() {
             <div className="flex items-center gap-4">
               <div className="flex items-center gap-2 text-sm text-muted-foreground flex-shrink-0">
                 <span className="font-medium text-foreground">Active:</span>
-                {currentCompany.name}
+                {currentCompany?.name || companies[0]?.name || "Main Company"}
               </div>
               <div className="flex-1 max-w-xl">
                 <GlobalSearch
-                  currentCompany={currentCompany}
+                  currentCompany={currentCompany || companies[0]}
                   currentContext={getSearchContext()}
                   onResultClick={handleSearchResultClick}
                 />

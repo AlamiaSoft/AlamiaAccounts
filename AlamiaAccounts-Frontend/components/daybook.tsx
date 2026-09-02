@@ -1,17 +1,19 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useMemo } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Button } from "@/components/ui/button"
-import { Download, Printer, Receipt } from "lucide-react"
+import { Input } from "@/components/ui/input"
+import { Download, Printer, Receipt, Loader2, Calendar } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
-import ReportView from "./report-view"
+import { useVouchers } from "@/hooks/use-vouchers"
 
-interface DayBookEntry {
+interface FlattenedEntry {
   id: string
   voucherNo: string
   voucherType: string
+  date: string
   accountName: string
   debit: number
   credit: number
@@ -19,247 +21,251 @@ interface DayBookEntry {
 }
 
 export default function DayBook() {
-  const [selectedDate, setSelectedDate] = useState("2024-01-20")
-  const [showPrintView, setShowPrintView] = useState(false)
+  const [selectedDate, setSelectedDate] = useState(() => new Date().toISOString().split("T")[0])
+  const [showAllDates, setShowAllDates] = useState(false)
 
-  const entries: DayBookEntry[] = [
-    {
-      id: "1",
-      voucherNo: "RV-002",
-      voucherType: "Receipt",
-      accountName: "Sales Account",
-      debit: 75000,
-      credit: 0,
-      narration: "Sales receipt from XYZ Corp for invoice #INV-1234",
-    },
-    {
-      id: "2",
-      voucherNo: "RV-002",
-      voucherType: "Receipt",
-      accountName: "Cash in Hand",
-      debit: 0,
-      credit: 75000,
-      narration: "Sales receipt from XYZ Corp for invoice #INV-1234",
-    },
-    {
-      id: "3",
-      voucherNo: "PV-002",
-      voucherType: "Payment",
-      accountName: "Supplier Account",
-      debit: 0,
-      credit: 30000,
-      narration: "Payment to supplier ABC Enterprises",
-    },
-    {
-      id: "4",
-      voucherNo: "PV-002",
-      voucherType: "Payment",
-      accountName: "Bank Account",
-      debit: 30000,
-      credit: 0,
-      narration: "Payment to supplier ABC Enterprises",
-    },
-    {
-      id: "5",
-      voucherNo: "JV-001",
-      voucherType: "Journal",
-      accountName: "Depreciation Expense",
-      debit: 5000,
-      credit: 0,
-      narration: "Monthly depreciation on fixed assets",
-    },
-    {
-      id: "6",
-      voucherNo: "JV-001",
-      voucherType: "Journal",
-      accountName: "Accumulated Depreciation",
-      debit: 0,
-      credit: 5000,
-      narration: "Monthly depreciation on fixed assets",
-    },
-  ]
+  const { vouchers: apiVouchers, isLoading } = useVouchers()
 
-  const totalDebit = entries.reduce((sum, e) => sum + e.debit, 0)
-  const totalCredit = entries.reduce((sum, e) => sum + e.credit, 0)
+  // Flatten vouchers and line items for the daybook
+  const { entries, totalDebit, totalCredit } = useMemo(() => {
+    const list: FlattenedEntry[] = []
+    let drSum = 0
+    let crSum = 0
 
-  const voucherTypes = ["Receipt", "Payment", "Journal", "Contra", "Sales", "Purchase"]
+    const rawVouchers = apiVouchers || []
+    const filteredVouchers = showAllDates
+      ? rawVouchers
+      : rawVouchers.filter((v: any) => v.date?.startsWith(selectedDate))
 
-  const PrintContent = () => (
-    <div>
-      <div className="mb-6 grid grid-cols-3 gap-4 text-sm">
-        <div>
-          <span className="font-semibold">Total Vouchers:</span> 3
-        </div>
-        <div>
-          <span className="font-semibold">Total Debit:</span> Rs.
-          {totalDebit.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
-        </div>
-        <div>
-          <span className="font-semibold">Total Credit:</span> Rs.
-          {totalCredit.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
-        </div>
-      </div>
+    for (const v of filteredVouchers) {
+      const items = v.line_items || v.details || []
+      const vType = v.type || v.voucher_type || "Journal"
+      const vNo = v.reference || v.number || `VCH-${v.id}`
+      const vNarration = v.description || v.narration || ""
 
-      <table className="w-full border-collapse border border-gray-300">
-        <thead>
-          <tr className="bg-gray-100">
-            <th className="border border-gray-300 px-4 py-2 text-left">Voucher No.</th>
-            <th className="border border-gray-300 px-4 py-2 text-left">Type</th>
-            <th className="border border-gray-300 px-4 py-2 text-left">Account Name</th>
-            <th className="border border-gray-300 px-4 py-2 text-right">Debit</th>
-            <th className="border border-gray-300 px-4 py-2 text-right">Credit</th>
-            <th className="border border-gray-300 px-4 py-2 text-left">Narration</th>
-          </tr>
-        </thead>
-        <tbody>
-          {entries.map((entry) => (
-            <tr key={entry.id}>
-              <td className="border border-gray-300 px-4 py-2 font-mono text-sm">{entry.voucherNo}</td>
-              <td className="border border-gray-300 px-4 py-2">{entry.voucherType}</td>
-              <td className="border border-gray-300 px-4 py-2 font-medium">{entry.accountName}</td>
-              <td className="border border-gray-300 px-4 py-2 text-right">
-                {entry.debit > 0 ? `Rs.${entry.debit.toLocaleString("en-IN", { minimumFractionDigits: 2 })}` : "-"}
-              </td>
-              <td className="border border-gray-300 px-4 py-2 text-right">
-                {entry.credit > 0 ? `Rs.${entry.credit.toLocaleString("en-IN", { minimumFractionDigits: 2 })}` : "-"}
-              </td>
-              <td className="border border-gray-300 px-4 py-2 text-sm">{entry.narration}</td>
-            </tr>
-          ))}
-          <tr className="bg-gray-100 font-bold">
-            <td colSpan={3} className="border border-gray-300 px-4 py-2">
-              Total
-            </td>
-            <td className="border border-gray-300 px-4 py-2 text-right">
-              Rs.{totalDebit.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
-            </td>
-            <td className="border border-gray-300 px-4 py-2 text-right">
-              Rs.{totalCredit.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
-            </td>
-            <td className="border border-gray-300 px-4 py-2" />
-          </tr>
-        </tbody>
-      </table>
-    </div>
-  )
+      if (items.length > 0) {
+        items.forEach((item: any, idx: number) => {
+          const debit = Number(item.debit) || 0
+          const credit = Number(item.credit) || 0
+          drSum += debit
+          crSum += credit
 
-  if (showPrintView) {
-    return (
-      <ReportView
-        title="Day Book"
-        onClose={() => setShowPrintView(false)}
-        companyName="Acme Corporation"
-        reportDate={new Date(selectedDate).toLocaleDateString("en-IN")}
-      >
-        <PrintContent />
-      </ReportView>
-    )
+          list.push({
+            id: `${v.id || vNo}-${idx}`,
+            voucherNo: vNo,
+            voucherType: vType,
+            date: v.date,
+            accountName: item.account_name || item.account || item.account_code || "Unknown Account",
+            debit,
+            credit,
+            narration: item.description || item.memo || vNarration,
+          })
+        })
+      } else {
+        // In case voucher has flat amount
+        const amt = Number(v.amount) || 0
+        drSum += amt
+        crSum += amt
+        list.push({
+          id: String(v.id || vNo),
+          voucherNo: vNo,
+          voucherType: vType,
+          date: v.date,
+          accountName: v.account_name || "General Transaction",
+          debit: amt,
+          credit: 0,
+          narration: vNarration,
+        })
+      }
+    }
+
+    return { entries: list, totalDebit: drSum, totalCredit: crSum }
+  }, [apiVouchers, selectedDate, showAllDates])
+
+  const handlePrint = () => {
+    window.print()
+  }
+
+  const handleExportCSV = () => {
+    const headers = ["Voucher No", "Type", "Date", "Account", "Debit", "Credit", "Narration"]
+    const rows = entries.map((e) => [
+      e.voucherNo,
+      e.voucherType,
+      e.date,
+      `"${e.accountName.replace(/"/g, '""')}"`,
+      e.debit,
+      e.credit,
+      `"${e.narration.replace(/"/g, '""')}"`,
+    ])
+    const csvContent = "data:text/csv;charset=utf-8," + [headers.join(","), ...rows.map((r) => r.join(","))].join("\n")
+    const encodedUri = encodeURI(csvContent)
+    const link = document.createElement("a")
+    link.setAttribute("href", encodedUri)
+    link.setAttribute("download", `DayBook_${selectedDate}.csv`)
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
   }
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-3xl font-bold">Day Book</h2>
-        <p className="text-muted-foreground mt-1">Chronological record of all daily transactions</p>
-      </div>
-
-      <div className="flex flex-wrap gap-4">
-        <div className="flex items-center gap-2">
-          <label className="text-sm font-medium">Date:</label>
-          <input
-            type="date"
-            value={selectedDate}
-            onChange={(e) => setSelectedDate(e.target.value)}
-            className="px-3 py-2 border rounded-md text-sm"
-          />
+      {/* Header */}
+      <div className="flex justify-between items-center flex-wrap gap-4">
+        <div>
+          <h2 className="text-3xl font-bold tracking-tight">Day Book</h2>
+          <p className="text-muted-foreground mt-1">
+            Chronological register of all financial transactions and journal vouchers posted
+          </p>
         </div>
-
-        <div className="flex-1" />
-
-        <Button variant="outline" onClick={() => setShowPrintView(true)}>
-          <Printer className="w-4 h-4 mr-2" />
-          Print
-        </Button>
-        <Button variant="outline">
-          <Download className="w-4 h-4 mr-2" />
-          Export
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={handleExportCSV} disabled={entries.length === 0}>
+            <Download className="w-4 h-4 mr-2" />
+            Export CSV
+          </Button>
+          <Button variant="outline" onClick={handlePrint}>
+            <Printer className="w-4 h-4 mr-2" />
+            Print
+          </Button>
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      {/* Date Filter & Options */}
+      <Card>
+        <CardContent className="pt-6">
+          <div className="flex items-center gap-4 flex-wrap">
+            <div className="w-64">
+              <label className="text-sm font-medium mb-1 block">Select Date</label>
+              <Input
+                type="date"
+                value={selectedDate}
+                onChange={(e) => setSelectedDate(e.target.value)}
+                disabled={showAllDates}
+              />
+            </div>
+
+            <div className="pt-6">
+              <Button
+                variant={showAllDates ? "default" : "outline"}
+                onClick={() => setShowAllDates(!showAllDates)}
+              >
+                {showAllDates ? "Filtering by Single Date" : "Show All Recent Dates"}
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Summary Cards */}
+      <div className="grid gap-4 md:grid-cols-3">
         <Card>
           <CardHeader className="pb-2">
-            <CardDescription>Total Vouchers</CardDescription>
-            <CardTitle className="text-2xl">3</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">Total Debits</CardTitle>
           </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-green-600">
+              Rs. {totalDebit.toLocaleString()}
+            </div>
+          </CardContent>
         </Card>
+
         <Card>
           <CardHeader className="pb-2">
-            <CardDescription>Total Debit</CardDescription>
-            <CardTitle className="text-2xl">
-              Rs.{totalDebit.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
-            </CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">Total Credits</CardTitle>
           </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-blue-600">
+              Rs. {totalCredit.toLocaleString()}
+            </div>
+          </CardContent>
         </Card>
-        <Card>
+
+        <Card className={totalDebit === totalCredit ? "bg-green-500/5 border-green-500/20" : "bg-red-500/5 border-red-500/20"}>
           <CardHeader className="pb-2">
-            <CardDescription>Total Credit</CardDescription>
-            <CardTitle className="text-2xl">
-              Rs.{totalCredit.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
-            </CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">Balance Check</CardTitle>
           </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">
+              {totalDebit === totalCredit ? (
+                <span className="text-green-600 text-lg flex items-center">
+                  Balanced (Diff: Rs. 0) ✓
+                </span>
+              ) : (
+                <span className="text-red-600 text-lg">
+                  Out of Balance (Diff: Rs. {Math.abs(totalDebit - totalCredit).toLocaleString()})
+                </span>
+              )}
+            </div>
+          </CardContent>
         </Card>
       </div>
 
+      {/* Entries Table */}
       <Card>
         <CardHeader>
-          <CardTitle>Daily Transactions</CardTitle>
-          <CardDescription>All transactions for {new Date(selectedDate).toLocaleDateString("en-IN")}</CardDescription>
+          <CardTitle>
+            {showAllDates ? "All Recent Vouchers" : `Vouchers on ${selectedDate}`}
+          </CardTitle>
+          <CardDescription>
+            Detailed line items for double-entry transactions
+          </CardDescription>
         </CardHeader>
         <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Voucher No.</TableHead>
-                <TableHead>Type</TableHead>
-                <TableHead>Account Name</TableHead>
-                <TableHead className="text-right">Debit</TableHead>
-                <TableHead className="text-right">Credit</TableHead>
-                <TableHead>Narration</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {entries.map((entry, i) => (
-                <TableRow key={entry.id || entry.voucherNo || `entry-${i}`}>
-                  <TableCell className="font-mono text-sm">{entry.voucherNo}</TableCell>
-                  <TableCell>
-                    <Badge variant="outline">
-                      <Receipt className="w-3 h-3 mr-1" />
-                      {entry.voucherType}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="font-medium">{entry.accountName}</TableCell>
-                  <TableCell className="text-right font-medium">
-                    {entry.debit > 0 ? `Rs.${entry.debit.toLocaleString("en-IN", { minimumFractionDigits: 2 })}` : "-"}
-                  </TableCell>
-                  <TableCell className="text-right font-medium">
-                    {entry.credit > 0 ? `Rs.${entry.credit.toLocaleString("en-IN", { minimumFractionDigits: 2 })}` : "-"}
-                  </TableCell>
-                  <TableCell className="text-sm text-muted-foreground max-w-xs truncate">{entry.narration}</TableCell>
-                </TableRow>
-              ))}
-              <TableRow className="bg-muted/50 font-bold">
-                <TableCell colSpan={3}>Total</TableCell>
-                <TableCell className="text-right">
-                  Rs.{totalDebit.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
-                </TableCell>
-                <TableCell className="text-right">
-                  Rs.{totalCredit.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
-                </TableCell>
-                <TableCell />
-              </TableRow>
-            </TableBody>
-          </Table>
+          {isLoading ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="w-8 h-8 animate-spin text-primary" />
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Voucher No</TableHead>
+                    <TableHead>Type</TableHead>
+                    <TableHead>Date</TableHead>
+                    <TableHead>Account Name</TableHead>
+                    <TableHead className="text-right">Debit</TableHead>
+                    <TableHead className="text-right">Credit</TableHead>
+                    <TableHead>Narration</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {entries.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={7} className="text-center py-12 text-muted-foreground">
+                        No vouchers recorded for this period.
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    entries.map((entry) => (
+                      <TableRow key={entry.id}>
+                        <TableCell className="font-mono font-medium text-xs">
+                          {entry.voucherNo}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline" className="capitalize">
+                            {entry.voucherType}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="font-mono text-xs text-muted-foreground">
+                          {entry.date}
+                        </TableCell>
+                        <TableCell className="font-medium">{entry.accountName}</TableCell>
+                        <TableCell className="text-right font-medium text-green-600">
+                          {entry.debit > 0 ? `Rs. ${entry.debit.toLocaleString()}` : "-"}
+                        </TableCell>
+                        <TableCell className="text-right font-medium text-blue-600">
+                          {entry.credit > 0 ? `Rs. ${entry.credit.toLocaleString()}` : "-"}
+                        </TableCell>
+                        <TableCell className="text-muted-foreground text-xs max-w-xs truncate">
+                          {entry.narration || "-"}
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

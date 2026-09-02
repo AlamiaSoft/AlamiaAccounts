@@ -110,8 +110,17 @@ export default function CompanyManagement({
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={() => onDeleteCompany(company.id)}
+                        onClick={() => {
+                          if (company.id === "MAIN" || company.code === "MAIN") {
+                            alert("The Main Company cannot be deleted.")
+                            return
+                          }
+                          if (confirm(`Are you sure you want to delete company "${company.name}"? This action cannot be undone.`)) {
+                            onDeleteCompany(company.id)
+                          }
+                        }}
                         className="text-destructive hover:text-destructive"
+                        title={company.id === "MAIN" ? "Main company cannot be deleted" : "Delete company"}
                       >
                         <Trash2 className="w-4 h-4" />
                       </Button>

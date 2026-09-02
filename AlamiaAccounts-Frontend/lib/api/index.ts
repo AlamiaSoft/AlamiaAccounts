@@ -18,6 +18,15 @@ export const companyApi = {
     delete: (code: string) => apiClient.delete(`/companies/${code}`),
 }
 
+// User API
+export const userApi = {
+    getAll: () => apiClient.get('/users'),
+    getOne: (id: string | number) => apiClient.get(`/users/${id}`),
+    create: (data: any) => apiClient.post('/users', data),
+    update: (id: string | number, data: any) => apiClient.put(`/users/${id}`, data),
+    delete: (id: string | number) => apiClient.delete(`/users/${id}`),
+}
+
 // Account API
 export const accountApi = {
     getAll: () => apiClient.get('/accounts'),

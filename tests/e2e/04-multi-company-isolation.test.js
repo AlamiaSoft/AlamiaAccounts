@@ -8,25 +8,25 @@ async function run() {
   try {
     await login(page);
 
-    // 1. Switch to TST company
-    await switchCompany(page, 'TST');
-    console.log('✓ Switched company to TST');
+    // 1. Switch to Kamal Express company
+    await switchCompany(page, 'Kamal Express');
+    console.log('✓ Switched company to Kamal Express');
 
-    // 2. Verify TST Dashboard has clean zero figures
+    // 2. Verify Kamal Express Dashboard has clean zero figures
     await navigateTo(page, 'Dashboard');
-    const tstDashText = await page.locator('main').innerText();
-    if (!tstDashText.includes('Rs.0')) {
-      throw new Error('TST company dashboard is not showing clean Rs. 0 initial balances');
+    const kamalDashText = await page.locator('main').innerText();
+    if (!kamalDashText.includes('Rs.0')) {
+      throw new Error('Kamal Express company dashboard is not showing clean Rs. 0 initial balances');
     }
-    console.log('✓ TST Dashboard verified with clean zero figures (0 leaked from Main Company)');
+    console.log('✓ Kamal Express Dashboard verified with clean zero figures (0 leaked from Main Company)');
 
-    // 3. Verify TST Balance Sheet is at zero
+    // 3. Verify Kamal Express Balance Sheet is at zero
     await navigateTo(page, 'Reports', 'Balance Sheet');
-    const tstBsText = await page.locator('main').innerText();
-    if (!tstBsText.includes('Total Assets\nRs.0') && !tstBsText.includes('Total Assets') && !tstBsText.includes('0')) {
-      throw new Error('TST Balance Sheet should show Rs. 0 total assets');
+    const kamalBsText = await page.locator('main').innerText();
+    if (!kamalBsText.includes('Total Assets\nRs.0') && !kamalBsText.includes('Total Assets') && !kamalBsText.includes('0')) {
+      throw new Error('Kamal Express Balance Sheet should show Rs. 0 total assets');
     }
-    console.log('✓ TST Financial Reports verified with clean Rs. 0 initial balance');
+    console.log('✓ Kamal Express Financial Reports verified with clean Rs. 0 initial balance');
 
     // 4. Switch back to Main Company and verify balances remain intact
     await switchCompany(page, 'Main Company');

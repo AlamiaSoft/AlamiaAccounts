@@ -169,7 +169,7 @@ class VoucherService
         $entryIds = DomainJournalEntry::getEntryIdsForDomain($currentDomain->domainUuid);
         
         // Query entries that belong to this domain
-        $query = JournalEntryModel::whereIn('journalEntryId', $entryIds)->with('entries');
+        $query = JournalEntryModel::whereIn('journalEntryId', $entryIds)->with('details');
         
         if (isset($filters['date_from'])) {
             $query->where('transDate', '>=', $filters['date_from']);
@@ -183,7 +183,49 @@ class VoucherService
             $query->where('extra', 'like', '%' . $filters['reference'] . '%');
         }
         
-        return $query->orderBy('transDate', 'desc')->get();
+        $entries = $query->orderBy('transDate', 'desc')->get();
+        $accounts = \Abivia\Ledger\Models\LedgerAccount::all()->keyBy('ledgerUuid');
+
+        return $entries->map(function ($entry) use ($accounts) {
+            $details = ($entry->details ?? collect())->map(function ($detail) use ($accounts) {
+                $acc = $accounts->get($detail->ledgerUuid);
+                $amt = (float) $detail->amount;
+                $accName = $acc ? ($acc->names['en'] ?? $acc->code) : 'Unknown';
+                return [
+                    'id' => $detail->journalDetailId,
+                    'account' => $acc ? $acc->code : '',
+                    'account_code' => $acc ? $acc->code : '',
+                    'account_name' => $accName,
+                    'debit' => $amt > 0 ? $amt : 0,
+                    'credit' => $amt < 0 ? abs($amt) : 0,
+                    'amount' => abs($amt),
+                    'memo' => $detail->extra ?? '',
+                ];
+            });
+
+            $ref = 'JV-' . $entry->journalEntryId;
+            if (!empty($entry->extra)) {
+                if (is_string($entry->extra) && str_starts_with(trim($entry->extra), '{')) {
+                    $decoded = json_decode($entry->extra, true);
+                    $ref = $decoded['reference'] ?? $decoded['voucher_number'] ?? $entry->extra;
+                } else {
+                    $ref = (string) $entry->extra;
+                }
+            }
+
+            return [
+                'id' => $entry->journalEntryId,
+                'reference' => $ref,
+                'number' => $ref,
+                'type' => 'Journal',
+                'date' => substr($entry->transDate, 0, 10),
+                'description' => $entry->description,
+                'currency' => $entry->currency,
+                'amount' => $details->where('debit', '>', 0)->sum('debit'),
+                'line_items' => $details,
+                'details' => $details,
+            ];
+        });
     }
 
     /**

@@ -144,10 +144,10 @@ export default function Sidebar({
                     key={subitem.id}
                     onClick={() => onPageChange(subitem.id)}
                     className={cn(
-                      "w-full text-left px-4 py-2 rounded text-sm transition-colors",
+                      "w-full text-left px-4 py-2 rounded-md text-sm transition-colors",
                       currentPage === subitem.id
-                        ? "text-sidebar-accent-foreground font-medium"
-                        : "text-muted-foreground hover:text-sidebar-foreground",
+                        ? "bg-sidebar-accent text-sidebar-accent-foreground font-semibold"
+                        : "text-muted-foreground hover:text-sidebar-foreground hover:bg-sidebar-border/30",
                     )}
                   >
                     {subitem.label}

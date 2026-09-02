@@ -5,21 +5,13 @@ namespace AlamiaSoft\AlamiaAccounts\Services;
 use Abivia\Ledger\Models\LedgerAccount;
 use Abivia\Ledger\Models\LedgerDomain;
 use Abivia\Ledger\Models\JournalEntry as JournalEntryModel;
-use Abivia\Ledger\Http\Controllers\ReportController;
-use Abivia\Ledger\Messages\Report;
 use AlamiaSoft\AlamiaAccounts\Models\DomainLedgerAccount;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\DB;
 use Exception;
 
 class ReportService
 {
-    protected ReportController $reportController;
-
-    public function __construct()
-    {
-        $this->reportController = new ReportController();
-    }
-
     /**
      * Get the current domain based on DomainContext.
      */
@@ -47,145 +39,267 @@ class ReportService
     }
 
     /**
-     * Get Trial Balance.
-     * Uses Abivia Ledger's ReportController if possible, or falls back to custom calculation.
+     * Get Trial Balance as of a specific date.
+     * Enforces domain isolation and mathematical balance.
      */
-    public function getTrialBalance(string $asOfDate, string $currency = 'USD'): array
+    public function getTrialBalance(string $asOfDate, string $currency = 'PKR'): array
     {
-        // Try using Ledger's native report first
-        try {
-            $request = new Report();
-            $request->name = 'trialBalance';
-            $request->currency = $currency;
-            $request->toDate = new Carbon($asOfDate);
-            
-            $response = $this->reportController->generate($request);
-            // If response is useful, parse it. 
-            // For now, let's stick to the custom implementation from AlamiaAccountingService 
-            // as it returns a specific array format the user might expect.
-        } catch (\Exception $e) {
-            // Fallback
-        }
-
         $currentDomain = $this->getCurrentDomain();
-        $accounts = LedgerAccount::where('domainUuid', $currentDomain->domainUuid)->get();
+        $accountUuids = DomainLedgerAccount::getAccountUuidsForDomain($currentDomain->domainUuid);
+
+        // Only leaf posting accounts (category == false) have transaction balances
+        $accounts = LedgerAccount::whereIn('ledgerUuid', $accountUuids)
+            ->where('category', false)
+            ->where('code', '!=', '')
+            ->with('names')
+            ->orderBy('code')
+            ->get();
+
         $trialBalance = [];
-        
+        $totalDebit = 0.0;
+        $totalCredit = 0.0;
+
         foreach ($accounts as $account) {
             $balance = $this->getAccountBalance($account->code, $asOfDate, $currency);
-            
-            if ($balance != 0) {
+
+            if (abs($balance) > 0.0001) {
+                $debit = $balance > 0 ? (float)$balance : 0.0;
+                $credit = $balance < 0 ? (float)abs($balance) : 0.0;
+
+                $totalDebit += $debit;
+                $totalCredit += $credit;
+
                 $trialBalance[] = [
                     'account_code' => $account->code,
                     'account_name' => $account->names->first()->name ?? $account->code,
-                    'debit' => $balance > 0 ? $balance : 0,
-                    'credit' => $balance < 0 ? abs($balance) : 0,
+                    'debit' => round($debit, 2),
+                    'credit' => round($credit, 2),
                 ];
             }
         }
-        
-        return $trialBalance;
-    }
 
-    public function getProfitAndLoss(string $fromDate, string $toDate, string $currency = 'USD'): array
-    {
-        // Using custom implementation from AlamiaAccountingService
-        // We need to ensure 'category' is populated in accounts.
-        
-        // Get accounts for current domain via pivot table
-        $currentDomain = $this->getCurrentDomain();
-        $accountUuids = DomainLedgerAccount::getAccountUuidsForDomain($currentDomain->domainUuid);
-        
-        $incomeAccounts = LedgerAccount::where('category', 'revenue')
-            ->whereIn('ledgerUuid', $accountUuids)
-            ->get();
-        $expenseAccounts = LedgerAccount::where('category', 'expense')
-            ->whereIn('ledgerUuid', $accountUuids)
-            ->get();
-        
-        $income = [];
-        $totalIncome = 0;
-        
-        foreach ($incomeAccounts as $account) {
-            $balance = $this->getAccountBalanceForPeriod($account->code, $fromDate, $toDate, $currency);
-            if ($balance != 0) {
-                $income[] = [
-                    'account_name' => $account->names->first()->name ?? $account->code,
-                    'amount' => abs($balance),
-                ];
-                $totalIncome += abs($balance);
-            }
-        }
-        
-        $expenses = [];
-        $totalExpenses = 0;
-        
-        foreach ($expenseAccounts as $account) {
-            $balance = $this->getAccountBalanceForPeriod($account->code, $fromDate, $toDate, $currency);
-            if ($balance != 0) {
-                $expenses[] = [
-                    'account_name' => $account->names->first()->name ?? $account->code,
-                    'amount' => abs($balance),
-                ];
-                $totalExpenses += abs($balance);
-            }
-        }
-        
         return [
-            'income' => $income,
-            'total_income' => $totalIncome,
-            'expenses' => $expenses,
-            'total_expenses' => $totalExpenses,
-            'net_profit' => $totalIncome - $totalExpenses,
+            'as_of_date' => $asOfDate,
+            'currency' => $currency,
+            'accounts' => $trialBalance,
+            'total_debit' => round($totalDebit, 2),
+            'total_credit' => round($totalCredit, 2),
+            'is_balanced' => abs($totalDebit - $totalCredit) < 0.01,
         ];
     }
 
-    public function getAccountLedger(string $accountCode, string $fromDate, string $toDate, string $currency = 'USD'): array
+    /**
+     * Get Profit and Loss Statement for a period.
+     */
+    public function getProfitAndLoss(string $fromDate, string $toDate, string $currency = 'PKR'): array
     {
         $currentDomain = $this->getCurrentDomain();
+        $accountUuids = DomainLedgerAccount::getAccountUuidsForDomain($currentDomain->domainUuid);
+
+        // Fetch leaf accounts
+        $accounts = LedgerAccount::whereIn('ledgerUuid', $accountUuids)
+            ->where('category', false)
+            ->where('code', '!=', '')
+            ->with('names')
+            ->orderBy('code')
+            ->get();
+
+        $income = [];
+        $totalIncome = 0.0;
+
+        $expenses = [];
+        $totalExpenses = 0.0;
+
+        foreach ($accounts as $account) {
+            $balance = $this->getAccountBalanceForPeriod($account->code, $fromDate, $toDate, $currency);
+
+            if (abs($balance) < 0.0001) {
+                continue;
+            }
+
+            $name = $account->names->first()->name ?? $account->code;
+
+            // Revenue: Credit accounts starting with 3 or 5 (or credit = true, not 2xxx liability)
+            if ($account->credit && (str_starts_with($account->code, '3') || str_starts_with($account->code, '5'))) {
+                $amount = abs($balance);
+                $totalIncome += $amount;
+                $income[] = [
+                    'account_code' => $account->code,
+                    'account_name' => $name,
+                    'amount' => round($amount, 2),
+                ];
+            }
+            // Expenses: Debit accounts starting with 4
+            elseif ($account->debit && str_starts_with($account->code, '4')) {
+                $amount = abs($balance);
+                $totalExpenses += $amount;
+                $expenses[] = [
+                    'account_code' => $account->code,
+                    'account_name' => $name,
+                    'amount' => round($amount, 2),
+                ];
+            }
+        }
+
+        $netProfit = $totalIncome - $totalExpenses;
+
+        return [
+            'from_date' => $fromDate,
+            'to_date' => $toDate,
+            'currency' => $currency,
+            'income' => $income,
+            'total_income' => round($totalIncome, 2),
+            'expenses' => $expenses,
+            'total_expenses' => round($totalExpenses, 2),
+            'net_profit' => round($netProfit, 2),
+        ];
+    }
+
+    /**
+     * Get Balance Sheet as of a date.
+     */
+    public function getBalanceSheet(string $asOfDate, string $currency = 'PKR'): array
+    {
+        $currentDomain = $this->getCurrentDomain();
+        $accountUuids = DomainLedgerAccount::getAccountUuidsForDomain($currentDomain->domainUuid);
+
+        $accounts = LedgerAccount::whereIn('ledgerUuid', $accountUuids)
+            ->where('category', false)
+            ->where('code', '!=', '')
+            ->with('names')
+            ->orderBy('code')
+            ->get();
+
+        $assets = [];
+        $totalAssets = 0.0;
+
+        $liabilities = [];
+        $totalLiabilities = 0.0;
+
+        $equity = [];
+        $totalEquity = 0.0;
+
+        foreach ($accounts as $account) {
+            $balance = $this->getAccountBalance($account->code, $asOfDate, $currency);
+
+            if (abs($balance) < 0.0001) {
+                continue;
+            }
+
+            $name = $account->names->first()->name ?? $account->code;
+
+            // Assets (1xxx)
+            if (str_starts_with($account->code, '1')) {
+                $amt = $balance;
+                $totalAssets += $amt;
+                $assets[] = [
+                    'account_code' => $account->code,
+                    'account_name' => $name,
+                    'amount' => round($amt, 2),
+                ];
+            }
+            // Liabilities (2xxx)
+            elseif (str_starts_with($account->code, '2')) {
+                $amt = abs($balance);
+                $totalLiabilities += $amt;
+                $liabilities[] = [
+                    'account_code' => $account->code,
+                    'account_name' => $name,
+                    'amount' => round($amt, 2),
+                ];
+            }
+            // Equity (51xx, 52xx, or 3xxx if equity)
+            elseif (str_starts_with($account->code, '51') || str_starts_with($account->code, '52') || str_starts_with($account->code, '53')) {
+                $amt = abs($balance);
+                $totalEquity += $amt;
+                $equity[] = [
+                    'account_code' => $account->code,
+                    'account_name' => $name,
+                    'amount' => round($amt, 2),
+                ];
+            }
+        }
+
+        // Net income to date also belongs to Equity as retained earnings
+        $earliest = '2000-01-01';
+        $pnl = $this->getProfitAndLoss($earliest, $asOfDate, $currency);
+        $retainedEarnings = $pnl['net_profit'];
+
+        $totalLiabilitiesAndEquity = $totalLiabilities + $totalEquity + $retainedEarnings;
+
+        return [
+            'as_of_date' => $asOfDate,
+            'currency' => $currency,
+            'assets' => $assets,
+            'total_assets' => round($totalAssets, 2),
+            'liabilities' => $liabilities,
+            'total_liabilities' => round($totalLiabilities, 2),
+            'equity' => $equity,
+            'total_equity' => round($totalEquity, 2),
+            'retained_earnings' => round($retainedEarnings, 2),
+            'total_liabilities_and_equity' => round($totalLiabilitiesAndEquity, 2),
+            'is_balanced' => abs($totalAssets - $totalLiabilitiesAndEquity) < 0.01,
+        ];
+    }
+
+    /**
+     * Get granular statement for an individual account with running balances.
+     */
+    public function getAccountLedger(string $accountCode, string $fromDate, string $toDate, string $currency = 'PKR'): array
+    {
+        $currentDomain = $this->getCurrentDomain();
+        $accountUuids = DomainLedgerAccount::getAccountUuidsForDomain($currentDomain->domainUuid);
+
         $account = LedgerAccount::where('code', $accountCode)
-            ->where('domainUuid', $currentDomain->domainUuid)
+            ->whereIn('ledgerUuid', $accountUuids)
+            ->with('names')
             ->first();
 
         if (!$account) {
-            throw new Exception("Account with code {$accountCode} not found");
+            throw new Exception("Account with code {$accountCode} not found in current domain");
         }
 
-        // 1. Calculate Opening Balance
+        // 1. Calculate Opening Balance before $fromDate
         $asOfDateForOpening = Carbon::parse($fromDate)->subDay()->toDateString();
         $openingBalance = $this->getAccountBalance($accountCode, $asOfDateForOpening, $currency);
 
-        // 2. Fetch Transactions
-        $transactions = \DB::table('ledger_journal_details')
-            ->join('ledger_entries', 'ledger_journal_details.journalEntryId', '=', 'ledger_entries.journalEntryId')
-            ->where('ledger_entries.currency', $currency)
-            ->where('ledger_journal_details.ledgerUuid', $account->ledgerUuid)
-            ->whereBetween('ledger_entries.transDate', [$fromDate, $toDate])
+        // 2. Fetch Transactions within the period
+        $transactions = DB::table('journal_details')
+            ->join('journal_entries', 'journal_details.journalEntryId', '=', 'journal_entries.journalEntryId')
+            ->join('domain_journal_entries', 'journal_entries.journalEntryId', '=', 'domain_journal_entries.journalEntryId')
+            ->where('domain_journal_entries.domainUuid', $currentDomain->domainUuid)
+            ->where('journal_entries.currency', $currency)
+            ->where('journal_details.ledgerUuid', $account->ledgerUuid)
+            ->where('journal_entries.transDate', '>=', Carbon::parse($fromDate)->startOfDay())
+            ->where('journal_entries.transDate', '<=', Carbon::parse($toDate)->endOfDay())
             ->select(
-                'ledger_entries.transDate as date',
-                'ledger_entries.reference',
-                'ledger_entries.description',
-                'ledger_journal_details.amount'
+                'journal_entries.transDate as date',
+                'journal_entries.description',
+                'journal_entries.extra',
+                'journal_details.amount'
             )
-            ->orderBy('ledger_entries.transDate')
-            ->orderBy('ledger_entries.journalEntryId')
+            ->orderBy('journal_entries.transDate')
+            ->orderBy('journal_entries.journalEntryId')
             ->get();
 
-        // 3. Process Transactions with Running Balance
+        // 3. Compute running balance
         $ledgerEntries = [];
         $runningBalance = $openingBalance;
 
         foreach ($transactions as $tx) {
             $amount = (float)$tx->amount;
             $runningBalance += $amount;
-            
+
+            $extra = json_decode($tx->extra ?? '', true) ?? [];
+            $reference = $extra['reference'] ?? $extra['voucher_number'] ?? '-';
+
             $ledgerEntries[] = [
-                'date' => $tx->date,
-                'reference' => $tx->reference,
+                'date' => Carbon::parse($tx->date)->toDateString(),
+                'reference' => $reference,
                 'description' => $tx->description,
-                'debit' => $amount > 0 ? $amount : 0,
-                'credit' => $amount < 0 ? abs($amount) : 0,
-                'balance' => $runningBalance
+                'debit' => $amount > 0 ? round($amount, 2) : 0.0,
+                'credit' => $amount < 0 ? round(abs($amount), 2) : 0.0,
+                'balance' => round($runningBalance, 2),
             ];
         }
 
@@ -194,105 +308,72 @@ class ReportService
                 'code' => $account->code,
                 'name' => $account->names->first()->name ?? $account->code,
             ],
-            'opening_balance' => $openingBalance,
+            'from_date' => $fromDate,
+            'to_date' => $toDate,
+            'currency' => $currency,
+            'opening_balance' => round($openingBalance, 2),
             'entries' => $ledgerEntries,
-            'closing_balance' => $runningBalance,
-            'total_debit' => array_sum(array_column($ledgerEntries, 'debit')),
-            'total_credit' => array_sum(array_column($ledgerEntries, 'credit')),
+            'closing_balance' => round($runningBalance, 2),
+            'total_debit' => round(array_sum(array_column($ledgerEntries, 'debit')), 2),
+            'total_credit' => round(array_sum(array_column($ledgerEntries, 'credit')), 2),
         ];
     }
 
-    public function getBalanceSheet(string $asOfDate, string $currency = 'USD'): array
-    {
-        $assets = $this->getAccountsByCategory('asset', $asOfDate, $currency);
-        $liabilities = $this->getAccountsByCategory('liability', $asOfDate, $currency);
-        $equity = $this->getAccountsByCategory('equity', $asOfDate, $currency);
-        
-        return [
-            'assets' => $assets,
-            'liabilities' => $liabilities,
-            'equity' => $equity,
-            'total_assets' => array_sum(array_column($assets, 'amount')),
-            'total_liabilities_equity' => array_sum(array_column($liabilities, 'amount')) + array_sum(array_column($equity, 'amount')),
-        ];
-    }
-
-    private function getAccountBalance(string $accountCode, string $asOfDate = null, string $currency = 'USD'): float
+    /**
+     * Compute balance as of a date for an account.
+     */
+    public function getAccountBalance(string $accountCode, ?string $asOfDate = null, string $currency = 'PKR'): float
     {
         $currentDomain = $this->getCurrentDomain();
-        
+        $accountUuids = DomainLedgerAccount::getAccountUuidsForDomain($currentDomain->domainUuid);
+
         $account = LedgerAccount::where('code', $accountCode)
-            ->where('domainUuid', $currentDomain->domainUuid)
+            ->whereIn('ledgerUuid', $accountUuids)
             ->first();
+
         if (!$account) {
-            return 0;
+            return 0.0;
         }
-        
-        // Simplified balance calculation
-        // In reality, we should query JournalDetails joined with JournalEntries
-        // This is a placeholder logic based on the user's existing service
-        // We need to actually implement the query here or it will return 0.
-        
-        $query = JournalEntryModel::where('currency', $currency);
+
+        $query = DB::table('journal_details')
+            ->join('journal_entries', 'journal_details.journalEntryId', '=', 'journal_entries.journalEntryId')
+            ->join('domain_journal_entries', 'journal_entries.journalEntryId', '=', 'domain_journal_entries.journalEntryId')
+            ->where('domain_journal_entries.domainUuid', $currentDomain->domainUuid)
+            ->where('journal_entries.currency', $currency)
+            ->where('journal_details.ledgerUuid', $account->ledgerUuid);
+
         if ($asOfDate) {
-            $query->where('transDate', '<=', $asOfDate); // Note: field is transDate in Ledger
+            // Include through the end of the specified date
+            $query->where('journal_entries.transDate', '<=', Carbon::parse($asOfDate)->endOfDay());
         }
-        
-        // This requires joining with details.
-        // Let's try to do a real query.
-        
-        $balance = \DB::table('ledger_journal_details')
-            ->join('ledger_entries', 'ledger_journal_details.journalEntryId', '=', 'ledger_entries.journalEntryId')
-            ->where('ledger_entries.currency', $currency)
-            ->where('ledger_journal_details.ledgerUuid', $account->ledgerUuid)
-            ->when($asOfDate, function ($q) use ($asOfDate) {
-                return $q->where('ledger_entries.transDate', '<=', $asOfDate);
-            })
-            ->sum('ledger_journal_details.amount'); // Assuming amount is signed
-            
-        return $balance ?? 0;
+
+        return (float)($query->sum('journal_details.amount') ?? 0.0);
     }
 
-    private function getAccountBalanceForPeriod(string $accountCode, string $fromDate, string $toDate, string $currency = 'USD'): float
+    /**
+     * Compute net balance movement in an account over a specific date range.
+     */
+    public function getAccountBalanceForPeriod(string $accountCode, string $fromDate, string $toDate, string $currency = 'PKR'): float
     {
         $currentDomain = $this->getCurrentDomain();
-        
+        $accountUuids = DomainLedgerAccount::getAccountUuidsForDomain($currentDomain->domainUuid);
+
         $account = LedgerAccount::where('code', $accountCode)
-            ->where('domainUuid', $currentDomain->domainUuid)
+            ->whereIn('ledgerUuid', $accountUuids)
             ->first();
+
         if (!$account) {
-            return 0;
+            return 0.0;
         }
 
-        $balance = \DB::table('ledger_journal_details')
-            ->join('ledger_entries', 'ledger_journal_details.journalEntryId', '=', 'ledger_entries.journalEntryId')
-            ->where('ledger_entries.currency', $currency)
-            ->where('ledger_journal_details.ledgerUuid', $account->ledgerUuid)
-            ->whereBetween('ledger_entries.transDate', [$fromDate, $toDate])
-            ->sum('ledger_journal_details.amount');
-            
-        return $balance ?? 0;
-    }
-
-    private function getAccountsByCategory(string $category, string $asOfDate, string $currency = 'USD'): array
-    {
-        $currentDomain = $this->getCurrentDomain();
-        
-        $accounts = LedgerAccount::where('category', $category)
-            ->where('domainUuid', $currentDomain->domainUuid)
-            ->get();
-        $result = [];
-        
-        foreach ($accounts as $account) {
-            $balance = $this->getAccountBalance($account->code, $asOfDate, $currency);
-            if ($balance != 0) {
-                $result[] = [
-                    'account_name' => $account->names->first()->name ?? $account->code,
-                    'amount' => abs($balance),
-                ];
-            }
-        }
-        
-        return $result;
+        return (float)(DB::table('journal_details')
+            ->join('journal_entries', 'journal_details.journalEntryId', '=', 'journal_entries.journalEntryId')
+            ->join('domain_journal_entries', 'journal_entries.journalEntryId', '=', 'domain_journal_entries.journalEntryId')
+            ->where('domain_journal_entries.domainUuid', $currentDomain->domainUuid)
+            ->where('journal_entries.currency', $currency)
+            ->where('journal_details.ledgerUuid', $account->ledgerUuid)
+            ->where('journal_entries.transDate', '>=', Carbon::parse($fromDate)->startOfDay())
+            ->where('journal_entries.transDate', '<=', Carbon::parse($toDate)->endOfDay())
+            ->sum('journal_details.amount') ?? 0.0);
     }
 }

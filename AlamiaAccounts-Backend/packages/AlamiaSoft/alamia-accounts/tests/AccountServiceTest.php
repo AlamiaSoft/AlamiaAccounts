@@ -16,33 +16,35 @@ class AccountServiceTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        $this->seed(\AlamiaSoft\AlamiaAccounts\Database\Seeders\LedgerInitializationSeeder::class);
         $this->accountService = new AccountService();
     }
 
     public function test_can_create_account()
     {
         $account = $this->accountService->createAccount([
-            'code' => 'CASH001',
-            'name' => 'Cash in Hand',
+            'code' => 'TEST_ACC_01',
+            'name' => 'Test Account One',
             'debit' => true,
         ]);
 
         $this->assertInstanceOf(LedgerAccount::class, $account);
-        $this->assertEquals('CASH001', $account->code);
+        $this->assertEquals('TEST_ACC_01', $account->code);
     }
 
     public function test_can_create_account_with_parent()
     {
         $parent = $this->accountService->createAccount([
-            'code' => 'ASSETS',
-            'name' => 'Assets',
+            'code' => 'TEST_GRP',
+            'name' => 'Test Group Category',
+            'category' => true,
             'debit' => true,
         ]);
 
         $child = $this->accountService->createAccount([
-            'code' => 'CASH',
-            'name' => 'Cash',
-            'parent_code' => 'ASSETS',
+            'code' => 'TEST_SUB',
+            'name' => 'Test Sub Account',
+            'parent_code' => 'TEST_GRP',
             'debit' => true,
         ]);
 
@@ -51,43 +53,31 @@ class AccountServiceTest extends TestCase
 
     public function test_can_get_chart_of_accounts()
     {
-        $this->accountService->createAccount([
-            'code' => 'ASSETS',
-            'name' => 'Assets',
-            'debit' => true,
-        ]);
-
-        $this->accountService->createAccount([
-            'code' => 'LIABILITIES',
-            'name' => 'Liabilities',
-            'debit' => false,
-        ]);
-
         $accounts = $this->accountService->getChartOfAccounts();
         
-        $this->assertGreaterThanOrEqual(2, $accounts->count());
+        $this->assertGreaterThanOrEqual(5, $accounts->count());
     }
 
     public function test_can_update_account()
     {
         $this->accountService->createAccount([
-            'code' => 'CASH001',
-            'name' => 'Cash in Hand',
+            'code' => 'UPDATE_ME',
+            'name' => 'Before Update Name',
             'debit' => true,
         ]);
 
-        $result = $this->accountService->updateAccount('CASH001', [
-            'name' => 'Cash Updated',
-        ]);
+        $updated = $this->accountService->updateAccount('UPDATE_ME', 'After Update Name');
 
-        $this->assertTrue($result);
+        $this->assertInstanceOf(LedgerAccount::class, $updated);
+        $fetched = $this->accountService->getAccount('UPDATE_ME');
+        $this->assertEquals('After Update Name', $fetched['name']);
     }
 
     public function test_can_delete_account()
     {
         $this->accountService->createAccount([
             'code' => 'TEMP001',
-            'name' => 'Temporary Account',
+            'name' => 'Temporary Account To Delete',
             'debit' => true,
         ]);
 

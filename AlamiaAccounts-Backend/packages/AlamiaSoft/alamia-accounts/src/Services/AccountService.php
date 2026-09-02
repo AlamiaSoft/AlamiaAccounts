@@ -127,10 +127,18 @@ class AccountService
                 $query->where('parentUuid', $parent->ledgerUuid);
             }
         } else {
-            $query->whereNull('parentUuid');
+            $root = LedgerAccount::where('code', '')->first();
+            if ($root) {
+                $query->where(function ($q) use ($root) {
+                    $q->whereNull('parentUuid')
+                      ->orWhere('parentUuid', $root->ledgerUuid);
+                });
+            } else {
+                $query->whereNull('parentUuid');
+            }
         }
         
-        return $query->orderBy('code')->get();
+        return $query->with('names')->orderBy('code')->get();
     }
 
     /**
@@ -146,6 +154,7 @@ class AccountService
         
         return LedgerAccount::where('code', $code)
             ->whereIn('ledgerUuid', $accountUuids)
+            ->with('names')
             ->first();
     }
 
@@ -164,5 +173,76 @@ class AccountService
             ->with('names')
             ->orderBy('code')
             ->get();
+    }
+
+    /**
+     * Update an account.
+     */
+    public function updateAccount(string $code, string $name, ?string $parentCode = null, ?string $category = null): LedgerAccount
+    {
+        $account = $this->getAccountByCode($code);
+        if (!$account) {
+            throw new Exception("Account {$code} not found in current domain");
+        }
+
+        $message = new Account();
+        $message->code = $code;
+        $message->revision = $account->revisionHash;
+        $message->names = [Name::fromArray(['name' => $name, 'language' => 'en'])];
+        if ($parentCode !== null) {
+            $message->parent = new EntityRef($parentCode);
+        }
+        if ($category !== null) {
+            $message->category = ($category === 'true' || $category === true || $category === 1);
+        }
+
+        return $this->accountController->update($message);
+    }
+
+    /**
+     * Delete an account.
+     */
+    public function deleteAccount(string $code): bool
+    {
+        $account = $this->getAccountByCode($code);
+        if (!$account) {
+            throw new Exception("Account {$code} not found in current domain");
+        }
+
+        $currentDomain = $this->getCurrentDomain();
+
+        // Delete from pivot
+        DomainLedgerAccount::where('domainUuid', $currentDomain->domainUuid)
+            ->where('ledgerUuid', $account->ledgerUuid)
+            ->delete();
+
+        // Delete via Abivia
+        $message = new Account();
+        $message->code = $code;
+        $message->revision = $account->revisionHash;
+        $this->accountController->delete($message);
+
+        return true;
+    }
+
+    /**
+     * Get single account formatted for API.
+     */
+    public function getAccount(string $code): ?array
+    {
+        $account = $this->getAccountByCode($code);
+        if (!$account) {
+            return null;
+        }
+
+        return [
+            'uuid' => $account->ledgerUuid,
+            'code' => $account->code,
+            'name' => $account->names->first()->name ?? $account->code,
+            'category' => (bool)$account->category,
+            'debit' => (bool)$account->debit,
+            'credit' => (bool)$account->credit,
+            'parent_uuid' => $account->parentUuid,
+        ];
     }
 }

@@ -13,7 +13,8 @@
         "abivia/ledger": "^1.11",
         "alamiasoft/alamia-accounts": "@dev",
         "darkaonline/l5-swagger": "^9.0",
-        "laravel/framework": "^11.31",
+        "laravel/ai": "1.x-dev || ^0.1",
+        "laravel/framework": "^12.0",
         "laravel/sanctum": "^4.2",
         "laravel/tinker": "^2.9",
         "spatie/laravel-permission": "^6.21"
@@ -93,6 +94,12 @@
         "allow-plugins": {
             "pestphp/pest-plugin": true,
             "php-http/discovery": true
+        },
+        "audit": {
+            "block-insecure": false
+        },
+        "platform": {
+            "php": "8.3.30"
         }
     },
     "minimum-stability": "stable",

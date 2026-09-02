@@ -1,0 +1,44 @@
+services:
+  backend:
+    build:
+      context: ./AlamiaAccounts-Backend
+      dockerfile: Dockerfile
+    container_name: alamia-accounts-backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - APP_NAME=AlamiaAccounts
+      - APP_ENV=production
+      - APP_DEBUG=false
+      - APP_URL=http://localhost:8000
+      - DB_CONNECTION=sqlite
+      - DB_DATABASE=/var/www/database/database.sqlite
+      - CACHE_STORE=file
+      - SESSION_DRIVER=file
+      - QUEUE_CONNECTION=sync
+    volumes:
+      - ./AlamiaAccounts-Backend/database:/var/www/database
+      - ./AlamiaAccounts-Backend/storage:/var/www/storage
+    networks:
+      - alamia-network
+
+  frontend:
+    build:
+      context: ./AlamiaAccounts-Frontend
+      dockerfile: Dockerfile
+    container_name: alamia-accounts-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - NEXT_PUBLIC_API_URL=http://localhost:8000/api/v1
+    depends_on:
+      - backend
+    networks:
+      - alamia-network
+
+networks:
+  alamia-network:
+    driver: bridge

@@ -18,21 +18,9 @@ class VoucherServiceTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        $this->seed(\AlamiaSoft\AlamiaAccounts\Database\Seeders\LedgerInitializationSeeder::class);
         $this->voucherService = new VoucherService();
         $this->accountService = new AccountService();
-        
-        // Create test accounts
-        $this->accountService->createAccount([
-            'code' => 'CASH',
-            'name' => 'Cash',
-            'debit' => true,
-        ]);
-        
-        $this->accountService->createAccount([
-            'code' => 'SALES',
-            'name' => 'Sales',
-            'debit' => false,
-        ]);
     }
 
     public function test_can_create_journal_entry()
@@ -40,15 +28,15 @@ class VoucherServiceTest extends TestCase
         $entry = $this->voucherService->createJournalEntry([
             'date' => '2025-01-01',
             'description' => 'Test Entry',
-            'currency' => 'USD',
+            'currency' => 'PKR',
             'entries' => [
                 [
-                    'account_code' => 'CASH',
+                    'account_code' => '1110',
                     'amount' => 1000,
                     'type' => 'debit',
                 ],
                 [
-                    'account_code' => 'SALES',
+                    'account_code' => '3100',
                     'amount' => 1000,
                     'type' => 'credit',
                 ],
@@ -60,15 +48,9 @@ class VoucherServiceTest extends TestCase
 
     public function test_can_create_sales_voucher()
     {
-        $this->accountService->createAccount([
-            'code' => 'CUSTOMER001',
-            'name' => 'Customer Account',
-            'debit' => true,
-        ]);
-
         $voucher = $this->voucherService->createSalesVoucher([
-            'customer_account_code' => 'CUSTOMER001',
-            'sales_account_code' => 'SALES',
+            'customer_account_code' => '1200',
+            'sales_account_code' => '3100',
             'total_amount' => 1000,
             'net_amount' => 1000,
             'date' => '2025-01-01',
@@ -80,21 +62,9 @@ class VoucherServiceTest extends TestCase
 
     public function test_can_create_payment_voucher()
     {
-        $this->accountService->createAccount([
-            'code' => 'BANK',
-            'name' => 'Bank Account',
-            'debit' => true,
-        ]);
-
-        $this->accountService->createAccount([
-            'code' => 'EXPENSE',
-            'name' => 'Expense',
-            'debit' => true,
-        ]);
-
         $voucher = $this->voucherService->createPaymentVoucher([
-            'payee_account_code' => 'EXPENSE',
-            'bank_account_code' => 'BANK',
+            'payee_account_code' => '4200',
+            'bank_account_code' => '1120',
             'amount' => 500,
             'date' => '2025-01-01',
             'voucher_number' => 'PV001',

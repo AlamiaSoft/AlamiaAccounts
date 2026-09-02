@@ -4,10 +4,13 @@ namespace AlamiaSoft\AlamiaAccounts\Services;
 
 use Abivia\Ledger\Http\Controllers\JournalEntryController;
 use Abivia\Ledger\Messages\Entry;
+use Abivia\Ledger\Messages\Detail;
+use Abivia\Ledger\Messages\EntityRef;
 use Abivia\Ledger\Models\JournalEntry as JournalEntryModel;
 use Abivia\Ledger\Models\LedgerDomain;
 use AlamiaSoft\AlamiaAccounts\Models\DomainJournalEntry;
 use AlamiaSoft\AlamiaAccounts\Models\DomainLedgerAccount;
+use Carbon\Carbon;
 use Illuminate\Support\Collection;
 use Exception;
 
@@ -63,32 +66,89 @@ class VoucherService
             $domain = $this->getCurrentDomain();
         }
 
+        $entries = $data['entries'] ?? $data['details'] ?? [];
+        if (empty($entries) || count($entries) < 2) {
+            throw new Exception('Voucher must contain at least two entries');
+        }
+
         // Verify all accounts belong to this domain
-        if (isset($data['entries'])) {
-            $accountCodes = array_column($data['entries'], 'account_code');
-            $accountUuids = DomainLedgerAccount::getAccountUuidsForDomain($domain->domainUuid);
-            
-            $validAccounts = \Abivia\Ledger\Models\LedgerAccount::whereIn('code', $accountCodes)
-                ->whereIn('ledgerUuid', $accountUuids)
-                ->count();
-            
-            if ($validAccounts !== count($accountCodes)) {
-                throw new Exception('One or more accounts do not belong to the current domain');
+        $accountCodes = [];
+        foreach ($entries as $item) {
+            $code = $item['account_code'] ?? $item['account'] ?? null;
+            if ($code) {
+                $accountCodes[] = $code;
             }
         }
 
+        $accountUuids = DomainLedgerAccount::getAccountUuidsForDomain($domain->domainUuid);
+        $validAccounts = \Abivia\Ledger\Models\LedgerAccount::whereIn('code', $accountCodes)
+            ->whereIn('ledgerUuid', $accountUuids)
+            ->count();
+
+        if ($validAccounts !== count($accountCodes)) {
+            throw new Exception('One or more accounts do not belong to the current domain');
+        }
+
         // Build Entry message
-        $message = Entry::fromArray($data);
-        
+        $message = new Entry();
+        $message->currency = $data['currency'] ?? $domain->currencyDefault ?? 'PKR';
+        $message->description = $data['description'] ?? 'Journal Voucher';
+        $message->domain = new EntityRef($domain->code);
+
+        // Transaction date handling
+        if (isset($data['transDate'])) {
+            $message->transDate = Carbon::parse($data['transDate']);
+        } elseif (isset($data['date'])) {
+            $message->transDate = Carbon::parse($data['date']);
+        } else {
+            $message->transDate = Carbon::now();
+        }
+
+        // Ensure date is not before ledger root initialization date
+        $rootAcc = \Abivia\Ledger\Models\LedgerAccount::where('code', '')->first();
+        if ($rootAcc && $message->transDate->lt($rootAcc->created_at)) {
+            $message->transDate = Carbon::now();
+        }
+
+        if (!empty($data['reference']) || !empty($data['voucher_number'])) {
+            $message->extra = json_encode([
+                'reference' => $data['reference'] ?? null,
+                'voucher_number' => $data['voucher_number'] ?? null,
+            ]);
+        }
+
+        $details = [];
+        foreach ($entries as $item) {
+            $accountCode = $item['account_code'] ?? $item['account'] ?? null;
+            $detail = new Detail();
+            $detail->account = new EntityRef($accountCode);
+
+            $rawAmount = (float)($item['amount'] ?? 0);
+            $isCredit = false;
+            if (isset($item['type'])) {
+                $isCredit = strtolower($item['type']) === 'credit';
+            } elseif (isset($item['credit']) && $item['credit']) {
+                $isCredit = true;
+            } elseif (isset($item['debit']) && !$item['debit']) {
+                $isCredit = true;
+            }
+
+            // In Abivia: debit is positive, credit is negative
+            $detail->amount = $isCredit ? (string) -abs($rawAmount) : (string) abs($rawAmount);
+            $details[] = $detail;
+        }
+
+        $message->details = $details;
+
         // Create entry via Abivia controller
         $journalEntry = $this->journalController->add($message);
-        
+
         // Associate with domain via pivot table
         DomainJournalEntry::create([
             'domainUuid' => $domain->domainUuid,
             'journalEntryId' => $journalEntry->journalEntryId,
         ]);
-        
+
         return $journalEntry;
     }
 
@@ -104,7 +164,7 @@ class VoucherService
         $entryIds = DomainJournalEntry::getEntryIdsForDomain($currentDomain->domainUuid);
         
         // Query entries that belong to this domain
-        $query = JournalEntryModel::whereIn('journalEntryId', $entryIds);
+        $query = JournalEntryModel::whereIn('journalEntryId', $entryIds)->with('entries');
         
         if (isset($filters['date_from'])) {
             $query->where('transDate', '>=', $filters['date_from']);
@@ -115,10 +175,25 @@ class VoucherService
         }
         
         if (isset($filters['reference'])) {
-            $query->where('reference', 'like', '%' . $filters['reference'] . '%');
+            $query->where('extra', 'like', '%' . $filters['reference'] . '%');
         }
         
         return $query->orderBy('transDate', 'desc')->get();
+    }
+
+    /**
+     * Helper for controller voucher listing
+     */
+    public function getVouchers(?string $fromDate = null, ?string $toDate = null): Collection
+    {
+        $filters = [];
+        if ($fromDate) {
+            $filters['date_from'] = $fromDate;
+        }
+        if ($toDate) {
+            $filters['date_to'] = $toDate;
+        }
+        return $this->getJournalEntries($filters);
     }
 
     /**
@@ -133,11 +208,9 @@ class VoucherService
             return null;
         }
         
-        return JournalEntryModel::find($journalEntryId);
+        return JournalEntryModel::with('entries')->find($journalEntryId);
     }
 
-    // Voucher type-specific methods remain the same but use createJournalEntry
-    
     public function createSalesVoucher(array $data): JournalEntryModel
     {
         $entries = [
@@ -167,7 +240,7 @@ class VoucherService
         return $this->createJournalEntry([
             'description' => 'Sales Voucher - ' . ($data['voucher_number'] ?? ''),
             'reference' => $data['voucher_number'] ?? null,
-            'transDate' => $data['date'],
+            'date' => $data['date'] ?? null,
             'currency' => $data['currency'] ?? 'PKR',
             'entries' => $entries,
         ]);
@@ -202,7 +275,7 @@ class VoucherService
         return $this->createJournalEntry([
             'description' => 'Purchase Voucher - ' . ($data['voucher_number'] ?? ''),
             'reference' => $data['voucher_number'] ?? null,
-            'transDate' => $data['date'],
+            'date' => $data['date'] ?? null,
             'currency' => $data['currency'] ?? 'PKR',
             'entries' => $entries,
         ]);
@@ -213,7 +286,7 @@ class VoucherService
         return $this->createJournalEntry([
             'description' => 'Payment Voucher - ' . ($data['voucher_number'] ?? ''),
             'reference' => $data['voucher_number'] ?? null,
-            'transDate' => $data['date'],
+            'date' => $data['date'] ?? null,
             'currency' => $data['currency'] ?? 'PKR',
             'entries' => [
                 [
@@ -237,7 +310,7 @@ class VoucherService
         return $this->createJournalEntry([
             'description' => 'Receipt Voucher - ' . ($data['voucher_number'] ?? ''),
             'reference' => $data['voucher_number'] ?? null,
-            'transDate' => $data['date'],
+            'date' => $data['date'] ?? null,
             'currency' => $data['currency'] ?? 'PKR',
             'entries' => [
                 [

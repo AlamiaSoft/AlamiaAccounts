@@ -1,0 +1,17 @@
+{
+  "name": "alamia-accounts-e2e",
+  "version": "1.0.0",
+  "description": "End-to-end automated testing suite for Alamia Accounts",
+  "main": "run-all.js",
+  "scripts": {
+    "test": "node run-all.js",
+    "test:auth": "node 01-auth-navigation.test.js",
+    "test:coa": "node 02-chart-of-accounts.test.js",
+    "test:vouchers": "node 03-vouchers-double-entry.test.js",
+    "test:reports": "node 04-financial-reports.test.js",
+    "test:isolation": "node 05-multi-company-isolation.test.js"
+  },
+  "dependencies": {
+    "playwright": "^1.50.0"
+  }
+}

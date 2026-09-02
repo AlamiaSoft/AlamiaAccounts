@@ -262,8 +262,8 @@ export default function Cashbook() {
                 <TableCell />
                 <TableCell className="text-right font-medium">Rs.0.00</TableCell>
               </TableRow>
-              {transactions.map((transaction) => (
-                <TableRow key={transaction.id}>
+              {transactions.map((transaction, i) => (
+                <TableRow key={transaction.id || transaction.voucherNo || `tx-${i}`}>
                   <TableCell>{new Date(transaction.date).toLocaleDateString("en-IN")}</TableCell>
                   <TableCell className="font-mono text-sm">{transaction.voucherNo}</TableCell>
                   <TableCell>

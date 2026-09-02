@@ -48,11 +48,13 @@ class CompanyController extends Controller
         return response()->json([
             'data' => $companies->map(function($company) {
                 $extra = is_string($company->extra) ? json_decode($company->extra, true) : $company->extra;
+                $name = $extra['name'] ?? ($company->code === 'MAIN' ? 'Main Company' : $company->code);
                 return [
                     'id' => $company->code,
-                    'name' => $extra['name'] ?? null,
+                    'code' => $company->code,
+                    'name' => $name,
                     'industry' => $extra['industry'] ?? 'General',
-                    'currency' => $company->currencyDefault,
+                    'currency' => $company->currencyDefault ?? 'PKR',
                 ];
             })
         ]);
@@ -88,13 +90,15 @@ class CompanyController extends Controller
         }
 
         $extra = is_string($company->extra) ? json_decode($company->extra, true) : $company->extra;
+        $name = $extra['name'] ?? ($company->code === 'MAIN' ? 'Main Company' : $company->code);
         
         return response()->json([
             'data' => [
                 'id' => $company->code,
-                'name' => $extra['name'] ?? null,
+                'code' => $company->code,
+                'name' => $name,
                 'industry' => $extra['industry'] ?? 'General',
-                'currency' => $company->currencyDefault,
+                'currency' => $company->currencyDefault ?? 'PKR',
             ]
         ]);
     }
@@ -306,13 +310,15 @@ class CompanyController extends Controller
         }
         
         $extra = is_string($company->extra) ? json_decode($company->extra, true) : $company->extra;
+        $name = $extra['name'] ?? ($company->code === 'MAIN' ? 'Main Company' : $company->code);
         
         return response()->json([
             'data' => [
                 'id' => $company->code,
-                'name' => $extra['name'] ?? null,
+                'code' => $company->code,
+                'name' => $name,
                 'industry' => $extra['industry'] ?? 'General',
-                'currency' => $company->currencyDefault,
+                'currency' => $company->currencyDefault ?? 'PKR',
             ]
         ]);
     }

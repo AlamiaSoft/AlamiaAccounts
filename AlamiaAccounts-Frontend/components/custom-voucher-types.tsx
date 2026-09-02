@@ -1071,8 +1071,8 @@ export default function CustomVoucherTypes() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {voucherTypes.map((voucherType) => (
-                <TableRow key={voucherType.id}>
+              {voucherTypes.map((voucherType, i) => (
+                <TableRow key={voucherType.id || voucherType.code || `vt-${i}`}>
                   <TableCell className="font-medium">{voucherType.name}</TableCell>
                   <TableCell>
                     <Badge variant="outline">{voucherType.prefix}</Badge>

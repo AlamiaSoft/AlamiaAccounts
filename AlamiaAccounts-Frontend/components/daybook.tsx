@@ -229,8 +229,8 @@ export default function DayBook() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {entries.map((entry) => (
-                <TableRow key={entry.id}>
+              {entries.map((entry, i) => (
+                <TableRow key={entry.id || entry.voucherNo || `entry-${i}`}>
                   <TableCell className="font-mono text-sm">{entry.voucherNo}</TableCell>
                   <TableCell>
                     <Badge variant="outline">

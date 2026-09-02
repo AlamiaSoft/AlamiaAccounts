@@ -45,9 +45,30 @@ export default function Home() {
     isLoading: isLoadingCompanies
   } = useCompanies()
 
-  // Map API data to component expected format (using code as id)
-  const companies = useMemo(() => (apiCompanies || []).map((c: any) => ({ ...c, id: c.code })), [apiCompanies])
-  const currentCompany = useMemo(() => apiCurrentCompany ? { ...apiCurrentCompany, id: apiCurrentCompany.code } : null, [apiCurrentCompany])
+  // Map API data to component expected format (using code or id)
+  const companies = useMemo(
+    () => (apiCompanies || []).map((c: any, index: number) => ({
+      ...c,
+      id: c.code || c.id || `company-${index}`,
+      code: c.code || c.id || `company-${index}`,
+      name: c.name || c.code || c.id || "Main Company",
+      industry: c.industry || "General",
+      currency: c.currency || "PKR",
+    })),
+    [apiCompanies]
+  )
+
+  const currentCompany = useMemo(() => {
+    if (!apiCurrentCompany) return null
+    return {
+      ...apiCurrentCompany,
+      id: apiCurrentCompany.code || apiCurrentCompany.id || "MAIN",
+      code: apiCurrentCompany.code || apiCurrentCompany.id || "MAIN",
+      name: apiCurrentCompany.name || apiCurrentCompany.code || "Main Company",
+      industry: apiCurrentCompany.industry || "General",
+      currency: apiCurrentCompany.currency || "PKR",
+    }
+  }, [apiCurrentCompany])
 
   const [printSettings, setPrintSettings] = useState<PrintSettings>({
     companyName: currentCompany?.name || "Acme Corporation",

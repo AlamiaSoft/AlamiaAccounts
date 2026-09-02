@@ -93,8 +93,8 @@ export default function CompanyManagement({
               </TableRow>
             </TableHeader>
             <TableBody>
-              {companies.map((company) => (
-                <TableRow key={company.id}>
+              {companies.map((company, i) => (
+                <TableRow key={company.id || company.code || `company-${i}`}>
                   <TableCell className="font-medium">
                     <div className="flex items-center gap-2">
                       <Building2 className="w-4 h-4 text-muted-foreground" />

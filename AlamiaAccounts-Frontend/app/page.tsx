@@ -30,6 +30,20 @@ function HomeContent() {
   const searchParams = useSearchParams()
   const pageFromUrl = searchParams.get("page") || "dashboard"
   const [currentPage, setCurrentPage] = useState<string>(pageFromUrl)
+  const [isAuthChecked, setIsAuthChecked] = useState(false)
+
+  // Auth guard — redirect to /login immediately if no token is stored.
+  // This runs before any API calls so unauthenticated users never see the UI.
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const token = localStorage.getItem("auth_token")
+      if (!token) {
+        window.location.href = "/login"
+      } else {
+        setIsAuthChecked(true)
+      }
+    }
+  }, [])
 
   // Sync if URL search params change externally (such as browser back/forward)
   useEffect(() => {
@@ -232,6 +246,14 @@ function HomeContent() {
         }
       }
     })
+  }
+
+  if (!isAuthChecked) {
+    return (
+      <div className="flex items-center justify-center h-screen">
+        <Loader2 className="w-8 h-8 animate-spin" />
+      </div>
+    )
   }
 
   if (isLoadingCompanies && !currentCompany) {

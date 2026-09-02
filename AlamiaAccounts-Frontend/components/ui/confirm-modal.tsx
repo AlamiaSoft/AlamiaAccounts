@@ -1,6 +1,5 @@
-﻿"use client"
-
-import React, { useEffect, useRef } from "react"
+import React, { useEffect, useRef, useState } from "react"
+import { createPortal } from "react-dom"
 import { AlertTriangle, Trash2, HelpCircle, Scale, Loader2, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
@@ -31,6 +30,11 @@ export default function ConfirmModal({
   details,
 }: ConfirmModalProps) {
   const modalRef = useRef<HTMLDivElement>(null)
+  const [mounted, setMounted] = useState(false)
+
+  useEffect(() => {
+    setMounted(true)
+  }, [])
 
   // Close on Escape key
   useEffect(() => {
@@ -46,7 +50,7 @@ export default function ConfirmModal({
     return () => window.removeEventListener("keydown", handleKeyDown)
   }, [isOpen, isLoading, onClose, onConfirm])
 
-  if (!isOpen) return null
+  if (!isOpen || !mounted) return null
 
   const getVariantStyles = () => {
     switch (variant) {
@@ -80,11 +84,11 @@ export default function ConfirmModal({
 
   const styles = getVariantStyles()
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+  return createPortal(
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
       {/* Backdrop */}
       <div
-        className="fixed inset-0 bg-black/60 backdrop-blur-xs transition-opacity animate-in fade-in-0 duration-200"
+        className="fixed inset-0 bg-black/70 backdrop-blur-xs transition-opacity animate-in fade-in-0 duration-200"
         onClick={() => !isLoading && onClose()}
       />
 
@@ -92,7 +96,7 @@ export default function ConfirmModal({
       <div
         ref={modalRef}
         className={cn(
-          "relative z-50 w-full max-w-md bg-card text-card-foreground border rounded-xl shadow-2xl overflow-hidden p-6 animate-in fade-in-0 zoom-in-95 duration-200",
+          "relative z-[110] w-full max-w-md bg-card text-card-foreground border rounded-xl shadow-2xl overflow-hidden p-6 animate-in fade-in-0 zoom-in-95 duration-200",
           styles.border
         )}
       >
@@ -142,6 +146,7 @@ export default function ConfirmModal({
           </Button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }

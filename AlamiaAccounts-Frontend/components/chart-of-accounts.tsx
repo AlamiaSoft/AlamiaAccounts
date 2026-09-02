@@ -141,6 +141,7 @@ export default function ChartOfAccounts() {
   const handleAddAccount = async (accountData: any) => {
     // If setting an opening balance, confirm impact with user first
     if (accountData.opening_balance && accountData.opening_balance > 0) {
+      setShowAccountDialog(false)
       setOpeningBalancePrompt({ accountData, isEdit: false })
       return
     }
@@ -151,6 +152,7 @@ export default function ChartOfAccounts() {
     // If setting an opening balance, confirm impact with user first
     const prevBalance = (editingAccount as any)?.balance || 0
     if (accountData.opening_balance && accountData.opening_balance > 0 && accountData.opening_balance !== prevBalance) {
+      setShowAccountDialog(false)
       setOpeningBalancePrompt({ accountData, isEdit: true })
       return
     }
@@ -411,7 +413,10 @@ export default function ChartOfAccounts() {
       {openingBalancePrompt && (
         <ConfirmModal
           isOpen={true}
-          onClose={() => setOpeningBalancePrompt(null)}
+          onClose={() => {
+            setOpeningBalancePrompt(null)
+            setShowAccountDialog(true)
+          }}
           onConfirm={() =>
             executeSaveAccount(
               openingBalancePrompt.accountData,

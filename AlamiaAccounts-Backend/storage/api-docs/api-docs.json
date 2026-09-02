@@ -1,0 +1,1111 @@
+{
+    "openapi": "3.0.0",
+    "info": {
+        "title": "AlamiaAccounts API",
+        "description": "API testing",
+        "version": "1.0.0"
+    },
+    "paths": {
+        "/accounts": {
+            "get": {
+                "tags": [
+                    "Accounts"
+                ],
+                "summary": "Get all accounts",
+                "operationId": "8b7473212dd7c722dbed0cafc190b012",
+                "responses": {
+                    "200": {
+                        "description": "Successful operation",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "data": {
+                                            "type": "array",
+                                            "items": {
+                                                "type": "object"
+                                            }
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            },
+            "post": {
+                "tags": [
+                    "Accounts"
+                ],
+                "summary": "Create a new account",
+                "operationId": "43a7677c6ef120b07cc8b0dd4b16b1cd",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "required": [
+                                    "code",
+                                    "name"
+                                ],
+                                "properties": {
+                                    "code": {
+                                        "type": "string",
+                                        "example": "1000"
+                                    },
+                                    "name": {
+                                        "type": "string",
+                                        "example": "Cash"
+                                    },
+                                    "parent_code": {
+                                        "type": "string",
+                                        "example": "1000"
+                                    },
+                                    "category": {
+                                        "type": "boolean",
+                                        "example": true
+                                    },
+                                    "debit": {
+                                        "type": "boolean",
+                                        "example": true
+                                    },
+                                    "credit": {
+                                        "type": "boolean",
+                                        "example": false
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": {
+                        "description": "Account created successfully"
+                    },
+                    "400": {
+                        "description": "Bad Request"
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            }
+        },
+        "/accounts/{code}": {
+            "get": {
+                "tags": [
+                    "Accounts"
+                ],
+                "summary": "Get account by code",
+                "operationId": "cc4c8138330afa3004f51647379330b9",
+                "parameters": [
+                    {
+                        "name": "code",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful operation"
+                    },
+                    "404": {
+                        "description": "Account not found"
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            },
+            "put": {
+                "tags": [
+                    "Accounts"
+                ],
+                "summary": "Update account",
+                "operationId": "2111a57566a1cfbcc893f6c33064a842",
+                "parameters": [
+                    {
+                        "name": "code",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "properties": {
+                                    "name": {
+                                        "type": "string",
+                                        "example": "Cash Updated"
+                                    },
+                                    "parent_code": {
+                                        "type": "string",
+                                        "example": "1000"
+                                    },
+                                    "category": {
+                                        "type": "string",
+                                        "example": "asset"
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Account updated successfully"
+                    },
+                    "400": {
+                        "description": "Bad Request"
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            },
+            "delete": {
+                "tags": [
+                    "Accounts"
+                ],
+                "summary": "Delete account",
+                "operationId": "63d9463062d754f62755cf84db960d56",
+                "parameters": [
+                    {
+                        "name": "code",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "Account deleted successfully"
+                    },
+                    "404": {
+                        "description": "Account not found"
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            }
+        },
+        "/login": {
+            "post": {
+                "tags": [
+                    "Auth"
+                ],
+                "summary": "Login to the application",
+                "operationId": "4fdb55272a88933de3e77e333dffaeb8",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "required": [
+                                    "email",
+                                    "password"
+                                ],
+                                "properties": {
+                                    "email": {
+                                        "type": "string",
+                                        "format": "email",
+                                        "example": "admin@admin.com"
+                                    },
+                                    "password": {
+                                        "type": "string",
+                                        "example": "password"
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful login",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "user": {
+                                            "type": "object"
+                                        },
+                                        "token": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Invalid credentials"
+                    }
+                }
+            }
+        },
+        "/logout": {
+            "post": {
+                "tags": [
+                    "Auth"
+                ],
+                "summary": "Logout from the application",
+                "operationId": "773afee8532db6dd3809f29291cd4794",
+                "responses": {
+                    "200": {
+                        "description": "Logged out successfully"
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            }
+        },
+        "/me": {
+            "get": {
+                "tags": [
+                    "Auth"
+                ],
+                "summary": "Get current user details",
+                "operationId": "130146efbfe7607b24a37cb2b94379f0",
+                "responses": {
+                    "200": {
+                        "description": "Successful operation"
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            }
+        },
+        "/companies": {
+            "get": {
+                "tags": [
+                    "Companies"
+                ],
+                "summary": "Get all companies",
+                "operationId": "3da78f5f344ed7d6004d63537a662220",
+                "responses": {
+                    "200": {
+                        "description": "Successful operation",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "data": {
+                                            "type": "array",
+                                            "items": {
+                                                "properties": {
+                                                    "id": {
+                                                        "type": "string",
+                                                        "example": "COMP1"
+                                                    },
+                                                    "name": {
+                                                        "type": "string",
+                                                        "example": "Company One"
+                                                    },
+                                                    "industry": {
+                                                        "type": "string",
+                                                        "example": "General"
+                                                    },
+                                                    "currency": {
+                                                        "type": "string",
+                                                        "example": "USD"
+                                                    }
+                                                },
+                                                "type": "object"
+                                            }
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            },
+            "post": {
+                "tags": [
+                    "Companies"
+                ],
+                "summary": "Create a new company",
+                "operationId": "da9e9a653ddfa3aa276a6dd441ce5baa",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "required": [
+                                    "name",
+                                    "code",
+                                    "industry",
+                                    "currency"
+                                ],
+                                "properties": {
+                                    "name": {
+                                        "type": "string",
+                                        "example": "New Company Name"
+                                    },
+                                    "code": {
+                                        "type": "string",
+                                        "example": "NEWCO"
+                                    },
+                                    "industry": {
+                                        "type": "string",
+                                        "example": "Technology"
+                                    },
+                                    "currency": {
+                                        "type": "string",
+                                        "example": "USD"
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": {
+                        "description": "Company created successfully",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "data": {
+                                            "properties": {
+                                                "id": {
+                                                    "type": "string",
+                                                    "example": "NEWCO"
+                                                },
+                                                "name": {
+                                                    "type": "string",
+                                                    "example": "New Company Name"
+                                                },
+                                                "industry": {
+                                                    "type": "string",
+                                                    "example": "Technology"
+                                                },
+                                                "currency": {
+                                                    "type": "string",
+                                                    "example": "USD"
+                                                }
+                                            },
+                                            "type": "object"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    },
+                    "500": {
+                        "description": "Failed to create company"
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            }
+        },
+        "/companies/{code}": {
+            "get": {
+                "tags": [
+                    "Companies"
+                ],
+                "summary": "Get company details",
+                "operationId": "93c0816fc7a0ec66b8d59adb1ac892f2",
+                "parameters": [
+                    {
+                        "name": "code",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "example": "COMP1"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful operation",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "data": {
+                                            "properties": {
+                                                "id": {
+                                                    "type": "string",
+                                                    "example": "COMP1"
+                                                },
+                                                "name": {
+                                                    "type": "string",
+                                                    "example": "Company One"
+                                                },
+                                                "industry": {
+                                                    "type": "string",
+                                                    "example": "General"
+                                                },
+                                                "currency": {
+                                                    "type": "string",
+                                                    "example": "USD"
+                                                }
+                                            },
+                                            "type": "object"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Company not found"
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            },
+            "put": {
+                "tags": [
+                    "Companies"
+                ],
+                "summary": "Update an existing company",
+                "operationId": "7dc6dd45af248940abc7b2e0b6468527",
+                "parameters": [
+                    {
+                        "name": "code",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "example": "COMP1"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "required": [
+                                    "name",
+                                    "industry"
+                                ],
+                                "properties": {
+                                    "name": {
+                                        "type": "string",
+                                        "example": "Updated Company Name"
+                                    },
+                                    "industry": {
+                                        "type": "string",
+                                        "example": "Finance"
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Company updated successfully",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "data": {
+                                            "properties": {
+                                                "id": {
+                                                    "type": "string",
+                                                    "example": "COMP1"
+                                                },
+                                                "name": {
+                                                    "type": "string",
+                                                    "example": "Updated Company Name"
+                                                },
+                                                "industry": {
+                                                    "type": "string",
+                                                    "example": "Finance"
+                                                },
+                                                "currency": {
+                                                    "type": "string",
+                                                    "example": "USD"
+                                                }
+                                            },
+                                            "type": "object"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Company not found"
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            },
+            "delete": {
+                "tags": [
+                    "Companies"
+                ],
+                "summary": "Delete a company",
+                "operationId": "ec01f741366ad4f981597dfbf01e5040",
+                "parameters": [
+                    {
+                        "name": "code",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "example": "COMP1"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "Company deleted successfully"
+                    },
+                    "404": {
+                        "description": "Company not found"
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            }
+        },
+        "/companies/{code}/switch": {
+            "post": {
+                "tags": [
+                    "Companies"
+                ],
+                "summary": "Switch current company context",
+                "operationId": "5fab0508d0e7caf171561c8197ee81f0",
+                "parameters": [
+                    {
+                        "name": "code",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "example": "COMP1"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Company context switched",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Company switched successfully"
+                                        },
+                                        "current_company": {
+                                            "type": "string",
+                                            "example": "COMP1"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Company not found"
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            }
+        },
+        "/voucher-types": {
+            "get": {
+                "tags": [
+                    "Voucher Types"
+                ],
+                "summary": "Get all custom voucher types",
+                "operationId": "f30ab0fcfcc5000c5716325e6eeb65cd",
+                "responses": {
+                    "200": {
+                        "description": "Successful operation"
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            }
+        },
+        "/voucher-types/{id}": {
+            "get": {
+                "tags": [
+                    "Voucher Types"
+                ],
+                "summary": "Get a specific voucher type",
+                "operationId": "fc5be1a27a24949652868ec037e0bbc2",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful operation"
+                    },
+                    "404": {
+                        "description": "Voucher type not found"
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            }
+        },
+        "/reports/trial-balance": {
+            "get": {
+                "tags": [
+                    "Reports"
+                ],
+                "summary": "Get Trial Balance report",
+                "operationId": "9df9c5ab7f15f22b2654f8aca718e6c6",
+                "parameters": [
+                    {
+                        "name": "as_of_date",
+                        "in": "query",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "date"
+                        }
+                    },
+                    {
+                        "name": "currency",
+                        "in": "query",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "example": "USD"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful operation"
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            }
+        },
+        "/reports/profit-loss": {
+            "get": {
+                "tags": [
+                    "Reports"
+                ],
+                "summary": "Get Profit and Loss report",
+                "operationId": "8be49de6901b14e52e093123e1b21c2f",
+                "parameters": [
+                    {
+                        "name": "from_date",
+                        "in": "query",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "date"
+                        }
+                    },
+                    {
+                        "name": "to_date",
+                        "in": "query",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "date"
+                        }
+                    },
+                    {
+                        "name": "currency",
+                        "in": "query",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "example": "USD"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful operation"
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            }
+        },
+        "/reports/balance-sheet": {
+            "get": {
+                "tags": [
+                    "Reports"
+                ],
+                "summary": "Get Balance Sheet report",
+                "operationId": "0b5db21d750b8e7ccde0e02718acae44",
+                "parameters": [
+                    {
+                        "name": "as_of_date",
+                        "in": "query",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "date"
+                        }
+                    },
+                    {
+                        "name": "currency",
+                        "in": "query",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "example": "USD"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful operation"
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            }
+        },
+        "/search": {
+            "get": {
+                "tags": [
+                    "Search"
+                ],
+                "summary": "Global search common entities",
+                "operationId": "98a7e2284b661b61d66c905e11a9eff4",
+                "parameters": [
+                    {
+                        "name": "query",
+                        "in": "query",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "minLength": 2
+                        }
+                    },
+                    {
+                        "name": "company_code",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful operation"
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            }
+        },
+        "/vouchers": {
+            "get": {
+                "tags": [
+                    "Vouchers"
+                ],
+                "summary": "Get all vouchers",
+                "operationId": "5420c51b3fde8ec6228411a29cdbfc5d",
+                "parameters": [
+                    {
+                        "name": "from_date",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "format": "date"
+                        }
+                    },
+                    {
+                        "name": "to_date",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "format": "date"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful operation"
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            },
+            "post": {
+                "tags": [
+                    "Vouchers"
+                ],
+                "summary": "Create a new journal voucher",
+                "operationId": "2df851426b55bb32b1f285c76fa3476d",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "required": [
+                                    "date",
+                                    "reference",
+                                    "currency",
+                                    "entries"
+                                ],
+                                "properties": {
+                                    "date": {
+                                        "type": "string",
+                                        "format": "date",
+                                        "example": "2023-10-01"
+                                    },
+                                    "reference": {
+                                        "type": "string",
+                                        "example": "JV-001"
+                                    },
+                                    "description": {
+                                        "type": "string",
+                                        "example": "Monthly adjustment"
+                                    },
+                                    "currency": {
+                                        "type": "string",
+                                        "example": "USD"
+                                    },
+                                    "entries": {
+                                        "type": "array",
+                                        "items": {
+                                            "properties": {
+                                                "account_code": {
+                                                    "type": "string",
+                                                    "example": "1000"
+                                                },
+                                                "amount": {
+                                                    "type": "number",
+                                                    "example": 100.5
+                                                },
+                                                "type": {
+                                                    "type": "string",
+                                                    "enum": [
+                                                        "debit",
+                                                        "credit"
+                                                    ]
+                                                },
+                                                "description": {
+                                                    "type": "string",
+                                                    "example": "Entry description"
+                                                }
+                                            },
+                                            "type": "object"
+                                        }
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": {
+                        "description": "Voucher created successfully"
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            }
+        },
+        "/vouchers/{reference}": {
+            "get": {
+                "tags": [
+                    "Vouchers"
+                ],
+                "summary": "Get voucher details",
+                "operationId": "a7aa7fb326674a06236d0b9dec1634c2",
+                "parameters": [
+                    {
+                        "name": "reference",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful operation"
+                    },
+                    "404": {
+                        "description": "Voucher not found"
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            },
+            "delete": {
+                "tags": [
+                    "Vouchers"
+                ],
+                "summary": "Delete a voucher",
+                "operationId": "e46cb23f2a0a000aacab00f4c1d529f5",
+                "parameters": [
+                    {
+                        "name": "reference",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "Voucher deleted successfully"
+                    },
+                    "404": {
+                        "description": "Voucher not found"
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            }
+        }
+    },
+    "tags": [
+        {
+            "name": "Accounts",
+            "description": "Operations related to Chart of Accounts"
+        },
+        {
+            "name": "Auth",
+            "description": "Authentication operations"
+        },
+        {
+            "name": "Companies",
+            "description": "Operations related to Company management"
+        },
+        {
+            "name": "Voucher Types",
+            "description": "Operations related to Custom Voucher Types"
+        },
+        {
+            "name": "Reports",
+            "description": "Operations related to Financial Reports"
+        },
+        {
+            "name": "Search",
+            "description": "Search operations"
+        },
+        {
+            "name": "Vouchers",
+            "description": "Operations related to Journal Vouchers"
+        }
+    ]
+}

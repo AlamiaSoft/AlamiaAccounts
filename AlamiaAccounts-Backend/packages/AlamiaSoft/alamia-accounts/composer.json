@@ -1,0 +1,31 @@
+{
+    "name": "alamiasoft/alamia-accounts",
+    "description": "A robust accounting package for Laravel using abivia/ledger",
+    "type": "library",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "AlamiaSoft",
+            "email": "info@alamiasoft.com"
+        }
+    ],
+    "require": {
+        "php": "^8.2",
+        "abivia/ledger": "^1.11",
+        "darkaonline/l5-swagger": "^9.0",
+        "spatie/laravel-permission": "^6.21"
+    },
+    "autoload": {
+        "psr-4": {
+            "AlamiaSoft\\AlamiaAccounts\\": "src/",
+            "AlamiaSoft\\AlamiaAccounts\\Database\\Seeders\\": "database/seeders/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "AlamiaSoft\\AlamiaAccounts\\AlamiaAccountsServiceProvider"
+            ]
+        }
+    }
+}

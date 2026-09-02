@@ -90,8 +90,8 @@ export default function Sidebar({
       {/* Header */}
       <div className="p-6 border-b border-sidebar-border">
         <div className="flex items-center gap-2 mb-4">
-          <div className="w-10 h-10 rounded-lg bg-sidebar-primary flex items-center justify-center">
-            <PieChart className="w-6 h-6 text-sidebar-primary-foreground" />
+          <div className="w-10 h-10 rounded-lg bg-sidebar-primary/10 flex items-center justify-center overflow-hidden p-1">
+            <img src="/alamia-logo.png" alt="Alamia Logo" className="w-full h-full object-contain" />
           </div>
           <div>
             <h1 className="font-bold text-sidebar-foreground">

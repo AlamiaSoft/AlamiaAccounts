@@ -9,23 +9,14 @@ const _geistMono = Geist_Mono({ subsets: ["latin"] })
 
 export const metadata: Metadata = {
   title: process.env.NEXT_PUBLIC_APP_NAME || "Alamia Accounts",
-  description: "Professional Chart of Accounts and Voucher Entry management interface for Asian businesses",
-  generator: "v0.app",
+  description: "Professional Double-Entry Accounting Suite by Alamia",
   icons: {
     icon: [
-      {
-        url: "/icon-light-32x32.png",
-        media: "(prefers-color-scheme: light)",
-      },
-      {
-        url: "/icon-dark-32x32.png",
-        media: "(prefers-color-scheme: dark)",
-      },
-      {
-        url: "/icon.svg",
-        type: "image/svg+xml",
-      },
+      { url: "/alamia-logo.png" },
+      { url: "/icon-light-32x32.png", sizes: "32x32" },
+      { url: "/icon-dark-32x32.png", sizes: "32x32" },
     ],
+    shortcut: "/alamia-logo.png",
     apple: "/apple-icon.png",
   },
 }

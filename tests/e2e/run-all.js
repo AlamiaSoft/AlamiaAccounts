@@ -8,6 +8,9 @@ const test03 = require('./03-financial-reports.test');
 const test04 = require('./04-multi-company-isolation.test');
 const test05 = require('./05-voucher-entry-ux.test');
 const test06 = require('./06-opening-balance-and-coa-ux.test');
+const test07 = require('./07-master-e2e-accounting.test');
+const test08 = require('./08-group-ledger-and-subledgers.test');
+const test09 = require('./09-voucher-lifecycle-negative.test');
 
 async function runAll() {
   console.log('================================================================');
@@ -22,6 +25,9 @@ async function runAll() {
     { name: '04: Multi-Company Isolation & Switching', fn: test04 },
     { name: '05: Voucher Entry UX & Account Selection', fn: test05 },
     { name: '06: Opening Balance & Modern Dialogs', fn: test06 },
+    { name: '07: Master E2E Accounting Certification', fn: test07 },
+    { name: '08: Group Ledgers & AR/AP Subledgers', fn: test08 },
+    { name: '09: Voucher Lifecycle & Negative Validations', fn: test09 },
   ];
 
   const results = [];

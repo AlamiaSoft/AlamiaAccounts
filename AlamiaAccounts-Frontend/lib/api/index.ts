@@ -45,6 +45,7 @@ export const voucherApi = {
     create: (data: any) => apiClient.post('/vouchers', data),
     update: (reference: string, data: any) => apiClient.put(`/vouchers/${reference}`, data),
     delete: (reference: string) => apiClient.delete(`/vouchers/${reference}`),
+    reverse: (reference: string, date?: string) => apiClient.post(`/vouchers/${reference}/reverse`, { date }),
 }
 
 // Custom Voucher Type API
@@ -104,4 +105,8 @@ export const reportApi = {
         apiClient.get('/reports/balance-sheet', { params: { as_of_date: asOfDate, currency } }),
     ledger: (accountCode: string, fromDate: string, toDate: string, currency: string) =>
         apiClient.get('/reports/ledger', { params: { account_code: accountCode, from_date: fromDate, to_date: toDate, currency } }),
+    receivables: (asOfDate: string, currency: string = 'PKR') =>
+        apiClient.get('/reports/receivables', { params: { as_of_date: asOfDate, currency } }),
+    payables: (asOfDate: string, currency: string = 'PKR') =>
+        apiClient.get('/reports/payables', { params: { as_of_date: asOfDate, currency } }),
 }

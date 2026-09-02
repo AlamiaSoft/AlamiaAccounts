@@ -3,9 +3,10 @@
 import { useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Download, Eye, Loader2, CheckCircle2, AlertTriangle, Scale } from "lucide-react"
+import { Download, Eye, Loader2, CheckCircle2, AlertTriangle, Scale, Users, Building2 } from "lucide-react"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import ReportView from "@/components/report-view"
-import { useTrialBalance, useProfitLoss, useBalanceSheet } from "@/hooks/use-reports"
+import { useTrialBalance, useProfitLoss, useBalanceSheet, useReceivables, usePayables } from "@/hooks/use-reports"
 
 export default function FinancialReports({ initialReport }: { initialReport?: string } = {}) {
   const today = new Date().toISOString().split("T")[0]
@@ -39,11 +40,23 @@ export default function FinancialReports({ initialReport }: { initialReport?: st
       name: "Trial Balance",
       description: "List of all accounts with balances",
     },
+    {
+      id: "receivables",
+      name: "Accounts Receivable",
+      description: "Customer balances, sales & collections",
+    },
+    {
+      id: "payables",
+      name: "Accounts Payable",
+      description: "Supplier balances, bills & payments",
+    },
   ]
 
   const { data: apiTrialBalance, isLoading: isLoadingTB } = useTrialBalance(reportPeriod, "PKR")
   const { data: apiPL, isLoading: isLoadingPL } = useProfitLoss(fromDate, reportPeriod, "PKR")
   const { data: apiBS, isLoading: isLoadingBS } = useBalanceSheet(reportPeriod, "PKR")
+  const { data: apiReceivables, isLoading: isLoadingAR } = useReceivables(reportPeriod, "PKR")
+  const { data: apiPayables, isLoading: isLoadingAP } = usePayables(reportPeriod, "PKR")
 
   // Map backend trial balance to frontend format (handle both array and { accounts: [...] } object)
   const trialBalanceAccounts = Array.isArray(apiTrialBalance)
@@ -663,6 +676,194 @@ export default function FinancialReports({ initialReport }: { initialReport?: st
     )
   }
 
+  const renderReceivables = () => {
+    const customers = apiReceivables?.customers || []
+    const totalDebit = Number(apiReceivables?.total_debit) || 0
+    const totalCredit = Number(apiReceivables?.total_credit) || 0
+    const totalReceivables = Number(apiReceivables?.total_receivables) || 0
+
+    return (
+      <div className="space-y-6">
+        <div className="grid gap-4 md:grid-cols-3">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Total Invoiced (Debit)</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-blue-600">Rs. {totalDebit.toLocaleString()}</div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Total Received (Credit)</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-green-600">Rs. {totalCredit.toLocaleString()}</div>
+            </CardContent>
+          </Card>
+          <Card className="border-primary/30 bg-primary/5">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-primary">Total Outstanding Receivables</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-primary">Rs. {totalReceivables.toLocaleString()}</div>
+              <p className="text-xs text-muted-foreground mt-1">Reconciles to Balance Sheet Accounts Receivable</p>
+            </CardContent>
+          </Card>
+        </div>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Users className="w-5 h-5 text-primary" />
+              Customer Accounts Receivable Subledger
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {isLoadingAR ? (
+              <div className="flex justify-center py-12">
+                <Loader2 className="w-8 h-8 animate-spin text-primary" />
+              </div>
+            ) : customers.length === 0 ? (
+              <p className="text-center py-12 text-muted-foreground">No customer receivables recorded as of {reportPeriod}.</p>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Account Code</TableHead>
+                    <TableHead>Customer Name</TableHead>
+                    <TableHead className="text-right">Total Invoiced (Dr)</TableHead>
+                    <TableHead className="text-right">Total Received (Cr)</TableHead>
+                    <TableHead className="text-right font-bold">Outstanding Balance</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {customers.map((c: any) => (
+                    <TableRow key={c.code}>
+                      <TableCell className="font-mono text-xs">{c.code}</TableCell>
+                      <TableCell className="font-medium">{c.name}</TableCell>
+                      <TableCell className="text-right text-blue-600">
+                        {c.total_debit > 0 ? `Rs. ${Number(c.total_debit).toLocaleString()}` : "-"}
+                      </TableCell>
+                      <TableCell className="text-right text-green-600">
+                        {c.total_credit > 0 ? `Rs. ${Number(c.total_credit).toLocaleString()}` : "-"}
+                      </TableCell>
+                      <TableCell className="text-right font-mono font-bold text-primary">
+                        Rs. {Number(c.balance).toLocaleString()}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+                <tfoot>
+                  <TableRow className="border-t-2 font-bold bg-muted/30">
+                    <TableCell colSpan={2}>Total Receivables</TableCell>
+                    <TableCell className="text-right text-blue-600">Rs. {totalDebit.toLocaleString()}</TableCell>
+                    <TableCell className="text-right text-green-600">Rs. {totalCredit.toLocaleString()}</TableCell>
+                    <TableCell className="text-right text-primary font-mono text-base">Rs. {totalReceivables.toLocaleString()}</TableCell>
+                  </TableRow>
+                </tfoot>
+              </Table>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
+  const renderPayables = () => {
+    const suppliers = apiPayables?.suppliers || []
+    const totalDebit = Number(apiPayables?.total_debit) || 0
+    const totalCredit = Number(apiPayables?.total_credit) || 0
+    const totalPayables = Number(apiPayables?.total_payables) || 0
+
+    return (
+      <div className="space-y-6">
+        <div className="grid gap-4 md:grid-cols-3">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Total Billed / Purchases (Cr)</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-amber-600">Rs. {totalCredit.toLocaleString()}</div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Total Paid to Vendors (Dr)</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-blue-600">Rs. {totalDebit.toLocaleString()}</div>
+            </CardContent>
+          </Card>
+          <Card className="border-amber-500/30 bg-amber-500/5">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-amber-700 dark:text-amber-400">Total Outstanding Payables</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-amber-700 dark:text-amber-400">Rs. {totalPayables.toLocaleString()}</div>
+              <p className="text-xs text-muted-foreground mt-1">Reconciles to Balance Sheet Accounts Payable</p>
+            </CardContent>
+          </Card>
+        </div>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Building2 className="w-5 h-5 text-amber-600" />
+              Supplier Accounts Payable Subledger
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {isLoadingAP ? (
+              <div className="flex justify-center py-12">
+                <Loader2 className="w-8 h-8 animate-spin text-primary" />
+              </div>
+            ) : suppliers.length === 0 ? (
+              <p className="text-center py-12 text-muted-foreground">No supplier payables recorded as of {reportPeriod}.</p>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Account Code</TableHead>
+                    <TableHead>Supplier Name</TableHead>
+                    <TableHead className="text-right">Total Purchases (Cr)</TableHead>
+                    <TableHead className="text-right">Total Paid (Dr)</TableHead>
+                    <TableHead className="text-right font-bold">Outstanding Payable</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {suppliers.map((s: any) => (
+                    <TableRow key={s.code}>
+                      <TableCell className="font-mono text-xs">{s.code}</TableCell>
+                      <TableCell className="font-medium">{s.name}</TableCell>
+                      <TableCell className="text-right text-amber-600">
+                        {s.total_credit > 0 ? `Rs. ${Number(s.total_credit).toLocaleString()}` : "-"}
+                      </TableCell>
+                      <TableCell className="text-right text-blue-600">
+                        {s.total_debit > 0 ? `Rs. ${Number(s.total_debit).toLocaleString()}` : "-"}
+                      </TableCell>
+                      <TableCell className="text-right font-mono font-bold text-amber-700 dark:text-amber-400">
+                        Rs. {Number(s.balance).toLocaleString()}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+                <tfoot>
+                  <TableRow className="border-t-2 font-bold bg-muted/30">
+                    <TableCell colSpan={2}>Total Payables</TableCell>
+                    <TableCell className="text-right text-amber-600">Rs. {totalCredit.toLocaleString()}</TableCell>
+                    <TableCell className="text-right text-blue-600">Rs. {totalDebit.toLocaleString()}</TableCell>
+                    <TableCell className="text-right text-amber-700 dark:text-amber-400 font-mono text-base">Rs. {totalPayables.toLocaleString()}</TableCell>
+                  </TableRow>
+                </tfoot>
+              </Table>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
   const renderReportContent = () => {
     switch (selectedReport) {
       case "balance-sheet":
@@ -673,6 +874,10 @@ export default function FinancialReports({ initialReport }: { initialReport?: st
         return renderCashFlowPrintable()
       case "trial-balance":
         return renderTrialBalancePrintable()
+      case "receivables":
+        return renderReceivablesPrintable()
+      case "payables":
+        return renderPayablesPrintable()
       default:
         return null
     }
@@ -905,6 +1110,78 @@ export default function FinancialReports({ initialReport }: { initialReport?: st
     )
   }
 
+  const renderReceivablesPrintable = () => {
+    const customers = apiReceivables?.customers || []
+    const totalReceivables = Number(apiReceivables?.total_receivables) || 0
+
+    return (
+      <table className="w-full">
+        <thead>
+          <tr className="border-b-2 border-black">
+            <th className="text-left py-2">Code</th>
+            <th className="text-left py-2">Customer Name</th>
+            <th className="text-right py-2">Total Invoiced (Rs.)</th>
+            <th className="text-right py-2">Total Received (Rs.)</th>
+            <th className="text-right py-2">Outstanding (Rs.)</th>
+          </tr>
+        </thead>
+        <tbody>
+          {customers.map((c: any, i: number) => (
+            <tr key={i} className="border-b">
+              <td className="py-1">{c.code}</td>
+              <td className="py-1">{c.name}</td>
+              <td className="text-right">{Number(c.total_debit).toLocaleString()}</td>
+              <td className="text-right">{Number(c.total_credit).toLocaleString()}</td>
+              <td className="text-right font-bold">{Number(c.balance).toLocaleString()}</td>
+            </tr>
+          ))}
+        </tbody>
+        <tfoot>
+          <tr className="border-t-2 border-black font-bold">
+            <td colSpan={4} className="py-2">Total Receivables</td>
+            <td className="text-right">{totalReceivables.toLocaleString()}</td>
+          </tr>
+        </tfoot>
+      </table>
+    )
+  }
+
+  const renderPayablesPrintable = () => {
+    const suppliers = apiPayables?.suppliers || []
+    const totalPayables = Number(apiPayables?.total_payables) || 0
+
+    return (
+      <table className="w-full">
+        <thead>
+          <tr className="border-b-2 border-black">
+            <th className="text-left py-2">Code</th>
+            <th className="text-left py-2">Supplier Name</th>
+            <th className="text-right py-2">Total Purchases (Rs.)</th>
+            <th className="text-right py-2">Total Paid (Rs.)</th>
+            <th className="text-right py-2">Outstanding (Rs.)</th>
+          </tr>
+        </thead>
+        <tbody>
+          {suppliers.map((s: any, i: number) => (
+            <tr key={i} className="border-b">
+              <td className="py-1">{s.code}</td>
+              <td className="py-1">{s.name}</td>
+              <td className="text-right">{Number(s.total_credit).toLocaleString()}</td>
+              <td className="text-right">{Number(s.total_debit).toLocaleString()}</td>
+              <td className="text-right font-bold">{Number(s.balance).toLocaleString()}</td>
+            </tr>
+          ))}
+        </tbody>
+        <tfoot>
+          <tr className="border-t-2 border-black font-bold">
+            <td colSpan={4} className="py-2">Total Payables</td>
+            <td className="text-right">{totalPayables.toLocaleString()}</td>
+          </tr>
+        </tfoot>
+      </table>
+    )
+  }
+
   return (
     <div className="space-y-6">
       <div>
@@ -915,7 +1192,7 @@ export default function FinancialReports({ initialReport }: { initialReport?: st
       {/* Report Selector */}
       <Card>
         <CardContent className="pt-6">
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
             {reports.map((report) => (
               <button
                 key={report.id}
@@ -982,6 +1259,8 @@ export default function FinancialReports({ initialReport }: { initialReport?: st
       {selectedReport === "profit-loss" && renderProfitLoss()}
       {selectedReport === "cash-flow" && renderCashFlow()}
       {selectedReport === "trial-balance" && renderTrialBalance()}
+      {selectedReport === "receivables" && renderReceivables()}
+      {selectedReport === "payables" && renderPayables()}
 
       {viewingReport && (
         <ReportView

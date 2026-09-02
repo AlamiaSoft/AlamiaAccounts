@@ -135,4 +135,24 @@ class VoucherController extends Controller
         
         return response()->json(null, 204);
     }
+
+    /**
+     * Reverse a posted voucher (creates compensating REV- voucher)
+     */
+    public function reverse($reference, Request $request)
+    {
+        try {
+            $date = $request->input('date');
+            $reversed = $this->voucherService->reverseVoucher($reference, $date);
+
+            return response()->json([
+                'message' => "Voucher {$reference} reversed successfully",
+                'data' => $reversed,
+            ], 201);
+        } catch (\Exception $e) {
+            return response()->json([
+                'message' => $e->getMessage()
+            ], 422);
+        }
+    }
 }

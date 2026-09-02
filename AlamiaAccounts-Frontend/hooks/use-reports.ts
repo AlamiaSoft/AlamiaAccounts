@@ -52,3 +52,27 @@ export function useLedger(accountCode: string, fromDate: string, toDate: string,
         enabled: !!accountCode && !!fromDate && !!toDate,
     })
 }
+
+export function useReceivables(asOfDate: string, currency: string = 'PKR') {
+    const company = getCompanyCode()
+    return useQuery({
+        queryKey: ['report', 'receivables', company, asOfDate, currency],
+        queryFn: async () => {
+            const response = await reportApi.receivables(asOfDate, currency)
+            return response.data.data
+        },
+        enabled: !!asOfDate,
+    })
+}
+
+export function usePayables(asOfDate: string, currency: string = 'PKR') {
+    const company = getCompanyCode()
+    return useQuery({
+        queryKey: ['report', 'payables', company, asOfDate, currency],
+        queryFn: async () => {
+            const response = await reportApi.payables(asOfDate, currency)
+            return response.data.data
+        },
+        enabled: !!asOfDate,
+    })
+}

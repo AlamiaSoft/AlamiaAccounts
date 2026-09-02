@@ -12,6 +12,7 @@ use AlamiaSoft\AlamiaAccounts\Models\DomainJournalEntry;
 use AlamiaSoft\AlamiaAccounts\Models\DomainLedgerAccount;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use Exception;
 
 class VoucherService
@@ -71,9 +72,24 @@ class VoucherService
             throw new Exception('Voucher must contain at least two entries');
         }
 
-        // Verify all accounts belong to this domain
+        // Duplicate reference prevention (NEG-009, LIFE-011)
+        $refToCheck = trim($data['reference'] ?? $data['voucher_number'] ?? '');
+        if ($refToCheck !== '') {
+            $existingVouchers = $this->getJournalEntries(['reference' => $refToCheck]);
+            foreach ($existingVouchers as $ev) {
+                if (strcasecmp($ev['reference'] ?? '', $refToCheck) === 0 || strcasecmp($ev['number'] ?? '', $refToCheck) === 0) {
+                    throw new Exception("Duplicate voucher reference '{$refToCheck}' is not allowed for this company");
+                }
+            }
+        }
+
+        // Verify non-zero amounts (NEG-004) and collect accounts
         $accountCodes = [];
         foreach ($entries as $item) {
+            $amt = (float)($item['amount'] ?? $item['debit'] ?? $item['credit'] ?? 0);
+            if ($amt <= 0) {
+                throw new Exception("Voucher line item amount must be greater than zero");
+            }
             $code = $item['account_code'] ?? $item['account'] ?? null;
             if ($code) {
                 $accountCodes[] = $code;
@@ -312,6 +328,91 @@ class VoucherService
         }
         
         return JournalEntryModel::with('entries')->find($journalEntryId);
+    }
+
+    /**
+     * Get voucher by reference or ID
+     */
+    public function getVoucher(string $reference): ?array
+    {
+        $vouchers = $this->getJournalEntries(['reference' => $reference]);
+        return $vouchers->first();
+    }
+
+    /**
+     * Delete a voucher (safe tenant-scoped cleanup)
+     */
+    public function deleteVoucher(string $reference): bool
+    {
+        $currentDomain = $this->getCurrentDomain();
+        $entryIds = DomainJournalEntry::getEntryIdsForDomain($currentDomain->domainUuid);
+
+        $entries = JournalEntryModel::whereIn('journalEntryId', $entryIds)->get();
+        foreach ($entries as $e) {
+            $ref = (string)$e->journalEntryId;
+            if (!empty($e->extra)) {
+                $dec = json_decode($e->extra, true);
+                $ref = (string)($dec['reference'] ?? $dec['voucher_number'] ?? $ref);
+            }
+            if (strcasecmp($ref, $reference) === 0 || (string)$e->journalEntryId === $reference) {
+                DomainJournalEntry::where('journalEntryId', $e->journalEntryId)->delete();
+                DB::table('journal_details')->where('journalEntryId', $e->journalEntryId)->delete();
+                $e->delete();
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Reverse a posted voucher (LIFE-008, LIFE-009)
+     */
+    public function reverseVoucher(string $reference, ?string $date = null): JournalEntryModel
+    {
+        $currentDomain = $this->getCurrentDomain();
+        $voucher = $this->getVoucher($reference);
+        if (!$voucher) {
+            throw new Exception("Voucher with reference '{$reference}' not found for current company");
+        }
+
+        if (str_starts_with(strtoupper($reference), 'REV-')) {
+            throw new Exception("Cannot reverse a voucher that is already a reversal");
+        }
+
+        $revRef = 'REV-' . $reference;
+        $existing = $this->getVoucher($revRef);
+        if ($existing) {
+            throw new Exception("Voucher '{$reference}' has already been reversed by '{$revRef}'");
+        }
+
+        $lineItems = $voucher['line_items'] ?? $voucher['details'] ?? [];
+        if (empty($lineItems)) {
+            throw new Exception("Voucher has no line items to reverse");
+        }
+
+        // Invert debits and credits
+        $entries = [];
+        foreach ($lineItems as $item) {
+            $code = $item['account_code'] ?? $item['account'];
+            $isDebit = (float)($item['debit'] ?? 0) > 0;
+            $amt = $isDebit ? (float)$item['debit'] : (float)$item['credit'];
+
+            $entries[] = [
+                'account_code' => $code,
+                'amount' => $amt,
+                'type' => $isDebit ? 'credit' : 'debit',
+                'description' => "Reversal of {$reference}",
+            ];
+        }
+
+        return $this->createJournalEntry([
+            'reference' => $revRef,
+            'voucher_type' => 'Journal',
+            'description' => "Reversal of {$reference}",
+            'date' => $date ?? date('Y-m-d'),
+            'currency' => $voucher['currency'] ?? 'PKR',
+            'entries' => $entries,
+        ]);
     }
 
     public function createSalesVoucher(array $data): JournalEntryModel

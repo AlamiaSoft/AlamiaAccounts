@@ -134,4 +134,40 @@ class ReportController extends Controller
 
         return response()->json(['data' => $report]);
     }
+
+    /**
+     * Get Receivables Subledger Report (Customer balances & movements)
+     */
+    public function receivables(Request $request)
+    {
+        $validated = $request->validate([
+            'as_of_date' => 'required|date',
+            'currency' => 'nullable|string|size:3',
+        ]);
+
+        $report = $this->reportService->getReceivablesReport(
+            $validated['as_of_date'],
+            $validated['currency'] ?? 'PKR'
+        );
+
+        return response()->json(['data' => $report]);
+    }
+
+    /**
+     * Get Payables Subledger Report (Supplier balances & movements)
+     */
+    public function payables(Request $request)
+    {
+        $validated = $request->validate([
+            'as_of_date' => 'required|date',
+            'currency' => 'nullable|string|size:3',
+        ]);
+
+        $report = $this->reportService->getPayablesReport(
+            $validated['as_of_date'],
+            $validated['currency'] ?? 'PKR'
+        );
+
+        return response()->json(['data' => $report]);
+    }
 }

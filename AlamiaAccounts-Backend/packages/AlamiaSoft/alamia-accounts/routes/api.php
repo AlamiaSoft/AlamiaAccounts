@@ -37,6 +37,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::apiResource('accounts', AccountController::class);
     
     // Vouchers
+    Route::post('/vouchers/{reference}/reverse', [VoucherController::class, 'reverse']);
     Route::apiResource('vouchers', VoucherController::class);
     
     // Custom Voucher Types
@@ -61,4 +62,6 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/reports/profit-loss', [ReportController::class, 'profitAndLoss']);
     Route::get('/reports/balance-sheet', [ReportController::class, 'balanceSheet']);
     Route::get('/reports/ledger', [ReportController::class, 'ledger']);
+    Route::get('/reports/receivables', [ReportController::class, 'receivables']);
+    Route::get('/reports/payables', [ReportController::class, 'payables']);
 });

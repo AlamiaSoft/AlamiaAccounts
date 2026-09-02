@@ -152,6 +152,7 @@ class ReportService
             'currency' => $currency,
             'income' => $income,
             'total_income' => round($totalIncome, 2),
+            'total_revenue' => round($totalIncome, 2),
             'expenses' => $expenses,
             'total_expenses' => round($totalExpenses, 2),
             'net_profit' => round($netProfit, 2),
@@ -228,7 +229,8 @@ class ReportService
         $pnl = $this->getProfitAndLoss($earliest, $asOfDate, $currency);
         $retainedEarnings = $pnl['net_profit'];
 
-        $totalLiabilitiesAndEquity = $totalLiabilities + $totalEquity + $retainedEarnings;
+        $totalEquityWithRetained = $totalEquity + $retainedEarnings;
+        $totalLiabilitiesAndEquity = $totalLiabilities + $totalEquityWithRetained;
 
         return [
             'as_of_date' => $asOfDate,
@@ -238,7 +240,8 @@ class ReportService
             'liabilities' => $liabilities,
             'total_liabilities' => round($totalLiabilities, 2),
             'equity' => $equity,
-            'total_equity' => round($totalEquity, 2),
+            'capital_equity' => round($totalEquity, 2),
+            'total_equity' => round($totalEquityWithRetained, 2),
             'retained_earnings' => round($retainedEarnings, 2),
             'total_liabilities_and_equity' => round($totalLiabilitiesAndEquity, 2),
             'is_balanced' => abs($totalAssets - $totalLiabilitiesAndEquity) < 0.01,
@@ -247,6 +250,9 @@ class ReportService
 
     /**
      * Get granular statement for an individual account with running balances.
+     */
+    /**
+     * Get granular statement for an individual account or parent group with running balances.
      */
     public function getAccountLedger(string $accountCode, string $fromDate, string $toDate, string $currency = 'PKR'): array
     {
@@ -262,6 +268,16 @@ class ReportService
             throw new Exception("Account with code {$accountCode} not found in current domain");
         }
 
+        $hasChildren = LedgerAccount::where('parentUuid', $account->ledgerUuid)
+            ->whereIn('ledgerUuid', $accountUuids)
+            ->exists();
+        $isGroup = (bool)$account->category || $hasChildren;
+        $targetUuids = [$account->ledgerUuid];
+        if ($isGroup) {
+            $descendants = $this->getDescendantAccountUuids($account->ledgerUuid, $accountUuids);
+            $targetUuids = array_merge($targetUuids, $descendants);
+        }
+
         // 1. Calculate Opening Balance before $fromDate
         $asOfDateForOpening = Carbon::parse($fromDate)->subDay()->toDateString();
         $openingBalance = $this->getAccountBalance($accountCode, $asOfDateForOpening, $currency);
@@ -270,9 +286,10 @@ class ReportService
         $transactions = DB::table('journal_details')
             ->join('journal_entries', 'journal_details.journalEntryId', '=', 'journal_entries.journalEntryId')
             ->join('domain_journal_entries', 'journal_entries.journalEntryId', '=', 'domain_journal_entries.journalEntryId')
+            ->join('ledger_accounts', 'journal_details.ledgerUuid', '=', 'ledger_accounts.ledgerUuid')
             ->where('domain_journal_entries.domainUuid', $currentDomain->domainUuid)
             ->where('journal_entries.currency', $currency)
-            ->where('journal_details.ledgerUuid', $account->ledgerUuid)
+            ->whereIn('journal_details.ledgerUuid', $targetUuids)
             ->where('journal_entries.transDate', '>=', Carbon::parse($fromDate)->startOfDay())
             ->where('journal_entries.transDate', '<=', Carbon::parse($toDate)->endOfDay())
             ->select(
@@ -280,7 +297,8 @@ class ReportService
                 'journal_entries.transDate as date',
                 'journal_entries.description',
                 'journal_entries.extra',
-                'journal_details.amount'
+                'journal_details.amount',
+                'ledger_accounts.code as account_code'
             )
             ->orderBy('journal_entries.transDate')
             ->orderBy('journal_entries.journalEntryId')
@@ -303,6 +321,15 @@ class ReportService
                 $entryAccountCodes[$rd->journalEntryId][] = $rd->code;
             }
         }
+
+        // Pre-fetch account names map
+        $accNamesMap = LedgerAccount::whereIn('ledgerUuid', $accountUuids)
+            ->with('names')
+            ->get()
+            ->keyBy('code')
+            ->map(function ($a) {
+                return $a->names->first() ? $a->names->first()->name : $a->code;
+            });
 
         foreach ($transactions as $tx) {
             $amount = (float)$tx->amount;
@@ -340,11 +367,16 @@ class ReportService
                 }
             }
 
+            $txAccCode = $tx->account_code ?? $accountCode;
+            $txAccName = $accNamesMap->get($txAccCode) ?? $txAccCode;
+
             $ledgerEntries[] = [
                 'journal_entry_id' => $tx->journalEntryId,
                 'date' => Carbon::parse($tx->date)->toDateString(),
                 'reference' => $reference,
                 'voucher_type' => $voucherType,
+                'account_code' => $txAccCode,
+                'account_name' => $txAccName,
                 'description' => $tx->description,
                 'debit' => $amount > 0 ? round($amount, 2) : 0.0,
                 'credit' => $amount < 0 ? round(abs($amount), 2) : 0.0,
@@ -356,6 +388,7 @@ class ReportService
             'account' => [
                 'code' => $account->code,
                 'name' => $account->names->first()->name ?? $account->code,
+                'is_group' => $isGroup,
             ],
             'from_date' => $fromDate,
             'to_date' => $toDate,
@@ -369,7 +402,7 @@ class ReportService
     }
 
     /**
-     * Compute balance as of a date for an account.
+     * Compute balance as of a date for an account or category.
      */
     public function getAccountBalance(string $accountCode, ?string $asOfDate = null, string $currency = 'PKR'): float
     {
@@ -384,15 +417,24 @@ class ReportService
             return 0.0;
         }
 
+        $hasChildren = LedgerAccount::where('parentUuid', $account->ledgerUuid)
+            ->whereIn('ledgerUuid', $accountUuids)
+            ->exists();
+
+        $targetUuids = [$account->ledgerUuid];
+        if ($account->category || $hasChildren) {
+            $descendants = $this->getDescendantAccountUuids($account->ledgerUuid, $accountUuids);
+            $targetUuids = array_merge($targetUuids, $descendants);
+        }
+
         $query = DB::table('journal_details')
             ->join('journal_entries', 'journal_details.journalEntryId', '=', 'journal_entries.journalEntryId')
             ->join('domain_journal_entries', 'journal_entries.journalEntryId', '=', 'domain_journal_entries.journalEntryId')
             ->where('domain_journal_entries.domainUuid', $currentDomain->domainUuid)
             ->where('journal_entries.currency', $currency)
-            ->where('journal_details.ledgerUuid', $account->ledgerUuid);
+            ->whereIn('journal_details.ledgerUuid', $targetUuids);
 
         if ($asOfDate) {
-            // Include through the end of the specified date
             $query->where('journal_entries.transDate', '<=', Carbon::parse($asOfDate)->endOfDay());
         }
 
@@ -415,14 +457,203 @@ class ReportService
             return 0.0;
         }
 
+        $hasChildren = LedgerAccount::where('parentUuid', $account->ledgerUuid)
+            ->whereIn('ledgerUuid', $accountUuids)
+            ->exists();
+
+        $targetUuids = [$account->ledgerUuid];
+        if ($account->category || $hasChildren) {
+            $descendants = $this->getDescendantAccountUuids($account->ledgerUuid, $accountUuids);
+            $targetUuids = array_merge($targetUuids, $descendants);
+        }
+
         return (float)(DB::table('journal_details')
             ->join('journal_entries', 'journal_details.journalEntryId', '=', 'journal_entries.journalEntryId')
             ->join('domain_journal_entries', 'journal_entries.journalEntryId', '=', 'domain_journal_entries.journalEntryId')
             ->where('domain_journal_entries.domainUuid', $currentDomain->domainUuid)
             ->where('journal_entries.currency', $currency)
-            ->where('journal_details.ledgerUuid', $account->ledgerUuid)
+            ->whereIn('journal_details.ledgerUuid', $targetUuids)
             ->where('journal_entries.transDate', '>=', Carbon::parse($fromDate)->startOfDay())
             ->where('journal_entries.transDate', '<=', Carbon::parse($toDate)->endOfDay())
             ->sum('journal_details.amount') ?? 0.0);
+    }
+
+    /**
+     * Recursively collect all descendant leaf account UUIDs under a parent UUID.
+     */
+    public function getDescendantAccountUuids(string $parentUuid, array $domainAccountUuids): array
+    {
+        $childAccounts = LedgerAccount::where('parentUuid', $parentUuid)
+            ->whereIn('ledgerUuid', $domainAccountUuids)
+            ->get();
+
+        $uuids = [];
+        foreach ($childAccounts as $child) {
+            $uuids[] = $child->ledgerUuid;
+            $subUuids = $this->getDescendantAccountUuids($child->ledgerUuid, $domainAccountUuids);
+            $uuids = array_merge($uuids, $subUuids);
+        }
+        return array_unique($uuids);
+    }
+
+    /**
+     * Receivables Subledger Report: customer balances, movements, and reconciliation with Balance Sheet.
+     */
+    public function getReceivablesReport(string $asOfDate, string $currency = 'PKR'): array
+    {
+        $currentDomain = $this->getCurrentDomain();
+        $accountUuids = DomainLedgerAccount::getAccountUuidsForDomain($currentDomain->domainUuid);
+
+        $parentAR = LedgerAccount::where('code', '1200')
+            ->whereIn('ledgerUuid', $accountUuids)
+            ->first();
+
+        $customers = LedgerAccount::whereIn('ledgerUuid', $accountUuids)
+            ->where('category', false)
+            ->where(function ($q) use ($parentAR) {
+                $q->where('code', 'like', '12%');
+                if ($parentAR) {
+                    $q->orWhere('parentUuid', $parentAR->ledgerUuid);
+                }
+            })
+            ->with('names')
+            ->orderBy('code')
+            ->get();
+
+        $rows = [];
+        $totalDebit = 0.0;
+        $totalCredit = 0.0;
+        $totalBalance = 0.0;
+
+        foreach ($customers as $cust) {
+            $name = $cust->names->first() ? $cust->names->first()->name : $cust->code;
+
+            // Total sales/invoices (Dr)
+            $debitMovements = (float)(DB::table('journal_details')
+                ->join('journal_entries', 'journal_details.journalEntryId', '=', 'journal_entries.journalEntryId')
+                ->join('domain_journal_entries', 'journal_entries.journalEntryId', '=', 'domain_journal_entries.journalEntryId')
+                ->where('domain_journal_entries.domainUuid', $currentDomain->domainUuid)
+                ->where('journal_entries.currency', $currency)
+                ->where('journal_details.ledgerUuid', $cust->ledgerUuid)
+                ->where('journal_entries.transDate', '<=', Carbon::parse($asOfDate)->endOfDay())
+                ->where('journal_details.amount', '>', 0)
+                ->sum('journal_details.amount') ?? 0.0);
+
+            // Total receipts/payments received (Cr)
+            $creditMovements = (float)(DB::table('journal_details')
+                ->join('journal_entries', 'journal_details.journalEntryId', '=', 'journal_entries.journalEntryId')
+                ->join('domain_journal_entries', 'journal_entries.journalEntryId', '=', 'domain_journal_entries.journalEntryId')
+                ->where('domain_journal_entries.domainUuid', $currentDomain->domainUuid)
+                ->where('journal_entries.currency', $currency)
+                ->where('journal_details.ledgerUuid', $cust->ledgerUuid)
+                ->where('journal_entries.transDate', '<=', Carbon::parse($asOfDate)->endOfDay())
+                ->where('journal_details.amount', '<', 0)
+                ->sum(DB::raw('ABS(journal_details.amount)')) ?? 0.0);
+
+            $balance = round($debitMovements - $creditMovements, 2);
+
+            $rows[] = [
+                'code' => $cust->code,
+                'name' => $name,
+                'total_debit' => round($debitMovements, 2),
+                'total_credit' => round($creditMovements, 2),
+                'balance' => $balance,
+            ];
+
+            $totalDebit += $debitMovements;
+            $totalCredit += $creditMovements;
+            $totalBalance += $balance;
+        }
+
+        return [
+            'as_of_date' => $asOfDate,
+            'currency' => $currency,
+            'customers' => $rows,
+            'total_debit' => round($totalDebit, 2),
+            'total_credit' => round($totalCredit, 2),
+            'total_balance' => round($totalBalance, 2),
+            'total_receivables' => round($totalBalance, 2),
+        ];
+    }
+
+    /**
+     * Payables Subledger Report: supplier balances, movements, and reconciliation with Balance Sheet.
+     */
+    public function getPayablesReport(string $asOfDate, string $currency = 'PKR'): array
+    {
+        $currentDomain = $this->getCurrentDomain();
+        $accountUuids = DomainLedgerAccount::getAccountUuidsForDomain($currentDomain->domainUuid);
+
+        $parentAP = LedgerAccount::where('code', '2100')
+            ->whereIn('ledgerUuid', $accountUuids)
+            ->first();
+
+        $suppliers = LedgerAccount::whereIn('ledgerUuid', $accountUuids)
+            ->where('category', false)
+            ->where(function ($q) use ($parentAP) {
+                $q->where('code', 'like', '21%');
+                if ($parentAP) {
+                    $q->orWhere('parentUuid', $parentAP->ledgerUuid);
+                }
+            })
+            ->with('names')
+            ->orderBy('code')
+            ->get();
+
+        $rows = [];
+        $totalDebit = 0.0;
+        $totalCredit = 0.0;
+        $totalBalance = 0.0;
+
+        foreach ($suppliers as $sup) {
+            $name = $sup->names->first() ? $sup->names->first()->name : $sup->code;
+
+            // Total payments made (Dr)
+            $debitMovements = (float)(DB::table('journal_details')
+                ->join('journal_entries', 'journal_details.journalEntryId', '=', 'journal_entries.journalEntryId')
+                ->join('domain_journal_entries', 'journal_entries.journalEntryId', '=', 'domain_journal_entries.journalEntryId')
+                ->where('domain_journal_entries.domainUuid', $currentDomain->domainUuid)
+                ->where('journal_entries.currency', $currency)
+                ->where('journal_details.ledgerUuid', $sup->ledgerUuid)
+                ->where('journal_entries.transDate', '<=', Carbon::parse($asOfDate)->endOfDay())
+                ->where('journal_details.amount', '>', 0)
+                ->sum('journal_details.amount') ?? 0.0);
+
+            // Total purchases/bills owed (Cr)
+            $creditMovements = (float)(DB::table('journal_details')
+                ->join('journal_entries', 'journal_details.journalEntryId', '=', 'journal_entries.journalEntryId')
+                ->join('domain_journal_entries', 'journal_entries.journalEntryId', '=', 'domain_journal_entries.journalEntryId')
+                ->where('domain_journal_entries.domainUuid', $currentDomain->domainUuid)
+                ->where('journal_entries.currency', $currency)
+                ->where('journal_details.ledgerUuid', $sup->ledgerUuid)
+                ->where('journal_entries.transDate', '<=', Carbon::parse($asOfDate)->endOfDay())
+                ->where('journal_details.amount', '<', 0)
+                ->sum(DB::raw('ABS(journal_details.amount)')) ?? 0.0);
+
+            // Payable balance: Credit (Owed) - Debit (Paid)
+            $balance = round($creditMovements - $debitMovements, 2);
+
+            $rows[] = [
+                'code' => $sup->code,
+                'name' => $name,
+                'total_debit' => round($debitMovements, 2),
+                'total_credit' => round($creditMovements, 2),
+                'balance' => $balance,
+            ];
+
+            $totalDebit += $debitMovements;
+            $totalCredit += $creditMovements;
+            $totalBalance += $balance;
+        }
+
+        return [
+            'as_of_date' => $asOfDate,
+            'currency' => $currency,
+            'suppliers' => $rows,
+            'total_debit' => round($totalDebit, 2),
+            'total_credit' => round($creditMovements, 2),
+            'total_balance' => round($totalBalance, 2),
+            'total_payables' => round($totalBalance, 2),
+        ];
     }
 }

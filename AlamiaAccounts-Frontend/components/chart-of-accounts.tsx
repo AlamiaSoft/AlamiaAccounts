@@ -106,20 +106,43 @@ export default function ChartOfAccounts() {
     setGroups(groups.filter((g) => g.id !== groupId))
   }
 
-  const handleAddAccount = (accountData: any) => {
-    createAccount.mutate(accountData)
-    setShowAccountDialog(false)
+  const [statusAlert, setStatusAlert] = useState<{ type: "success" | "error"; message: string } | null>(null)
+
+  const handleAddAccount = async (accountData: any) => {
+    try {
+      await createAccount.mutateAsync(accountData)
+      setStatusAlert({ type: "success", message: `Account ${accountData.code} - ${accountData.name} created successfully!` })
+      setShowAccountDialog(false)
+      setTimeout(() => setStatusAlert(null), 5000)
+    } catch (err: any) {
+      const msg = err.response?.data?.message || err.message || "Failed to create account"
+      setStatusAlert({ type: "error", message: msg })
+    }
   }
 
-  const handleEditAccount = (accountData: any) => {
-    updateAccount.mutate({ code: (editingAccount as any).code, data: accountData })
-    setEditingAccount(null)
-    setShowAccountDialog(false)
+  const handleEditAccount = async (accountData: any) => {
+    try {
+      await updateAccount.mutateAsync({ code: (editingAccount as any).code, data: accountData })
+      setStatusAlert({ type: "success", message: `Account ${accountData.code} updated successfully!` })
+      setEditingAccount(null)
+      setShowAccountDialog(false)
+      setTimeout(() => setStatusAlert(null), 5000)
+    } catch (err: any) {
+      const msg = err.response?.data?.message || err.message || "Failed to update account"
+      setStatusAlert({ type: "error", message: msg })
+    }
   }
 
-  const handleDeleteAccount = (accountId: string) => {
-    // accountId is code in our mapping
-    deleteAccount.mutate(accountId)
+  const handleDeleteAccount = async (accountId: string) => {
+    if (!confirm(`Are you sure you want to delete account ${accountId}?`)) return
+    try {
+      await deleteAccount.mutateAsync(accountId)
+      setStatusAlert({ type: "success", message: `Account ${accountId} deleted successfully!` })
+      setTimeout(() => setStatusAlert(null), 5000)
+    } catch (err: any) {
+      const msg = err.response?.data?.message || err.message || "Failed to delete account"
+      setStatusAlert({ type: "error", message: msg })
+    }
   }
 
   const openGroupDialog = (group = null) => {
@@ -158,6 +181,24 @@ export default function ChartOfAccounts() {
             </Button>
           </div>
         </div>
+
+        {statusAlert && (
+          <div
+            className={`p-4 mb-4 rounded-lg text-sm flex items-center justify-between shadow-sm ${
+              statusAlert.type === "success"
+                ? "bg-green-500/15 text-green-700 dark:text-green-300 border border-green-500/30"
+                : "bg-destructive/15 text-destructive border border-destructive/30"
+            }`}
+          >
+            <span>{statusAlert.message}</span>
+            <button
+              onClick={() => setStatusAlert(null)}
+              className="font-bold ml-4 text-xs hover:opacity-75"
+            >
+              ✕
+            </button>
+          </div>
+        )}
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
           <TabsList className="grid w-full max-w-md grid-cols-4">
@@ -313,6 +354,7 @@ export default function ChartOfAccounts() {
           <AccountMasterForm
             groups={groups}
             account={editingAccount}
+            availableAccounts={accounts}
             onSubmit={editingAccount ? handleEditAccount : handleAddAccount}
             onCancel={() => setShowAccountDialog(false)}
           />

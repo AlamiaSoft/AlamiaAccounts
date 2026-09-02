@@ -81,15 +81,21 @@ class VoucherController extends Controller
             'entries.*.description' => 'nullable|string',
         ]);
 
-        $voucher = $this->voucherService->createJournalEntry([
-            'date' => $validated['date'],
-            'reference' => $validated['reference'],
-            'description' => $validated['description'] ?? '',
-            'currency' => $validated['currency'],
-            'entries' => $validated['entries'],
-        ]);
+        try {
+            $voucher = $this->voucherService->createJournalEntry([
+                'date' => $validated['date'],
+                'reference' => $validated['reference'],
+                'description' => $validated['description'] ?? '',
+                'currency' => $validated['currency'],
+                'entries' => $validated['entries'],
+            ]);
 
-        return response()->json(['data' => $voucher], 201);
+            return response()->json(['data' => $voucher], 201);
+        } catch (\Exception $e) {
+            return response()->json([
+                'message' => $e->getMessage()
+            ], 422);
+        }
     }
 
     /**

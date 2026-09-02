@@ -7,12 +7,12 @@ import { Download, Eye, Loader2 } from "lucide-react"
 import ReportView from "@/components/report-view"
 import { useTrialBalance, useProfitLoss, useBalanceSheet } from "@/hooks/use-reports"
 
-export default function FinancialReports() {
+export default function FinancialReports({ initialReport }: { initialReport?: string } = {}) {
   const today = new Date().toISOString().split("T")[0]
   const currentYear = new Date().getFullYear()
   const startOfYear = `${currentYear}-01-01`
 
-  const [selectedReport, setSelectedReport] = useState("balance-sheet")
+  const [selectedReport, setSelectedReport] = useState(initialReport || "balance-sheet")
   const [reportPeriod, setReportPeriod] = useState(today) // Used as 'asOfDate' or 'toDate'
   const [fromDate, setFromDate] = useState(startOfYear)
   const [plLayout, setPlLayout] = useState<"income-expense" | "vertical">("income-expense")

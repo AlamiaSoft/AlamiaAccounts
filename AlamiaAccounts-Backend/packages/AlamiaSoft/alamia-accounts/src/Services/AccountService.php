@@ -92,7 +92,12 @@ class AccountService
         }
         
         // Create account via Abivia controller (for validation and business logic)
-        $ledgerAccount = $this->accountController->add($message);
+        try {
+            $ledgerAccount = $this->accountController->add($message);
+        } catch (\Abivia\Ledger\Exceptions\Breaker $b) {
+            $errors = $b->getErrors();
+            throw new \Exception(!empty($errors) ? implode(', ', $errors) : $b->getMessage());
+        }
         
         // CRITICAL: Associate account with domain via pivot table
         // This is our custom extension - Abivia doesn't do this

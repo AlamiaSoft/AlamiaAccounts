@@ -119,8 +119,11 @@ class ReportService
 
             $name = $account->names->first()->name ?? $account->code;
 
-            // Revenue: Credit accounts starting with 3 or 5 (or credit = true, not 2xxx liability)
-            if ($account->credit && (str_starts_with($account->code, '3') || str_starts_with($account->code, '5'))) {
+            // Revenue: Credit accounts (excluding Liabilities 2xxx and Equity 51xx/52xx/53xx)
+            $isEquity = str_starts_with($account->code, '51') || str_starts_with($account->code, '52') || str_starts_with($account->code, '53') || $account->code === '3000';
+            $isLiability = str_starts_with($account->code, '2');
+
+            if ($account->credit && !$isEquity && !$isLiability) {
                 $amount = abs($balance);
                 $totalIncome += $amount;
                 $income[] = [

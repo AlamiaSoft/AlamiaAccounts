@@ -141,7 +141,12 @@ class VoucherService
         $message->details = $details;
 
         // Create entry via Abivia controller
-        $journalEntry = $this->journalController->add($message);
+        try {
+            $journalEntry = $this->journalController->add($message);
+        } catch (\Abivia\Ledger\Exceptions\Breaker $b) {
+            $errors = $b->getErrors();
+            throw new \Exception(!empty($errors) ? implode(', ', $errors) : $b->getMessage());
+        }
 
         // Associate with domain via pivot table
         DomainJournalEntry::create([

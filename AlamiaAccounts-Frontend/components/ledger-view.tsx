@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -18,12 +18,22 @@ interface Transaction {
 }
 
 export default function LedgerView() {
-  const [selectedAccount, setSelectedAccount] = useState("1001")
+  const [selectedAccount, setSelectedAccount] = useState("")
   const [fromDate, setFromDate] = useState("2024-01-01")
   const [toDate, setToDate] = useState(new Date().toISOString().split("T")[0])
   const [filterType, setFilterType] = useState("all")
 
   const { accounts: apiAccounts, isLoading: isLoadingAccounts } = useAccounts()
+
+  useEffect(() => {
+    if (!selectedAccount && apiAccounts && apiAccounts.length > 0) {
+      const firstLeaf = apiAccounts.find((a: any) => !a.category) || apiAccounts[0]
+      if (firstLeaf) {
+        setSelectedAccount(firstLeaf.code)
+      }
+    }
+  }, [apiAccounts, selectedAccount])
+
   const { data: ledgerData, isLoading: isLoadingLedger } = useLedger(selectedAccount, fromDate, toDate, "PKR")
 
   const accounts = (apiAccounts || []).map((acc: any) => ({

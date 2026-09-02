@@ -317,21 +317,10 @@ export default function Home() {
       case "ledger":
         return <LedgerView />
       case "trial-balance":
-        return (
-          <div className="space-y-6">
-            <div>
-              <h2 className="text-3xl font-bold">Trial Balance</h2>
-              <p className="text-muted-foreground mt-1">Verify accounting records</p>
-            </div>
-            <div className="bg-muted/50 p-8 rounded-lg text-center">
-              <p className="text-muted-foreground">Trial balance feature coming soon</p>
-            </div>
-          </div>
-        )
       case "balance-sheet":
       case "profit-loss":
       case "cash-flow":
-        return <FinancialReports />
+        return <FinancialReports initialReport={currentPage} />
       case "print-templates":
         return <PrintTemplateSettings onSave={setPrintSettings} initialSettings={printSettings} />
       default:

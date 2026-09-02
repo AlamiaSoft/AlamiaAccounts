@@ -71,7 +71,33 @@ class AccountController extends Controller
             'category' => 'nullable|boolean',
             'debit' => 'nullable|boolean',
             'credit' => 'nullable|boolean',
+            'type' => 'nullable|string',
         ]);
+
+        $code = $validated['code'];
+        $type = $request->input('type');
+
+        // Auto-infer parent_code if not explicitly set
+        if (empty($validated['parent_code'])) {
+            if (str_starts_with($code, '1')) {
+                $validated['parent_code'] = '1000';
+            } elseif (str_starts_with($code, '2')) {
+                $validated['parent_code'] = '2000';
+            } elseif (str_starts_with($code, '3')) {
+                $validated['parent_code'] = '3000';
+            } elseif (str_starts_with($code, '4')) {
+                $validated['parent_code'] = '4000';
+            } elseif (str_starts_with($code, '5')) {
+                $validated['parent_code'] = '5000';
+            }
+        }
+
+        // Auto-infer normal debit/credit balance if not specified
+        if (!isset($validated['debit']) && !isset($validated['credit'])) {
+            $isDebit = str_starts_with($code, '1') || str_starts_with($code, '4') || in_array($type, ['Asset', 'Bank', 'Cash', 'Expense']);
+            $validated['debit'] = $isDebit;
+            $validated['credit'] = !$isDebit;
+        }
 
         try {
             $account = $this->accountService->createAccount($validated);

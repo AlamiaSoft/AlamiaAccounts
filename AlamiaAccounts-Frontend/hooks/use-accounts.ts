@@ -1,11 +1,16 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { accountApi } from '@/lib/api'
 
+function getCompanyCode(): string {
+    return typeof window !== 'undefined' ? localStorage.getItem('current_company_code') || 'MAIN' : 'MAIN'
+}
+
 export function useAccounts() {
     const queryClient = useQueryClient()
+    const company = getCompanyCode()
 
     const { data: accounts, isLoading } = useQuery({
-        queryKey: ['accounts'],
+        queryKey: ['accounts', company],
         queryFn: async () => {
             const response = await accountApi.getAll()
             return response.data.data || []
@@ -44,8 +49,9 @@ export function useAccounts() {
 }
 
 export function useAccount(code: string) {
+    const company = getCompanyCode()
     return useQuery({
-        queryKey: ['account', code],
+        queryKey: ['account', company, code],
         queryFn: async () => {
             const response = await accountApi.getOne(code)
             return response.data.data

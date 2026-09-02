@@ -94,7 +94,9 @@ export default function Sidebar({
             <PieChart className="w-6 h-6 text-sidebar-primary-foreground" />
           </div>
           <div>
-            <h1 className="font-bold text-sidebar-foreground">AccounTech</h1>
+            <h1 className="font-bold text-sidebar-foreground">
+              {process.env.NEXT_PUBLIC_APP_NAME || "Alamia Accounts"}
+            </h1>
             <p className="text-xs text-muted-foreground">Accounting Suite</p>
           </div>
         </div>

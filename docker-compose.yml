@@ -8,7 +8,7 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - APP_NAME=AlamiaAccounts
+      - APP_NAME=Alamia Accounts
       - APP_ENV=local
       - APP_DEBUG=true
       - APP_URL=http://localhost:8000
@@ -37,6 +37,7 @@ services:
     environment:
       - NODE_ENV=development
       - NEXT_PUBLIC_API_URL=http://localhost:8000/api
+      - NEXT_PUBLIC_APP_NAME=Alamia Accounts
       - WATCHPACK_POLLING=true
     volumes:
       - ./AlamiaAccounts-Frontend:/app

@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "name": "AccounTech Copilot Knowledgebase Manifest",
+  "name": "Alamia Accounts Copilot Knowledgebase Manifest",
   "version": "1.0.0",
   "description": "Semantic catalog mapping user conversational intents to accounting rules, documentation chapters, database tables, and API routes.",
   "intents": [

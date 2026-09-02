@@ -8,7 +8,7 @@ const _geist = Geist({ subsets: ["latin"] })
 const _geistMono = Geist_Mono({ subsets: ["latin"] })
 
 export const metadata: Metadata = {
-  title: "Accounting Management System",
+  title: process.env.NEXT_PUBLIC_APP_NAME || "Alamia Accounts",
   description: "Professional Chart of Accounts and Voucher Entry management interface for Asian businesses",
   generator: "v0.app",
   icons: {

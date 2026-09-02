@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "system": "AccounTech Accounting Engine",
+  "system": "Alamia Accounts Accounting Engine",
   "version": "1.0.0",
   "description": "Formalized machine-readable accounting rules and system constraints for AI Copilot reasoning and execution.",
   "invariants": {

@@ -20,7 +20,7 @@ invariants:
 
 # 03 - Chart of Accounts (COA) Architecture & Multi-Tenancy
 
-This manual chapter documents the architecture, data model, validation rules, and multi-tenant scoping mechanisms governing the Chart of Accounts (COA) in AccounTech.
+This manual chapter documents the architecture, data model, validation rules, and multi-tenant scoping mechanisms governing the Chart of Accounts (COA) in Alamia Accounts.
 
 ---
 
@@ -107,7 +107,7 @@ If a user or API call creates an account without explicitly providing `debit`, `
 
 ## 3. Multi-Tenant COA Initialization Architecture
 
-AccounTech uses a shared template database schema scoped by ledger domains (`ledger_domains`).
+Alamia Accounts uses a shared template database schema scoped by ledger domains (`ledger_domains`).
 
 ### Pivot Relationship: `domain_ledger_accounts`
 The `domain_ledger_accounts` pivot table maps which accounts are visible to which company tenant:

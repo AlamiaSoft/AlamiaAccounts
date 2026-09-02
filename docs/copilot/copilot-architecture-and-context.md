@@ -1,6 +1,6 @@
 # AI Copilot Architecture & Context Guide
 
-This document describes how to configure, index, and integrate the **AccounTech AI Copilot** in future phases.
+This document describes how to configure, index, and integrate the **Alamia Accounts AI Copilot** in future phases.
 
 ---
 

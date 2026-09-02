@@ -1,0 +1,123 @@
+﻿# ============================================================
+#  Alamia Accounts — Portainer Stack (Git Integration)
+# ============================================================
+#
+#  Architecture
+#  ─────────────────────────────────────────────────────────
+#  CF Tunnel daemon ──► localhost:${FRONTEND_HOST_PORT}
+#                                      │
+#                                      ▼
+#                             ┌────────────────┐
+#                             │   frontend     │  Next.js 20
+#                             │   :3000        │  (standalone)
+#                             └───────┬────────┘
+#                                     │ internal /api/* proxy
+#                                     ▼
+#                             ┌────────────────┐
+#                             │   backend      │  Laravel 12
+#                             │   :8000        │  (no host port)
+#                             └────────────────┘
+#
+#  PORTAINER SETUP
+#  ─────────────────────────────────────────────────────────
+#  1. Portainer → Stacks → Add Stack → Git Repository
+#  2. Repository URL : your Git remote (GitHub/GitLab/etc.)
+#  3. Compose path   : stack.portainer.yml
+#  4. Add environment variables (see below) in the env box
+#  5. Deploy — Portainer clones & builds both images on the VPS
+#
+#  REQUIRED PORTAINER ENVIRONMENT VARIABLES
+#  ─────────────────────────────────────────────────────────
+#  FRONTEND_HOST_PORT  = 3100        ← any free port on the VPS host
+#  APP_KEY             = base64:...  ← php artisan key:generate --show
+#  APP_URL             = https://accounts.alamiaconnect.com
+#  FRONTEND_URL        = https://accounts.alamiaconnect.com
+#
+#  OPTIONAL OVERRIDES (defaults shown)
+#  APP_ENV   = production
+#  APP_DEBUG = false
+#  LOG_LEVEL = error
+# ============================================================
+
+services:
+
+  # ── Laravel API Backend ─────────────────────────────────
+  backend:
+    build:
+      context: ./AlamiaAccounts-Backend
+      dockerfile: Dockerfile
+    image: alamia-accounts-backend:latest
+    container_name: alamia-backend
+    restart: unless-stopped
+    # NO host port — reachable ONLY via the internal Docker network.
+    expose:
+      - "8000"
+    environment:
+      APP_NAME: "Alamia Accounts"
+      APP_ENV: "${APP_ENV:-production}"
+      APP_DEBUG: "${APP_DEBUG:-false}"
+      APP_KEY: "${APP_KEY}"
+      APP_URL: "${APP_URL:-https://accounts.alamiaconnect.com}"
+      FRONTEND_URL: "${FRONTEND_URL:-https://accounts.alamiaconnect.com}"
+      LOG_CHANNEL: stack
+      LOG_LEVEL: "${LOG_LEVEL:-error}"
+      DB_CONNECTION: sqlite
+      DB_DATABASE: /var/www/database/database.sqlite
+      CACHE_STORE: file
+      SESSION_DRIVER: file
+      QUEUE_CONNECTION: sync
+    volumes:
+      - alamia_db:/var/www/database
+      - alamia_storage:/var/www/storage
+    networks:
+      - alamia-internal
+    healthcheck:
+      test: ["CMD-SHELL", "php artisan about --only=environment 2>&1 | grep -qi 'production' && exit 0 || exit 1"]
+      interval: 30s
+      timeout: 15s
+      retries: 5
+      start_period: 60s
+
+  # ── Next.js Frontend ────────────────────────────────────
+  frontend:
+    build:
+      context: ./AlamiaAccounts-Frontend
+      dockerfile: Dockerfile
+      args:
+        # /api is relative — browser calls go to the same origin.
+        # Next.js rewrites (next.config.mjs) proxy /api/* → internal backend.
+        NEXT_PUBLIC_API_URL: "/api"
+        NEXT_PUBLIC_APP_NAME: "Alamia Accounts"
+    image: alamia-accounts-frontend:latest
+    container_name: alamia-frontend
+    restart: unless-stopped
+    ports:
+      # 127.0.0.1 bind = NOT reachable from public internet.
+      # cloudflared CF tunnel connects via localhost on this port.
+      # Set FRONTEND_HOST_PORT to any free port on your VPS.
+      - "127.0.0.1:${FRONTEND_HOST_PORT:-3100}:3000"
+    environment:
+      NODE_ENV: production
+      NEXT_PUBLIC_API_URL: "/api"
+      NEXT_PUBLIC_APP_NAME: "Alamia Accounts"
+      # Server-side only — Next.js rewrites() in next.config.mjs uses this
+      # to forward /api/* → the internal backend container.
+      BACKEND_INTERNAL_URL: "http://backend:8000"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - alamia-internal
+
+# ── Networks ──────────────────────────────────────────────
+networks:
+  alamia-internal:
+    name: alamia-internal
+    driver: bridge
+
+# ── Volumes ───────────────────────────────────────────────
+volumes:
+  alamia_db:
+    name: alamia_db
+  alamia_storage:
+    name: alamia_storage

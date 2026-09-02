@@ -35,6 +35,7 @@ export default function Sidebar({
       icon: Settings,
       submenu: [
         { id: "coa", label: "Chart of Accounts" },
+        { id: "periods", label: "Accounting Periods" },
         { id: "users", label: "Users & Roles" },
         { id: "companies", label: "Companies" },
         { id: "custom-voucher-types", label: "Custom Voucher Types" },

@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useMemo } from "react"
-import { Plus, Edit, Trash2, Search, Loader2 } from "lucide-react"
+import { Plus, Edit, Trash2, Search, Loader2, Scale } from "lucide-react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -12,6 +12,7 @@ import AccountGroupForm from "./account-group-form"
 import AccountMasterForm from "./account-master-form"
 import AccountTreeView from "./account-tree-view"
 import AccountAnalytics from "./account-analytics"
+import OpeningBalanceModal from "./opening-balance-modal"
 import { useAccounts } from "@/hooks/use-accounts"
 import ConfirmModal from "@/components/ui/confirm-modal"
 
@@ -102,6 +103,7 @@ export default function ChartOfAccounts() {
   const [deleteTarget, setDeleteTarget] = useState<any | null>(null)
   const [openingBalancePrompt, setOpeningBalancePrompt] = useState<{ accountData: any; isEdit: boolean } | null>(null)
   const [noticeModal, setNoticeModal] = useState<{ title: string; message: string; variant?: "danger" | "warning" | "info" } | null>(null)
+  const [isOpeningBalanceModalOpen, setIsOpeningBalanceModalOpen] = useState(false)
 
   const handleDeleteGroup = (groupId: string) => {
     const hasAccounts = accounts.some((acc: any) => acc.groupId === groupId)
@@ -207,6 +209,10 @@ export default function ChartOfAccounts() {
             <p className="text-muted-foreground mt-1">Manage your account structure and master data</p>
           </div>
           <div className="flex gap-2">
+            <Button onClick={() => setIsOpeningBalanceModalOpen(true)} variant="secondary" className="gap-2">
+              <Scale className="w-4 h-4" />
+              Opening Balances
+            </Button>
             <Button onClick={() => openGroupDialog()} className="gap-2">
               <Plus className="w-4 h-4" />
               Add Group
@@ -478,6 +484,13 @@ export default function ChartOfAccounts() {
           cancelText="Close"
         />
       )}
+
+      {/* 4. Compound Opening Balance Setup Modal */}
+      <OpeningBalanceModal
+        open={isOpeningBalanceModalOpen}
+        onOpenChange={setIsOpeningBalanceModalOpen}
+        accounts={apiAccounts || []}
+      />
     </div>
   )
 }

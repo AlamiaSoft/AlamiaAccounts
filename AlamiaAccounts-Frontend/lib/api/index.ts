@@ -45,7 +45,26 @@ export const voucherApi = {
     create: (data: any) => apiClient.post('/vouchers', data),
     update: (reference: string, data: any) => apiClient.put(`/vouchers/${reference}`, data),
     delete: (reference: string) => apiClient.delete(`/vouchers/${reference}`),
-    reverse: (reference: string, date?: string) => apiClient.post(`/vouchers/${reference}/reverse`, { date }),
+    reverse: (reference: string, data?: { date?: string; reason?: string }) =>
+        apiClient.post(`/vouchers/${reference}/reverse`, data || {}),
+}
+
+// Accounting Periods API
+export const periodApi = {
+    getAll: (year?: number) => apiClient.get('/periods', { params: { year } }),
+    close: (id: number) => apiClient.post(`/periods/${id}/close`),
+    reopen: (id: number, reason: string) => apiClient.post(`/periods/${id}/reopen`, { reason }),
+}
+
+// Opening Balances API
+export const openingBalanceApi = {
+    getStatus: () => apiClient.get('/opening-balances'),
+    post: (data: any) => apiClient.post('/opening-balances', data),
+}
+
+// Audit Trail API
+export const auditTrailApi = {
+    getAll: (params?: any) => apiClient.get('/audit-trail', { params }),
 }
 
 // Custom Voucher Type API

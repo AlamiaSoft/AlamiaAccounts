@@ -131,9 +131,9 @@ class VoucherController extends Controller
 
     public function destroy($reference)
     {
-        $this->voucherService->deleteVoucher($reference);
-        
-        return response()->json(null, 204);
+        return response()->json([
+            'message' => 'Posted accounting vouchers cannot be physically deleted. Use voucher reversal to maintain double-entry audit history.'
+        ], 422);
     }
 
     /**
@@ -143,7 +143,8 @@ class VoucherController extends Controller
     {
         try {
             $date = $request->input('date');
-            $reversed = $this->voucherService->reverseVoucher($reference, $date);
+            $reason = $request->input('reason');
+            $reversed = $this->voucherService->reverseVoucher($reference, $date, $reason);
 
             return response()->json([
                 'message' => "Voucher {$reference} reversed successfully",

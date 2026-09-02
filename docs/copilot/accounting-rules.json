@@ -18,6 +18,22 @@
       "rule": "Every transaction and voucher must be scoped strictly to the current active domainUuid.",
       "request_header": "X-Company-Code",
       "remediation": "Never query or mix balances across different company codes."
+    },
+    "historical_immutability": {
+      "rule": "Posted vouchers cannot be physically deleted. Any correction requires an inverse compensating reversal entry.",
+      "error_code": "CANNOT_DELETE_POSTED_VOUCHER",
+      "remediation": "Call POST /api/vouchers/{ref}/reverse with mandatory business reason."
+    },
+    "compound_opening_balance": {
+      "rule": "Opening balances must be posted as a balanced compound batch across Assets, Liabilities, and Equity.",
+      "voucher_prefix": "OB-",
+      "endpoint": "/api/opening-balances",
+      "remediation": "Allocate any net variance to Owner's Capital (5100) or Retained Earnings (5200)."
+    },
+    "period_controls": {
+      "rule": "Transactions cannot be posted into closed or locked accounting periods.",
+      "error_code": "PERIOD_CLOSED",
+      "remediation": "Ensure posting date falls into an open period, or reopen the period with authorized CFO reason."
     }
   },
   "account_classification": {

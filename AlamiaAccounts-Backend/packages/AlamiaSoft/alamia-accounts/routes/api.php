@@ -11,6 +11,9 @@ use AlamiaSoft\AlamiaAccounts\Http\Controllers\Api\CustomVoucherTypeController;
 use AlamiaSoft\AlamiaAccounts\Http\Controllers\Api\SearchController;
 use AlamiaSoft\AlamiaAccounts\Http\Controllers\Api\PrintController;
 use AlamiaSoft\AlamiaAccounts\Http\Controllers\Api\UserController;
+use AlamiaSoft\AlamiaAccounts\Http\Controllers\Api\PeriodController;
+use AlamiaSoft\AlamiaAccounts\Http\Controllers\Api\OpeningBalanceController;
+use AlamiaSoft\AlamiaAccounts\Http\Controllers\Api\AuditTrailController;
 
 // Public routes
 Route::post('/login', [AuthController::class, 'login']);
@@ -64,4 +67,15 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/reports/ledger', [ReportController::class, 'ledger']);
     Route::get('/reports/receivables', [ReportController::class, 'receivables']);
     Route::get('/reports/payables', [ReportController::class, 'payables']);
+    // Periods & Fiscal Controls
+    Route::get('/periods', [PeriodController::class, 'index']);
+    Route::post('/periods/{id}/close', [PeriodController::class, 'close']);
+    Route::post('/periods/{id}/reopen', [PeriodController::class, 'reopen']);
+
+    // Opening Balances
+    Route::get('/opening-balances', [OpeningBalanceController::class, 'index']);
+    Route::post('/opening-balances', [OpeningBalanceController::class, 'store']);
+
+    // Audit Trail
+    Route::get('/audit-trail', [AuditTrailController::class, 'index']);
 });

@@ -23,6 +23,7 @@ import Cashbook from "@/components/cashbook"
 import DayBook from "@/components/daybook"
 import CustomVoucherTypes from "@/components/custom-voucher-types"
 import VoucherBuilder from "@/components/voucher-builder"
+import PeriodManagement from "@/components/period-management"
 import { useCompanies } from "@/hooks/use-companies"
 import { Loader2 } from "lucide-react"
 
@@ -272,7 +273,11 @@ function HomeContent() {
       case "dashboard":
         return <Dashboard />
       case "coa":
+      case "accounts":
         return <ChartOfAccounts />
+      case "periods":
+      case "fiscal-periods":
+        return <PeriodManagement />
       case "users":
         return <UserManagement />
       case "companies":
@@ -381,7 +386,9 @@ function HomeContent() {
       case "balance-sheet":
       case "profit-loss":
       case "cash-flow":
-        return <FinancialReports initialReport={currentPage} />
+      case "reports":
+      case "financial-reports":
+        return <FinancialReports initialReport={currentPage === "reports" || currentPage === "financial-reports" ? "balance-sheet" : currentPage} />
       case "print-templates":
         return <PrintTemplateSettings onSave={setPrintSettings} initialSettings={printSettings} />
       default:

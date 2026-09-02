@@ -9,6 +9,12 @@ import { Download, Printer, Receipt, Loader2, Calendar, ArrowLeftRight } from "l
 import { Badge } from "@/components/ui/badge"
 import { useVouchers } from "@/hooks/use-vouchers"
 import { useAccounts } from "@/hooks/use-accounts"
+import { useMutation, useQueryClient } from "@tanstack/react-query"
+import { voucherApi } from "@/lib/api"
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Textarea } from "@/components/ui/textarea"
+import { Label } from "@/components/ui/label"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 import { cn } from "@/lib/utils"
 
 interface FlattenedEntry {
@@ -23,11 +29,47 @@ interface FlattenedEntry {
 }
 
 export default function DayBook() {
+  const queryClient = useQueryClient()
   const [selectedDate, setSelectedDate] = useState(() => new Date().toISOString().split("T")[0])
   const [showAllDates, setShowAllDates] = useState(false)
+  const [reversalTarget, setReversalTarget] = useState<string | null>(null)
+  const [reversalReason, setReversalReason] = useState("")
+  const [statusAlert, setStatusAlert] = useState<{ type: "success" | "error"; message: string } | null>(null)
 
   const { vouchers: apiVouchers, isLoading } = useVouchers()
   const { accounts: allAccounts } = useAccounts()
+
+  const reverseMutation = useMutation({
+    mutationFn: ({ ref, reason }: { ref: string; reason: string }) =>
+      voucherApi.reverse(ref, { reason }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["vouchers"] })
+      queryClient.invalidateQueries({ queryKey: ["reports"] })
+      setStatusAlert({
+        type: "success",
+        message: `Voucher ${reversalTarget} reversed successfully. Compensating entry REV-${reversalTarget} posted to ledger.`,
+      })
+      setReversalTarget(null)
+      setReversalReason("")
+      setTimeout(() => setStatusAlert(null), 6000)
+    },
+    onError: (err: any) => {
+      const msg = err.response?.data?.message || err.message || "Failed to reverse voucher"
+      setStatusAlert({ type: "error", message: msg })
+    },
+  })
+
+  // Set of reversed voucher references
+  const reversedRefs = useMemo(() => {
+    const set = new Set<string>()
+    for (const v of apiVouchers || []) {
+      const ref = String(v.reference || v.number || "")
+      if (ref.toUpperCase().startsWith("REV-")) {
+        set.add(ref.substring(4).toUpperCase())
+      }
+    }
+    return set
+  }, [apiVouchers])
 
   // Map of account code to name for rich display
   const accountMap = useMemo(() => {
@@ -230,6 +272,12 @@ export default function DayBook() {
         </Card>
       </div>
 
+      {statusAlert && (
+        <Alert variant={statusAlert.type === "error" ? "destructive" : "default"} className={statusAlert.type === "success" ? "border-green-500 bg-green-50 text-green-900 dark:bg-green-950 dark:text-green-200" : ""}>
+          <AlertDescription className="font-medium">{statusAlert.message}</AlertDescription>
+        </Alert>
+      )}
+
       {/* Entries Table */}
       <Card>
         <CardHeader>
@@ -257,12 +305,13 @@ export default function DayBook() {
                     <TableHead className="text-right">Debit</TableHead>
                     <TableHead className="text-right">Credit</TableHead>
                     <TableHead>Narration</TableHead>
+                    <TableHead className="text-right">Action</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {entries.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={7} className="text-center py-12 text-muted-foreground">
+                      <TableCell colSpan={8} className="text-center py-12 text-muted-foreground">
                         No vouchers recorded for this period.
                       </TableCell>
                     </TableRow>
@@ -300,6 +349,25 @@ export default function DayBook() {
                         <TableCell className="text-muted-foreground text-xs max-w-xs truncate">
                           {entry.narration || "-"}
                         </TableCell>
+                        <TableCell className="text-right">
+                          {entry.voucherNo.toUpperCase().startsWith("REV-") ? (
+                            <Badge variant="secondary" className="text-xs">Reversal</Badge>
+                          ) : reversedRefs.has(entry.voucherNo.toUpperCase()) ? (
+                            <Badge variant="destructive" className="text-xs">Reversed</Badge>
+                          ) : (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 text-xs text-destructive hover:bg-destructive/10"
+                              onClick={() => {
+                                setReversalTarget(entry.voucherNo)
+                                setReversalReason("")
+                              }}
+                            >
+                              Reverse
+                            </Button>
+                          )}
+                        </TableCell>
                       </TableRow>
                     ))
                   )}
@@ -309,6 +377,45 @@ export default function DayBook() {
           )}
         </CardContent>
       </Card>
+
+      {/* Reversal Confirmation Dialog */}
+      <Dialog open={!!reversalTarget} onOpenChange={(open) => !open && setReversalTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Reverse Voucher: {reversalTarget}</DialogTitle>
+            <DialogDescription>
+              Posting a reversal will generate an inverse compensating entry to neutralize this transaction while preserving the complete audit history.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <Label htmlFor="reversal-reason">Business Reason for Reversal *</Label>
+            <Textarea
+              id="reversal-reason"
+              placeholder="Provide a documented reason (e.g., Billing correction, incorrect amount, double charge)..."
+              value={reversalReason}
+              onChange={(e) => setReversalReason(e.target.value)}
+              className="min-h-[80px]"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setReversalTarget(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={!reversalReason.trim() || reverseMutation.isPending}
+              onClick={() => {
+                if (reversalTarget && reversalReason.trim()) {
+                  reverseMutation.mutate({ ref: reversalTarget, reason: reversalReason.trim() })
+                }
+              }}
+            >
+              {reverseMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+              Confirm Reversal
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

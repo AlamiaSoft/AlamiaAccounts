@@ -11,6 +11,7 @@ const test06 = require('./06-opening-balance-and-coa-ux.test');
 const test07 = require('./07-master-e2e-accounting.test');
 const test08 = require('./08-group-ledger-and-subledgers.test');
 const test09 = require('./09-voucher-lifecycle-negative.test');
+const test10 = require('./10-accountant-production-readiness.test');
 
 async function runAll() {
   console.log('================================================================');
@@ -28,6 +29,7 @@ async function runAll() {
     { name: '07: Master E2E Accounting Certification', fn: test07 },
     { name: '08: Group Ledgers & AR/AP Subledgers', fn: test08 },
     { name: '09: Voucher Lifecycle & Negative Validations', fn: test09 },
+    { name: '10: Accountant Production Readiness & Hardening', fn: test10 },
   ];
 
   const results = [];

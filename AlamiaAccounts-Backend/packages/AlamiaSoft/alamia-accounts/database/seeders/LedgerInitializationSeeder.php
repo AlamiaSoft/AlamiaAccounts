@@ -45,7 +45,7 @@ class LedgerInitializationSeeder extends Seeder
         $create->names[] = Name::fromArray(['name' => 'Main Company Ledger']);
         $create->currencies[] = Currency::fromArray(['code' => 'PKR', 'decimals' => 2]);
         $create->currencies[] = Currency::fromArray(['code' => 'USD', 'decimals' => 2]);
-        $create->transDate = Carbon::now();
+        $create->transDate = Carbon::parse('2000-01-01');
 
         $controller = new LedgerAccountController();
         $controller->create($create);

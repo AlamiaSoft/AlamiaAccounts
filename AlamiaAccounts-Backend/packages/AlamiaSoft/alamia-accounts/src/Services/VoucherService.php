@@ -10,6 +10,7 @@ use Abivia\Ledger\Models\JournalEntry as JournalEntryModel;
 use Abivia\Ledger\Models\LedgerDomain;
 use AlamiaSoft\AlamiaAccounts\Models\DomainJournalEntry;
 use AlamiaSoft\AlamiaAccounts\Models\DomainLedgerAccount;
+use AlamiaSoft\AlamiaAccounts\Models\AccountingAuditTrail;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -97,6 +98,16 @@ class VoucherService
         }
 
         $accountUuids = DomainLedgerAccount::getAccountUuidsForDomain($domain->domainUuid);
+        foreach ($accountCodes as $code) {
+            $globalAcc = \Abivia\Ledger\Models\LedgerAccount::where('code', $code)->first();
+            if ($globalAcc && !in_array($globalAcc->ledgerUuid, $accountUuids)) {
+                DomainLedgerAccount::firstOrCreate([
+                    'domainUuid' => $domain->domainUuid,
+                    'ledgerUuid' => $globalAcc->ledgerUuid,
+                ]);
+            }
+        }
+        $accountUuids = DomainLedgerAccount::getAccountUuidsForDomain($domain->domainUuid);
         $validAccounts = \Abivia\Ledger\Models\LedgerAccount::whereIn('code', $accountCodes)
             ->whereIn('ledgerUuid', $accountUuids)
             ->count();
@@ -105,8 +116,8 @@ class VoucherService
             throw new Exception('One or more accounts do not belong to the current domain');
         }
 
-        // Build Entry message
         $message = new Entry();
+        $message->clearing = true;
         $message->currency = $data['currency'] ?? $domain->currencyDefault ?? 'PKR';
         $message->description = $data['description'] ?? 'Journal Voucher';
         $message->domain = new EntityRef($domain->code);
@@ -117,12 +128,6 @@ class VoucherService
         } elseif (isset($data['date'])) {
             $message->transDate = Carbon::parse($data['date']);
         } else {
-            $message->transDate = Carbon::now();
-        }
-
-        // Ensure date is not before ledger root initialization date
-        $rootAcc = \Abivia\Ledger\Models\LedgerAccount::where('code', '')->first();
-        if ($rootAcc && $message->transDate->lt($rootAcc->created_at)) {
             $message->transDate = Carbon::now();
         }
 
@@ -182,21 +187,42 @@ class VoucherService
 
         $message->details = $details;
 
-        // Create entry via Abivia controller
-        try {
-            $journalEntry = $this->journalController->add($message);
-        } catch (\Abivia\Ledger\Exceptions\Breaker $b) {
-            $errors = $b->getErrors();
-            throw new \Exception(!empty($errors) ? implode(', ', $errors) : $b->getMessage());
-        }
+        // Period validation
+        $transDateStr = $message->transDate instanceof Carbon ? $message->transDate->toDateString() : (string)$message->transDate;
+        $periodService = app(PeriodService::class);
+        $periodService->validatePostingDate($domain->domainUuid, $transDateStr);
 
-        // Associate with domain via pivot table
-        DomainJournalEntry::create([
-            'domainUuid' => $domain->domainUuid,
-            'journalEntryId' => $journalEntry->journalEntryId,
-        ]);
+        // Create entry and domain association atomically inside DB::transaction
+        return DB::transaction(function () use ($message, $domain, $data, $entries, $voucherType, $transDateStr) {
+            try {
+                $journalEntry = $this->journalController->add($message);
+            } catch (\Abivia\Ledger\Exceptions\Breaker $b) {
+                $errors = $b->getErrors();
+                throw new \Exception(!empty($errors) ? implode(', ', $errors) : $b->getMessage());
+            }
 
-        return $journalEntry;
+            // Associate with domain via pivot table
+            DomainJournalEntry::create([
+                'domainUuid' => $domain->domainUuid,
+                'journalEntryId' => $journalEntry->journalEntryId,
+            ]);
+
+            // Record in accounting audit trail
+            AccountingAuditTrail::record(
+                $domain->domainUuid,
+                'CREATE_VOUCHER',
+                'voucher',
+                $data['reference'] ?? (string)$journalEntry->journalEntryId,
+                [
+                    'voucher_type' => $voucherType ?? 'journal',
+                    'date' => $transDateStr,
+                    'currency' => $data['currency'] ?? 'PKR',
+                    'entries_count' => count($entries),
+                ]
+            );
+
+            return $journalEntry;
+        });
     }
 
     /**
@@ -340,34 +366,17 @@ class VoucherService
     }
 
     /**
-     * Delete a voucher (safe tenant-scoped cleanup)
+     * Delete a voucher is prohibited for posted accounting vouchers to ensure GAAP audit trail immutability.
      */
     public function deleteVoucher(string $reference): bool
     {
-        $currentDomain = $this->getCurrentDomain();
-        $entryIds = DomainJournalEntry::getEntryIdsForDomain($currentDomain->domainUuid);
-
-        $entries = JournalEntryModel::whereIn('journalEntryId', $entryIds)->get();
-        foreach ($entries as $e) {
-            $ref = (string)$e->journalEntryId;
-            if (!empty($e->extra)) {
-                $dec = json_decode($e->extra, true);
-                $ref = (string)($dec['reference'] ?? $dec['voucher_number'] ?? $ref);
-            }
-            if (strcasecmp($ref, $reference) === 0 || (string)$e->journalEntryId === $reference) {
-                DomainJournalEntry::where('journalEntryId', $e->journalEntryId)->delete();
-                DB::table('journal_details')->where('journalEntryId', $e->journalEntryId)->delete();
-                $e->delete();
-                return true;
-            }
-        }
-        return false;
+        throw new Exception("Posted accounting vouchers cannot be physically deleted. Use voucher reversal to maintain double-entry audit history.");
     }
 
     /**
-     * Reverse a posted voucher (LIFE-008, LIFE-009)
+     * Reverse a posted voucher (LIFE-008, LIFE-009, AUD-01)
      */
-    public function reverseVoucher(string $reference, ?string $date = null): JournalEntryModel
+    public function reverseVoucher(string $reference, ?string $date = null, ?string $reason = null): JournalEntryModel
     {
         $currentDomain = $this->getCurrentDomain();
         $voucher = $this->getVoucher($reference);
@@ -392,6 +401,7 @@ class VoucherService
 
         // Invert debits and credits
         $entries = [];
+        $revDesc = "Reversal of {$reference}" . (!empty($reason) ? " - Reason: {$reason}" : "");
         foreach ($lineItems as $item) {
             $code = $item['account_code'] ?? $item['account'];
             $isDebit = (float)($item['debit'] ?? 0) > 0;
@@ -401,18 +411,33 @@ class VoucherService
                 'account_code' => $code,
                 'amount' => $amt,
                 'type' => $isDebit ? 'credit' : 'debit',
-                'description' => "Reversal of {$reference}",
+                'description' => $revDesc,
             ];
         }
 
-        return $this->createJournalEntry([
+        $reversalEntry = $this->createJournalEntry([
             'reference' => $revRef,
             'voucher_type' => 'Journal',
-            'description' => "Reversal of {$reference}",
+            'description' => $revDesc,
             'date' => $date ?? date('Y-m-d'),
             'currency' => $voucher['currency'] ?? 'PKR',
             'entries' => $entries,
         ]);
+
+        // Audit Trail
+        AccountingAuditTrail::record(
+            $currentDomain->domainUuid,
+            'REVERSE_VOUCHER',
+            'voucher',
+            $reference,
+            [
+                'reversal_reference' => $revRef,
+                'reason' => $reason ?? 'Voucher correction',
+                'reversal_date' => $date ?? date('Y-m-d'),
+            ]
+        );
+
+        return $reversalEntry;
     }
 
     public function createSalesVoucher(array $data): JournalEntryModel

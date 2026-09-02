@@ -67,6 +67,22 @@ class AccountService
             $domain = $this->getCurrentDomain();
         }
 
+        // Check if account with this code already exists in global Abivia accounts
+        $existing = LedgerAccount::where('code', $data['code'])->first();
+        if ($existing) {
+            $linked = DomainLedgerAccount::where('domainUuid', $domain->domainUuid)
+                ->where('ledgerUuid', $existing->ledgerUuid)
+                ->exists();
+            if (!$linked) {
+                DomainLedgerAccount::create([
+                    'domainUuid' => $domain->domainUuid,
+                    'ledgerUuid' => $existing->ledgerUuid,
+                ]);
+                return $existing;
+            }
+            throw new \Exception("Account {$data['code']} already exists.");
+        }
+
         // Build the Account message
         $message = new Account();
         $message->code = $data['code'];
@@ -344,5 +360,23 @@ class AccountService
             'credit' => (bool)$account->credit,
             'parent_uuid' => $account->parentUuid,
         ];
+    }
+
+    /**
+     * Inherit standard Chart of Accounts template into domain with zero starting balances.
+     */
+    public function initializeStandardAccountsForDomain(string $domainUuid): void
+    {
+        $existing = DomainLedgerAccount::where('domainUuid', $domainUuid)->pluck('ledgerUuid')->toArray();
+        $accounts = LedgerAccount::where('code', '!=', '')->get();
+
+        foreach ($accounts as $acc) {
+            if (!in_array($acc->ledgerUuid, $existing)) {
+                DomainLedgerAccount::create([
+                    'domainUuid' => $domainUuid,
+                    'ledgerUuid' => $acc->ledgerUuid,
+                ]);
+            }
+        }
     }
 }

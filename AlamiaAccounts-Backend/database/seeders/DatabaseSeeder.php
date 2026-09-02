@@ -15,11 +15,13 @@ class DatabaseSeeder extends Seeder
     {
         // User::factory(10)->create();
 
-        \App\Models\User::factory()->create([
-            'name' => 'Ali',
-            'email' => 'admin@admin.com',
-            'password' => bcrypt('password'),
-        ]);
+        \App\Models\User::firstOrCreate(
+            ['email' => 'admin@admin.com'],
+            [
+                'name' => 'Ali',
+                'password' => bcrypt('password'),
+            ]
+        );
 
         $this->call([
             \AlamiaSoft\AlamiaAccounts\Database\Seeders\LedgerInitializationSeeder::class,

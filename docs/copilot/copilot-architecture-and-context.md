@@ -1,12 +1,12 @@
-# AI Copilot Architecture & Context Guide
+# Alamia AI Copilot ("Taliya") & MCP Architecture Guide
 
-This document describes how to configure, index, and integrate the **Alamia Accounts AI Copilot** in future phases.
+This document describes how to configure, index, and integrate **Taliya** (the Alamia AI Copilot) and the **Alamia Accounts MCP Server** for AI dev agents, Claude Desktop, OpenAI ChatGPT, and other LLM clients.
 
 ---
 
-## 1. Copilot System Role & Mission
+## 1. Copilot System Role & Identity ("Taliya")
 
-The AI Copilot operates as an intelligent accounting co-pilot embedded within the application. Its mission is to:
+**Taliya** is the intelligent accounting assistant and co-pilot embedded within Alamia Accounts. Her mission is to:
 1. **Assist Users with Accounting Queries**:
    - Clarify the difference between category folders and posting accounts.
    - Advise on proper debit/credit account selection according to standard GAAP/IFRS rules.
@@ -54,6 +54,26 @@ When equipping the Copilot LLM with tools, configure the following functions:
 
 ## 4. Guardrails & Safety Policy
 
-1. **Category Posting Rejection**: The Copilot must never recommend or draft a transaction targeting a parent category (e.g., `1000`, `1100`, `1120`, `2000`, `4000`, `5000`). If a user asks to *"Pay from Bank Accounts"*, the Copilot must prompt: *"Bank Accounts (1120) is a category folder. Would you like to pay from 1130 Meezan Bank or 1135 Bank Alfalah?"*
-2. **Multi-Company Scoping**: The Copilot must always pass `X-Company-Code` header matching the user's active tenant selection.
-3. **Balance Invariant**: The Copilot must refuse to execute an unbalanced voucher.
+1. **Category Posting Rejection**: Taliya must never recommend or draft a transaction targeting a parent category (e.g., `1000`, `1100`, `1120`, `2000`, `4000`, `5000`). If a user asks to *"Pay from Bank Accounts"*, Taliya must prompt: *"Bank Accounts (1120) is a category folder. Would you like to pay from 1130 Meezan Bank or 1135 Bank Alfalah?"*
+2. **Multi-Company Scoping**: Taliya must always pass `X-Company-Code` header matching the user's active tenant selection.
+3. **Balance Invariant**: Taliya must refuse to execute an unbalanced voucher.
+
+---
+
+## 5. Alamia Accounts MCP Server (Model Context Protocol)
+
+The **Alamia Accounts MCP Server** exposes the complete double-entry accounting engine to external LLMs (Claude Desktop, OpenAI ChatGPT, Cursor, Windsurf, and autonomous developer agents).
+
+### Server Overview
+- **Protocol**: JSON-RPC 2.0 over `stdio` or Server-Sent Events (`sse`).
+- **Authentication**: Bearer API token or local secret scoped to permitted company domains.
+- **Tenant Scope**: Configurable default company code (`MAIN`, `KAMAL`, etc.) with dynamic per-call overrides.
+
+### Core MCP Tools Exposed:
+1. `list_accounts(company_code?, parent_code?, category_only?)`: Returns hierarchical chart of accounts and live balances.
+2. `create_account(code, name, parent_code, category, debit, credit, company_code?)`: Adds a category folder or leaf posting account.
+3. `get_account_statement(account_code, from_date, to_date, company_code?)`: Returns the general ledger running balance for any account.
+4. `post_voucher(reference, date, description, details: Array<{account, debit, credit}>, company_code?)`: Validates double-entry invariants and posts a verified journal voucher.
+5. `get_financial_statements(report_type: 'trial-balance' | 'profit-loss' | 'balance-sheet', date_or_period, company_code?)`: Returns mathematical reports.
+6. `manage_companies(action: 'list' | 'create' | 'switch', data?)`: Creates new tenant environments and auto-initializes the Chart of Accounts template.
+

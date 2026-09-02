@@ -28,21 +28,17 @@ import { Loader2 } from "lucide-react"
 export default function Home() {
   const [currentPage, setCurrentPage] = useState<string>("dashboard")
 
-  // Load active page from URL query param or localStorage on client mount
+  // Load active page from URL query param on client mount
   useEffect(() => {
     if (typeof window !== "undefined") {
       const urlParams = new URLSearchParams(window.location.search)
       const pageParam = urlParams.get("page")
       if (pageParam) {
         setCurrentPage(pageParam)
+        localStorage.setItem("current_page", pageParam)
       } else {
-        const savedPage = localStorage.getItem("current_page")
-        if (savedPage) {
-          setCurrentPage(savedPage)
-          const url = new URL(window.location.href)
-          url.searchParams.set("page", savedPage)
-          window.history.replaceState({}, "", url.toString())
-        }
+        setCurrentPage("dashboard")
+        localStorage.setItem("current_page", "dashboard")
       }
     }
   }, [])
@@ -52,7 +48,11 @@ export default function Home() {
     if (typeof window !== "undefined") {
       localStorage.setItem("current_page", page)
       const url = new URL(window.location.href)
-      url.searchParams.set("page", page)
+      if (page === "dashboard") {
+        url.searchParams.delete("page")
+      } else {
+        url.searchParams.set("page", page)
+      }
       window.history.replaceState({}, "", url.toString())
     }
   }

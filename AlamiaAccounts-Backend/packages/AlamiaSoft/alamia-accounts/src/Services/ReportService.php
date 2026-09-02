@@ -276,6 +276,7 @@ class ReportService
             ->where('journal_entries.transDate', '>=', Carbon::parse($fromDate)->startOfDay())
             ->where('journal_entries.transDate', '<=', Carbon::parse($toDate)->endOfDay())
             ->select(
+                'journal_entries.journalEntryId',
                 'journal_entries.transDate as date',
                 'journal_entries.description',
                 'journal_entries.extra',
@@ -289,16 +290,61 @@ class ReportService
         $ledgerEntries = [];
         $runningBalance = $openingBalance;
 
+        // Pre-fetch related accounts for entries to detect contra/internal transfers
+        $entryIds = $transactions->pluck('journalEntryId')->unique()->toArray();
+        $entryAccountCodes = [];
+        if (!empty($entryIds)) {
+            $rawDetails = DB::table('journal_details')
+                ->join('ledger_accounts', 'journal_details.ledgerUuid', '=', 'ledger_accounts.ledgerUuid')
+                ->whereIn('journal_details.journalEntryId', $entryIds)
+                ->select('journal_details.journalEntryId', 'ledger_accounts.code')
+                ->get();
+            foreach ($rawDetails as $rd) {
+                $entryAccountCodes[$rd->journalEntryId][] = $rd->code;
+            }
+        }
+
         foreach ($transactions as $tx) {
             $amount = (float)$tx->amount;
             $runningBalance += $amount;
 
             $extra = json_decode($tx->extra ?? '', true) ?? [];
             $reference = $extra['reference'] ?? $extra['voucher_number'] ?? '-';
+            $voucherType = $extra['voucher_type'] ?? null;
+
+            if (!$voucherType) {
+                $refUpper = strtoupper($reference);
+                if (str_starts_with($refUpper, 'CV') || str_starts_with($refUpper, 'CONTRA')) {
+                    $voucherType = 'contra';
+                } elseif (str_starts_with($refUpper, 'OB')) {
+                    $voucherType = 'opening';
+                } elseif (str_starts_with($refUpper, 'PV') || str_starts_with($refUpper, 'PAY')) {
+                    $voucherType = 'payment';
+                } elseif (str_starts_with($refUpper, 'RV') || str_starts_with($refUpper, 'REC')) {
+                    $voucherType = 'receipt';
+                } else {
+                    // Check if all involved accounts are cash or bank accounts (codes starting with 11)
+                    $related = $entryAccountCodes[$tx->journalEntryId] ?? [];
+                    $isAllCashOrBank = count($related) >= 2;
+                    foreach ($related as $code) {
+                        if (!str_starts_with($code, '11')) {
+                            $isAllCashOrBank = false;
+                            break;
+                        }
+                    }
+                    if ($isAllCashOrBank) {
+                        $voucherType = 'contra';
+                    } else {
+                        $voucherType = $amount > 0 ? 'receipt' : 'payment';
+                    }
+                }
+            }
 
             $ledgerEntries[] = [
+                'journal_entry_id' => $tx->journalEntryId,
                 'date' => Carbon::parse($tx->date)->toDateString(),
                 'reference' => $reference,
+                'voucher_type' => $voucherType,
                 'description' => $tx->description,
                 'debit' => $amount > 0 ? round($amount, 2) : 0.0,
                 'credit' => $amount < 0 ? round(abs($amount), 2) : 0.0,

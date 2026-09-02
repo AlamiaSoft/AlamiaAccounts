@@ -5,9 +5,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Download, Printer, Receipt, Loader2, Calendar } from "lucide-react"
+import { Download, Printer, Receipt, Loader2, Calendar, ArrowLeftRight } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { useVouchers } from "@/hooks/use-vouchers"
+import { useAccounts } from "@/hooks/use-accounts"
+import { cn } from "@/lib/utils"
 
 interface FlattenedEntry {
   id: string
@@ -25,6 +27,19 @@ export default function DayBook() {
   const [showAllDates, setShowAllDates] = useState(false)
 
   const { vouchers: apiVouchers, isLoading } = useVouchers()
+  const { accounts: allAccounts } = useAccounts()
+
+  // Map of account code to name for rich display
+  const accountMap = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const a of allAccounts || []) {
+      const name = a.name || (a.names && a.names[0]?.name) || ""
+      if (name && a.code) {
+        map.set(a.code, name)
+      }
+    }
+    return map
+  }, [allAccounts])
 
   // Flatten vouchers and line items for the daybook
   const { entries, totalDebit, totalCredit } = useMemo(() => {
@@ -39,9 +54,14 @@ export default function DayBook() {
 
     for (const v of filteredVouchers) {
       const items = v.line_items || v.details || []
-      const vType = v.type || v.voucher_type || "Journal"
       const vNo = v.reference || v.number || `VCH-${v.id}`
       const vNarration = v.description || v.narration || ""
+      let vType = v.type || v.voucher_type || "Journal"
+      if (vNo.toUpperCase().startsWith("CV") || vNo.toUpperCase().startsWith("CONTRA")) {
+        vType = "Contra"
+      } else if (vNo.toUpperCase().startsWith("OB")) {
+        vType = "Opening Balance"
+      }
 
       if (items.length > 0) {
         items.forEach((item: any, idx: number) => {
@@ -50,12 +70,23 @@ export default function DayBook() {
           drSum += debit
           crSum += credit
 
+          const code = String(item.account_code || item.account || "")
+          let name = item.raw_name || item.account_name || ""
+          // If name is missing, equal to code, or purely numeric, resolve from accountMap
+          if (!name || name === code || /^\d+$/.test(name.trim())) {
+            name = accountMap.get(code) || name || code
+          }
+          const cleanName = name.replace(new RegExp(`\\s*\\(${code}\\)$`), "").trim()
+          const displayAccount = cleanName && code && cleanName !== code
+            ? `${cleanName} (${code})`
+            : cleanName || code || "Unknown Account"
+
           list.push({
             id: `${v.id || vNo}-${idx}`,
             voucherNo: vNo,
             voucherType: vType,
             date: v.date,
-            accountName: item.account_name || item.account || item.account_code || "Unknown Account",
+            accountName: displayAccount,
             debit,
             credit,
             narration: item.description || item.memo || vNarration,
@@ -242,7 +273,17 @@ export default function DayBook() {
                           {entry.voucherNo}
                         </TableCell>
                         <TableCell>
-                          <Badge variant="outline" className="capitalize">
+                          <Badge
+                            variant="outline"
+                            className={cn(
+                              "capitalize font-medium text-xs flex items-center gap-1 w-fit",
+                              entry.voucherType.toLowerCase().includes("contra") && "bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300 border-purple-300",
+                              entry.voucherType.toLowerCase().includes("opening") && "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300 border-blue-300",
+                              entry.voucherType.toLowerCase().includes("receipt") && "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300 border-emerald-300",
+                              entry.voucherType.toLowerCase().includes("payment") && "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 border-amber-300"
+                            )}
+                          >
+                            {entry.voucherType.toLowerCase().includes("contra") && <ArrowLeftRight className="w-3 h-3" />}
                             {entry.voucherType}
                           </Badge>
                         </TableCell>

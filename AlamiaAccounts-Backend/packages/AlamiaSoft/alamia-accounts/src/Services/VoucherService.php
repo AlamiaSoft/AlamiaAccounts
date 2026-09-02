@@ -110,10 +110,36 @@ class VoucherService
             $message->transDate = Carbon::now();
         }
 
-        if (!empty($data['reference']) || !empty($data['voucher_number'])) {
+        if (!empty($data['reference']) || !empty($data['voucher_number']) || !empty($data['voucher_type'])) {
+            $voucherType = $data['voucher_type'] ?? null;
+            if (!$voucherType) {
+                $ref = strtoupper($data['reference'] ?? $data['voucher_number'] ?? '');
+                if (str_starts_with($ref, 'CV') || str_starts_with($ref, 'CONTRA')) {
+                    $voucherType = 'contra';
+                } elseif (str_starts_with($ref, 'OB')) {
+                    $voucherType = 'opening';
+                } elseif (str_starts_with($ref, 'PV')) {
+                    $voucherType = 'payment';
+                } elseif (str_starts_with($ref, 'RV')) {
+                    $voucherType = 'receipt';
+                } else {
+                    // Check if all accounts in entries are cash/bank (code starting with 11)
+                    $isAllCashOrBank = count($entries) >= 2;
+                    foreach ($entries as $e) {
+                        $c = $e['account_code'] ?? $e['account'] ?? '';
+                        if (!str_starts_with($c, '11')) {
+                            $isAllCashOrBank = false;
+                            break;
+                        }
+                    }
+                    $voucherType = $isAllCashOrBank ? 'contra' : 'journal';
+                }
+            }
+
             $message->extra = json_encode([
                 'reference' => $data['reference'] ?? null,
                 'voucher_number' => $data['voucher_number'] ?? null,
+                'voucher_type' => $voucherType,
             ]);
         }
 
@@ -184,18 +210,22 @@ class VoucherService
         }
         
         $entries = $query->orderBy('transDate', 'desc')->get();
-        $accounts = \Abivia\Ledger\Models\LedgerAccount::all()->keyBy('ledgerUuid');
+        $accounts = \Abivia\Ledger\Models\LedgerAccount::with('names')->get()->keyBy('ledgerUuid');
 
         return $entries->map(function ($entry) use ($accounts) {
             $details = ($entry->details ?? collect())->map(function ($detail) use ($accounts) {
                 $acc = $accounts->get($detail->ledgerUuid);
                 $amt = (float) $detail->amount;
-                $accName = $acc ? ($acc->names['en'] ?? $acc->code) : 'Unknown';
+                $firstName = $acc && $acc->names ? $acc->names->first() : null;
+                $rawName = $firstName ? $firstName->name : ($acc ? $acc->code : 'Unknown');
+                $displayName = $acc ? "{$rawName} ({$acc->code})" : $rawName;
+
                 return [
                     'id' => $detail->journalDetailId,
                     'account' => $acc ? $acc->code : '',
                     'account_code' => $acc ? $acc->code : '',
-                    'account_name' => $accName,
+                    'account_name' => $displayName,
+                    'raw_name' => $rawName,
                     'debit' => $amt > 0 ? $amt : 0,
                     'credit' => $amt < 0 ? abs($amt) : 0,
                     'amount' => abs($amt),
@@ -204,12 +234,37 @@ class VoucherService
             });
 
             $ref = 'JV-' . $entry->journalEntryId;
+            $voucherType = 'Journal';
             if (!empty($entry->extra)) {
                 if (is_string($entry->extra) && str_starts_with(trim($entry->extra), '{')) {
                     $decoded = json_decode($entry->extra, true);
-                    $ref = $decoded['reference'] ?? $decoded['voucher_number'] ?? $entry->extra;
+                    $ref = $decoded['reference'] ?? $decoded['voucher_number'] ?? $ref;
+                    if (!empty($decoded['voucher_type'])) {
+                        $voucherType = ucfirst($decoded['voucher_type']);
+                    }
                 } else {
                     $ref = (string) $entry->extra;
+                }
+            }
+
+            if ($voucherType === 'Journal') {
+                $refUpper = strtoupper($ref);
+                if (str_starts_with($refUpper, 'CV') || str_starts_with($refUpper, 'CONTRA')) {
+                    $voucherType = 'Contra';
+                } elseif (str_starts_with($refUpper, 'OB')) {
+                    $voucherType = 'Opening Balance';
+                } elseif (str_starts_with($refUpper, 'PV') || str_starts_with($refUpper, 'PAY')) {
+                    $voucherType = 'Payment';
+                } elseif (str_starts_with($refUpper, 'RV') || str_starts_with($refUpper, 'REC')) {
+                    $voucherType = 'Receipt';
+                } else {
+                    // Check if all lines are cash or bank accounts (codes start with 11)
+                    $isAllCashOrBank = $details->count() >= 2 && $details->every(function ($d) {
+                        return str_starts_with($d['account_code'] ?? '', '11');
+                    });
+                    if ($isAllCashOrBank) {
+                        $voucherType = 'Contra';
+                    }
                 }
             }
 
@@ -217,7 +272,8 @@ class VoucherService
                 'id' => $entry->journalEntryId,
                 'reference' => $ref,
                 'number' => $ref,
-                'type' => 'Journal',
+                'type' => $voucherType,
+                'voucher_type' => strtolower($voucherType),
                 'date' => substr($entry->transDate, 0, 10),
                 'description' => $entry->description,
                 'currency' => $entry->currency,

@@ -38,8 +38,24 @@ export default function VoucherEntry({ selectedVoucher, onClearSelection, defaul
     return "general"
   }
 
+  const getPrefix = (type: string) => {
+    switch (type) {
+      case "contra": return "CV"
+      case "payment": return "PV"
+      case "receipt": return "RV"
+      case "journal": return "JV"
+      case "sales": return "SV"
+      case "purchase": return "PUV"
+      default: return "V"
+    }
+  }
+
   const [voucherType, setVoucherType] = useState<string>(getInitialVoucherType())
-  const [voucherNumber, setVoucherNumber] = useState<string>("V-2025-001")
+  const [voucherNumber, setVoucherNumber] = useState<string>(() => {
+    const p = getPrefix(getInitialVoucherType())
+    const yr = new Date().getFullYear()
+    return `${p}-${yr}-001`
+  })
   const [date, setDate] = useState<string>(new Date().toISOString().split("T")[0])
   const [referenceNumber, setReferenceNumber] = useState<string>("")
   const [narration, setNarration] = useState<string>("")
@@ -67,17 +83,20 @@ export default function VoucherEntry({ selectedVoucher, onClearSelection, defaul
   useEffect(() => {
     if (defaultVoucherType && !selectedVoucher) {
       setVoucherType(defaultVoucherType)
+      const p = getPrefix(defaultVoucherType)
+      const yr = new Date().getFullYear()
+      setVoucherNumber(`${p}-${yr}-${String(Math.floor(100 + Math.random() * 900))}`)
     }
   }, [defaultVoucherType, selectedVoucher])
 
   useEffect(() => {
     if (selectedVoucher) {
-      setVoucherType(selectedVoucher.type)
-      setVoucherNumber(selectedVoucher.number)
+      setVoucherType(selectedVoucher.type || selectedVoucher.voucher_type || "journal")
+      setVoucherNumber(selectedVoucher.number || selectedVoucher.reference)
       setDate(selectedVoucher.date)
       setReferenceNumber(selectedVoucher.reference)
-      setNarration(selectedVoucher.narration)
-      setLineItems(selectedVoucher.lineItems)
+      setNarration(selectedVoucher.narration || selectedVoucher.description)
+      setLineItems(selectedVoucher.lineItems || selectedVoucher.line_items || [])
       setIsEditingExisting(true)
     }
   }, [selectedVoucher])
@@ -173,6 +192,7 @@ export default function VoucherEntry({ selectedVoucher, onClearSelection, defaul
 
     const payload = {
       date,
+      voucher_type: voucherType,
       reference: referenceNumber || voucherNumber,
       description: narration,
       currency,

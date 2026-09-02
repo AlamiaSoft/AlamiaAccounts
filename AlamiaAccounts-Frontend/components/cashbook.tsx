@@ -6,7 +6,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Input } from "@/components/ui/input"
-import { Download, Printer, ArrowDownRight, ArrowUpRight, Loader2, Calendar } from "lucide-react"
+import { Download, Printer, ArrowDownRight, ArrowUpRight, ArrowLeftRight, Loader2, Calendar } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { useAccounts } from "@/hooks/use-accounts"
 import { useLedger } from "@/hooks/use-reports"
@@ -39,16 +39,33 @@ export default function Cashbook() {
     "PKR"
   )
 
-  const transactions = (ledgerData?.entries || []).map((entry: any, index: number) => ({
-    id: String(index + 1),
-    date: entry.date,
-    voucherNo: entry.reference || `VCH-${index + 1}`,
-    voucherType: entry.debit > 0 ? ("receipt" as const) : ("payment" as const),
-    particulars: entry.description || "Ledger transaction",
-    debit: Number(entry.debit) || 0,
-    credit: Number(entry.credit) || 0,
-    balance: Number(entry.balance) || 0,
-  }))
+  const transactions = (ledgerData?.entries || []).map((entry: any, index: number) => {
+    const rawType = (entry.voucher_type || "").toLowerCase()
+    const ref = (entry.reference || "").toLowerCase()
+    const desc = (entry.description || "").toLowerCase()
+
+    let voucherType: "contra" | "opening" | "receipt" | "payment" = "payment"
+    if (rawType === "contra" || ref.startsWith("cv") || ref.startsWith("contra") || desc.includes("contra") || desc.includes("internal transfer")) {
+      voucherType = "contra"
+    } else if (rawType === "opening" || ref.startsWith("ob") || desc.includes("opening balance")) {
+      voucherType = "opening"
+    } else if (entry.debit > 0) {
+      voucherType = "receipt"
+    } else {
+      voucherType = "payment"
+    }
+
+    return {
+      id: String(index + 1),
+      date: entry.date,
+      voucherNo: entry.reference || `VCH-${index + 1}`,
+      voucherType,
+      particulars: entry.description || (voucherType === "contra" ? "Internal Transfer" : "Ledger transaction"),
+      debit: Number(entry.debit) || 0,
+      credit: Number(entry.credit) || 0,
+      balance: Number(entry.balance) || 0,
+    }
+  })
 
   const openingBalance = Number(ledgerData?.opening_balance) || 0
   const totalDebit = Number(ledgerData?.total_debit) || 0
@@ -240,9 +257,26 @@ export default function Cashbook() {
                         <TableCell className="font-mono text-xs">{t.date}</TableCell>
                         <TableCell className="font-medium font-mono text-xs">{t.voucherNo}</TableCell>
                         <TableCell>
-                          <Badge variant={t.voucherType === "receipt" ? "default" : "secondary"}>
-                            {t.voucherType === "receipt" ? "Receipt" : "Payment"}
-                          </Badge>
+                          {t.voucherType === "contra" ? (
+                            <Badge className="bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300 border-purple-300 dark:border-purple-800 flex items-center gap-1 w-fit">
+                              <ArrowLeftRight className="w-3 h-3" />
+                              Contra / Transfer
+                            </Badge>
+                          ) : t.voucherType === "opening" ? (
+                            <Badge className="bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300 border-blue-300 dark:border-blue-800 flex items-center gap-1 w-fit">
+                              Opening Balance
+                            </Badge>
+                          ) : t.voucherType === "receipt" ? (
+                            <Badge className="bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800 flex items-center gap-1 w-fit">
+                              <ArrowDownRight className="w-3 h-3" />
+                              Receipt
+                            </Badge>
+                          ) : (
+                            <Badge className="bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 border-amber-300 dark:border-amber-800 flex items-center gap-1 w-fit">
+                              <ArrowUpRight className="w-3 h-3" />
+                              Payment
+                            </Badge>
+                          )}
                         </TableCell>
                         <TableCell>{t.particulars}</TableCell>
                         <TableCell className="text-right font-medium text-green-600">

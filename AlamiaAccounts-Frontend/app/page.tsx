@@ -1,6 +1,7 @@
 "use client"
 
-import { useState, useEffect, useMemo } from "react"
+import { useState, useEffect, useMemo, Suspense } from "react"
+import { useSearchParams } from "next/navigation"
 import Sidebar from "@/components/sidebar"
 import Dashboard from "@/components/dashboard"
 import ChartOfAccounts from "@/components/chart-of-accounts"
@@ -25,23 +26,15 @@ import VoucherBuilder from "@/components/voucher-builder"
 import { useCompanies } from "@/hooks/use-companies"
 import { Loader2 } from "lucide-react"
 
-export default function Home() {
-  const [currentPage, setCurrentPage] = useState<string>("dashboard")
+function HomeContent() {
+  const searchParams = useSearchParams()
+  const pageFromUrl = searchParams.get("page") || "dashboard"
+  const [currentPage, setCurrentPage] = useState<string>(pageFromUrl)
 
-  // Load active page from URL query param on client mount
+  // Sync if URL search params change externally (such as browser back/forward)
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      const urlParams = new URLSearchParams(window.location.search)
-      const pageParam = urlParams.get("page")
-      if (pageParam) {
-        setCurrentPage(pageParam)
-        localStorage.setItem("current_page", pageParam)
-      } else {
-        setCurrentPage("dashboard")
-        localStorage.setItem("current_page", "dashboard")
-      }
-    }
-  }, [])
+    setCurrentPage(pageFromUrl)
+  }, [pageFromUrl])
 
   const handlePageChange = (page: string) => {
     setCurrentPage(page)
@@ -406,5 +399,19 @@ export default function Home() {
         <div className="max-w-7xl mx-auto p-6 lg:p-8">{renderPage()}</div>
       </main>
     </div>
+  )
+}
+
+export default function Home() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex h-screen items-center justify-center bg-background">
+          <Loader2 className="w-8 h-8 animate-spin text-primary" />
+        </div>
+      }
+    >
+      <HomeContent />
+    </Suspense>
   )
 }

@@ -280,7 +280,7 @@ class ReportService
 
         // 1. Calculate Opening Balance before $fromDate
         $asOfDateForOpening = Carbon::parse($fromDate)->subDay()->toDateString();
-        $openingBalance = $this->getAccountBalance($accountCode, $asOfDateForOpening, $currency);
+        $openingBalance = $this->getAccountBalance($accountCode, $asOfDateForOpening, $currency, $isGroup);
 
         // 2. Fetch Transactions within the period
         $transactions = DB::table('journal_details')
@@ -404,7 +404,7 @@ class ReportService
     /**
      * Compute balance as of a date for an account or category.
      */
-    public function getAccountBalance(string $accountCode, ?string $asOfDate = null, string $currency = 'PKR'): float
+    public function getAccountBalance(string $accountCode, ?string $asOfDate = null, string $currency = 'PKR', bool $includeDescendants = false): float
     {
         $currentDomain = $this->getCurrentDomain();
         $accountUuids = DomainLedgerAccount::getAccountUuidsForDomain($currentDomain->domainUuid);
@@ -417,14 +417,16 @@ class ReportService
             return 0.0;
         }
 
-        $hasChildren = LedgerAccount::where('parentUuid', $account->ledgerUuid)
-            ->whereIn('ledgerUuid', $accountUuids)
-            ->exists();
-
         $targetUuids = [$account->ledgerUuid];
-        if ($account->category || $hasChildren) {
-            $descendants = $this->getDescendantAccountUuids($account->ledgerUuid, $accountUuids);
-            $targetUuids = array_merge($targetUuids, $descendants);
+        if ($includeDescendants) {
+            $hasChildren = LedgerAccount::where('parentUuid', $account->ledgerUuid)
+                ->whereIn('ledgerUuid', $accountUuids)
+                ->exists();
+
+            if ($account->category || $hasChildren) {
+                $descendants = $this->getDescendantAccountUuids($account->ledgerUuid, $accountUuids);
+                $targetUuids = array_merge($targetUuids, $descendants);
+            }
         }
 
         $query = DB::table('journal_details')
@@ -444,7 +446,7 @@ class ReportService
     /**
      * Compute net balance movement in an account over a specific date range.
      */
-    public function getAccountBalanceForPeriod(string $accountCode, string $fromDate, string $toDate, string $currency = 'PKR'): float
+    public function getAccountBalanceForPeriod(string $accountCode, string $fromDate, string $toDate, string $currency = 'PKR', bool $includeDescendants = false): float
     {
         $currentDomain = $this->getCurrentDomain();
         $accountUuids = DomainLedgerAccount::getAccountUuidsForDomain($currentDomain->domainUuid);
@@ -457,14 +459,16 @@ class ReportService
             return 0.0;
         }
 
-        $hasChildren = LedgerAccount::where('parentUuid', $account->ledgerUuid)
-            ->whereIn('ledgerUuid', $accountUuids)
-            ->exists();
-
         $targetUuids = [$account->ledgerUuid];
-        if ($account->category || $hasChildren) {
-            $descendants = $this->getDescendantAccountUuids($account->ledgerUuid, $accountUuids);
-            $targetUuids = array_merge($targetUuids, $descendants);
+        if ($includeDescendants) {
+            $hasChildren = LedgerAccount::where('parentUuid', $account->ledgerUuid)
+                ->whereIn('ledgerUuid', $accountUuids)
+                ->exists();
+
+            if ($account->category || $hasChildren) {
+                $descendants = $this->getDescendantAccountUuids($account->ledgerUuid, $accountUuids);
+                $targetUuids = array_merge($targetUuids, $descendants);
+            }
         }
 
         return (float)(DB::table('journal_details')

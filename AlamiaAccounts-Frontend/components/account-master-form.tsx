@@ -30,20 +30,26 @@ const CURRENCIES = ["PKR", "USD", "EUR", "GBP", "AED", "SAR", "INR"]
 
 export default function AccountMasterForm({ groups, account, availableAccounts = [], onSubmit, onCancel }: any) {
   const [formData, setFormData] = useState(
-    account || {
-      code: "",
-      name: "",
-      alias: "",
-      groupId: "current",
-      parent_code: "1000",
-      type: "Bank",
-      balanceSide: "debit", // 'debit' or 'credit'
-      currency: "PKR",
-      category: false,
-      description: "",
-      isActive: true,
-      openingBalance: 0,
-    },
+    account
+      ? {
+          ...account,
+          balanceSide: account.balanceSide || (account.debit ? "debit" : "credit"),
+          openingBalance: account.openingBalance || account.balance || 0,
+        }
+      : {
+          code: "",
+          name: "",
+          alias: "",
+          groupId: "current",
+          parent_code: "1000",
+          type: "Bank",
+          balanceSide: "debit", // 'debit' or 'credit'
+          currency: "PKR",
+          category: false,
+          description: "",
+          isActive: true,
+          openingBalance: 0,
+        },
   )
 
   const [errors, setErrors] = useState<Record<string, string>>({})
@@ -98,7 +104,8 @@ export default function AccountMasterForm({ groups, account, availableAccounts =
       debit: formData.balanceSide === "debit",
       credit: formData.balanceSide === "credit",
       category: Boolean(formData.category),
-      parent_code: formData.parent_code || null,
+      parent_code: formData.parent_code === "none" ? null : formData.parent_code || null,
+      opening_balance: !formData.category && formData.openingBalance ? Number(formData.openingBalance) : 0,
     }
 
     onSubmit(payload)
@@ -210,6 +217,33 @@ export default function AccountMasterForm({ groups, account, availableAccounts =
           </SelectComponent>
         </div>
       </div>
+
+      {!formData.category && (
+        <div className="p-3.5 bg-muted/40 rounded-lg border border-border/70 space-y-2">
+          <div className="flex items-center justify-between">
+            <Label htmlFor="openingBalance" className="font-semibold text-sm text-foreground">
+              Opening Balance ({formData.currency || "PKR"})
+            </Label>
+            <span className="text-xs text-muted-foreground font-mono">
+              Normal: {formData.balanceSide === "debit" ? "Debit (Dr)" : "Credit (Cr)"}
+            </span>
+          </div>
+          <Input
+            id="openingBalance"
+            name="openingBalance"
+            type="number"
+            min="0"
+            step="0.01"
+            value={formData.openingBalance || ""}
+            onChange={handleChange}
+            placeholder="0.00"
+            className="font-mono text-sm bg-background"
+          />
+          <p className="text-[11px] text-muted-foreground leading-tight">
+            Setting an opening balance automatically posts an offsetting entry to Owner's Capital (5100) to keep your Balance Sheet in equilibrium.
+          </p>
+        </div>
+      )}
 
       <div>
         <Label htmlFor="description">Description / Notes</Label>

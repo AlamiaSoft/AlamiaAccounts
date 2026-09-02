@@ -33,6 +33,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::apiResource('users', UserController::class);
     
     // Accounts
+    Route::post('/accounts/{code}/opening-balance', [AccountController::class, 'setOpeningBalance']);
     Route::apiResource('accounts', AccountController::class);
     
     // Vouchers

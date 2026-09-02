@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/dialog"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import type { Company } from "./company-switcher"
+import ConfirmModal from "@/components/ui/confirm-modal"
 
 interface CompanyManagementProps {
   companies: Company[]
@@ -35,6 +36,8 @@ export default function CompanyManagement({
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [editingCompany, setEditingCompany] = useState<Company | null>(null)
   const [formData, setFormData] = useState({ name: "", industry: "", code: "", currency: "PKR" })
+  const [deleteCompanyTarget, setDeleteCompanyTarget] = useState<Company | null>(null)
+  const [noticeModal, setNoticeModal] = useState<{ title: string; message: string } | null>(null)
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -112,12 +115,13 @@ export default function CompanyManagement({
                         size="sm"
                         onClick={() => {
                           if (company.id === "MAIN" || company.code === "MAIN") {
-                            alert("The Main Company cannot be deleted.")
+                            setNoticeModal({
+                              title: "Action Restricted",
+                              message: "The Main Company is the primary tenant and cannot be deleted.",
+                            })
                             return
                           }
-                          if (confirm(`Are you sure you want to delete company "${company.name}"? This action cannot be undone.`)) {
-                            onDeleteCompany(company.id)
-                          }
+                          setDeleteCompanyTarget(company)
                         }}
                         className="text-destructive hover:text-destructive"
                         title={company.id === "MAIN" ? "Main company cannot be deleted" : "Delete company"}
@@ -194,6 +198,36 @@ export default function CompanyManagement({
           </form>
         </DialogContent>
       </Dialog>
+
+      {/* Delete Company Confirmation Modal */}
+      <ConfirmModal
+        isOpen={!!deleteCompanyTarget}
+        onClose={() => setDeleteCompanyTarget(null)}
+        onConfirm={() => {
+          if (deleteCompanyTarget) {
+            onDeleteCompany(deleteCompanyTarget.id)
+            setDeleteCompanyTarget(null)
+          }
+        }}
+        variant="danger"
+        title={`Delete Company "${deleteCompanyTarget?.name}"?`}
+        description="This action will permanently delete all chart of accounts and journal entries associated with this company. This cannot be undone."
+        confirmText="Delete Company"
+      />
+
+      {/* Informative Notice Modal */}
+      {noticeModal && (
+        <ConfirmModal
+          isOpen={true}
+          onClose={() => setNoticeModal(null)}
+          onConfirm={() => setNoticeModal(null)}
+          variant="warning"
+          title={noticeModal.title}
+          description={noticeModal.message}
+          confirmText="Understood"
+          cancelText="Close"
+        />
+      )}
     </div>
   )
 }

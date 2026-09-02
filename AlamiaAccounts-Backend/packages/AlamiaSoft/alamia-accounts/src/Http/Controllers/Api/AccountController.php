@@ -5,6 +5,7 @@ namespace AlamiaSoft\AlamiaAccounts\Http\Controllers\Api;
 use AlamiaSoft\AlamiaAccounts\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use AlamiaSoft\AlamiaAccounts\Services\AccountService;
+use AlamiaSoft\AlamiaAccounts\Services\VoucherService;
 
 /**
  * @OA\Tag(name="Accounts", description="Operations related to Chart of Accounts")
@@ -12,10 +13,12 @@ use AlamiaSoft\AlamiaAccounts\Services\AccountService;
 class AccountController extends Controller
 {
     protected $accountService;
+    protected $voucherService;
 
-    public function __construct(AccountService $accountService)
+    public function __construct(AccountService $accountService, VoucherService $voucherService)
     {
         $this->accountService = $accountService;
+        $this->voucherService = $voucherService;
     }
 
     /**
@@ -102,6 +105,10 @@ class AccountController extends Controller
         try {
             $account = $this->accountService->createAccount($validated);
             
+            if (!empty($request->input('opening_balance')) && floatval($request->input('opening_balance')) > 0) {
+                $this->applyOpeningBalance($account->code, floatval($request->input('opening_balance')), $request->input('opening_balance_date'));
+            }
+
             return response()->json([
                 'success' => true,
                 'data' => $account,
@@ -159,7 +166,9 @@ class AccountController extends Controller
         $validated = $request->validate([
             'name' => 'required|string|max:255',
             'parent_code' => 'nullable|string',
-            'category' => 'nullable|string',
+            'category' => 'nullable', // Allows boolean, string or int
+            'opening_balance' => 'nullable|numeric|min:0',
+            'opening_balance_date' => 'nullable|date',
         ]);
 
         $account = $this->accountService->updateAccount(
@@ -169,7 +178,87 @@ class AccountController extends Controller
             $validated['category'] ?? null
         );
 
+        if (!empty($validated['opening_balance']) && floatval($validated['opening_balance']) > 0) {
+            $this->applyOpeningBalance($code, floatval($validated['opening_balance']), $validated['opening_balance_date'] ?? null);
+        }
+
         return response()->json(['data' => $account]);
+    }
+
+    /**
+     * Set or update opening balance for an account with double-entry equity offset.
+     */
+    public function setOpeningBalance(Request $request, $code)
+    {
+        $validated = $request->validate([
+            'opening_balance' => 'required|numeric|min:0.01',
+            'date' => 'nullable|date',
+        ]);
+
+        $voucher = $this->applyOpeningBalance($code, floatval($validated['opening_balance']), $validated['date'] ?? null);
+
+        if (!$voucher) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to apply opening balance. Ensure account exists and is not a category folder.'
+            ], 422);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Opening balance successfully recorded with offsetting equity entry.',
+            'voucher_reference' => $voucher->reference ?? null,
+            'data' => $this->accountService->getChartOfAccountsFormatted()
+        ]);
+    }
+
+    /**
+     * Record an opening balance journal entry with automatic double-entry equity offset.
+     */
+    protected function applyOpeningBalance(string $code, float $amount, ?string $date = null)
+    {
+        $account = $this->accountService->getAccountByCode($code);
+        if (!$account || $account->category) {
+            return null;
+        }
+
+        // Find Capital offset account (5100 Owner's Capital / 5000 Equity / 3000)
+        $capitalAccount = $this->accountService->getAccountByCode('5100')
+            ?? $this->accountService->getAccountByCode('5000')
+            ?? $this->accountService->getAccountByCode('3000');
+        $capitalCode = $capitalAccount ? $capitalAccount->code : '5100';
+
+        $isDebitAccount = (bool)$account->debit;
+        $entryDate = $date ?? date('Y-01-01');
+        $accountName = $account->names->first()->name ?? $code;
+
+        // Assets/Expenses: Debit the account, Credit Capital
+        // Liabilities/Equity: Credit the account, Debit Capital
+        $entries = [
+            [
+                'account_code' => $code,
+                'amount' => $amount,
+                'type' => $isDebitAccount ? 'debit' : 'credit',
+                'description' => "Opening Balance for {$accountName}"
+            ],
+            [
+                'account_code' => $capitalCode,
+                'amount' => $amount,
+                'type' => $isDebitAccount ? 'credit' : 'debit',
+                'description' => "Opening Balance Equity Offset for {$accountName}"
+            ]
+        ];
+
+        $ref = 'OB-' . $code . '-' . strtoupper(substr(uniqid(), -4));
+
+        return $this->voucherService->createJournalEntry([
+            'date' => $entryDate,
+            'reference' => $ref,
+            'description' => "Opening Balance recorded for {$accountName}",
+            'currency' => 'PKR',
+            'entries' => $entries,
+            'opening' => 1,
+        ]);
     }
 
     /**

@@ -13,6 +13,7 @@ import AccountMasterForm from "./account-master-form"
 import AccountTreeView from "./account-tree-view"
 import AccountAnalytics from "./account-analytics"
 import { useAccounts } from "@/hooks/use-accounts"
+import ConfirmModal from "@/components/ui/confirm-modal"
 
 // Sample data structure
 const DEFAULT_GROUPS = [
@@ -97,10 +98,19 @@ export default function ChartOfAccounts() {
     setShowGroupDialog(false)
   }
 
+  // Modal state for confirmations & notices (no browser alerts/confirms)
+  const [deleteTarget, setDeleteTarget] = useState<any | null>(null)
+  const [openingBalancePrompt, setOpeningBalancePrompt] = useState<{ accountData: any; isEdit: boolean } | null>(null)
+  const [noticeModal, setNoticeModal] = useState<{ title: string; message: string; variant?: "danger" | "warning" | "info" } | null>(null)
+
   const handleDeleteGroup = (groupId: string) => {
     const hasAccounts = accounts.some((acc: any) => acc.groupId === groupId)
     if (hasAccounts) {
-      alert("Cannot delete group with existing accounts. Delete accounts first.")
+      setNoticeModal({
+        title: "Cannot Delete Group",
+        message: "This account group contains active accounts. Please reassign or delete the associated accounts first.",
+        variant: "warning",
+      })
       return
     }
     setGroups(groups.filter((g) => g.id !== groupId))
@@ -108,40 +118,64 @@ export default function ChartOfAccounts() {
 
   const [statusAlert, setStatusAlert] = useState<{ type: "success" | "error"; message: string } | null>(null)
 
-  const handleAddAccount = async (accountData: any) => {
+  const executeSaveAccount = async (accountData: any, isEdit: boolean) => {
     try {
-      await createAccount.mutateAsync(accountData)
-      setStatusAlert({ type: "success", message: `Account ${accountData.code} - ${accountData.name} created successfully!` })
+      if (isEdit) {
+        await updateAccount.mutateAsync({ code: (editingAccount as any).code, data: accountData })
+        setStatusAlert({ type: "success", message: `Account ${accountData.code} updated successfully!` })
+        setEditingAccount(null)
+      } else {
+        await createAccount.mutateAsync(accountData)
+        setStatusAlert({ type: "success", message: `Account ${accountData.code} - ${accountData.name} created successfully!` })
+      }
       setShowAccountDialog(false)
+      setOpeningBalancePrompt(null)
       setTimeout(() => setStatusAlert(null), 5000)
     } catch (err: any) {
-      const msg = err.response?.data?.message || err.message || "Failed to create account"
+      const msg = err.response?.data?.message || err.message || "Failed to save account"
       setStatusAlert({ type: "error", message: msg })
+      setOpeningBalancePrompt(null)
     }
+  }
+
+  const handleAddAccount = async (accountData: any) => {
+    // If setting an opening balance, confirm impact with user first
+    if (accountData.opening_balance && accountData.opening_balance > 0) {
+      setOpeningBalancePrompt({ accountData, isEdit: false })
+      return
+    }
+    await executeSaveAccount(accountData, false)
   }
 
   const handleEditAccount = async (accountData: any) => {
-    try {
-      await updateAccount.mutateAsync({ code: (editingAccount as any).code, data: accountData })
-      setStatusAlert({ type: "success", message: `Account ${accountData.code} updated successfully!` })
-      setEditingAccount(null)
-      setShowAccountDialog(false)
-      setTimeout(() => setStatusAlert(null), 5000)
-    } catch (err: any) {
-      const msg = err.response?.data?.message || err.message || "Failed to update account"
-      setStatusAlert({ type: "error", message: msg })
+    // If setting an opening balance, confirm impact with user first
+    const prevBalance = (editingAccount as any)?.balance || 0
+    if (accountData.opening_balance && accountData.opening_balance > 0 && accountData.opening_balance !== prevBalance) {
+      setOpeningBalancePrompt({ accountData, isEdit: true })
+      return
     }
+    await executeSaveAccount(accountData, true)
   }
 
-  const handleDeleteAccount = async (accountId: string) => {
-    if (!confirm(`Are you sure you want to delete account ${accountId}?`)) return
+  const handleDeleteAccount = (accountIdentifier: any) => {
+    const acc = typeof accountIdentifier === "string"
+      ? accounts.find((a: any) => a.code === accountIdentifier || a.id === accountIdentifier) || { code: accountIdentifier, name: accountIdentifier }
+      : accountIdentifier
+    setDeleteTarget(acc)
+  }
+
+  const executeDeleteAccount = async () => {
+    if (!deleteTarget) return
+    const code = deleteTarget.code || deleteTarget.id
     try {
-      await deleteAccount.mutateAsync(accountId)
-      setStatusAlert({ type: "success", message: `Account ${accountId} deleted successfully!` })
+      await deleteAccount.mutateAsync(code)
+      setStatusAlert({ type: "success", message: `Account ${code} deleted successfully!` })
+      setDeleteTarget(null)
       setTimeout(() => setStatusAlert(null), 5000)
     } catch (err: any) {
       const msg = err.response?.data?.message || err.message || "Failed to delete account"
       setStatusAlert({ type: "error", message: msg })
+      setDeleteTarget(null)
     }
   }
 
@@ -360,6 +394,85 @@ export default function ChartOfAccounts() {
           />
         </DialogContent>
       </Dialog>
+
+      {/* 1. Delete Account Confirmation Modal */}
+      <ConfirmModal
+        isOpen={!!deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={executeDeleteAccount}
+        variant="danger"
+        title={`Delete Account ${deleteTarget?.code || ""}?`}
+        description={`Are you sure you want to delete "${deleteTarget?.name}" (${deleteTarget?.code})? Accounts with recorded transactions cannot be deleted.`}
+        confirmText="Delete Account"
+        isLoading={deleteAccount.isPending}
+      />
+
+      {/* 2. Opening Balance Double-Entry Impact Confirmation Modal */}
+      {openingBalancePrompt && (
+        <ConfirmModal
+          isOpen={true}
+          onClose={() => setOpeningBalancePrompt(null)}
+          onConfirm={() =>
+            executeSaveAccount(
+              openingBalancePrompt.accountData,
+              openingBalancePrompt.isEdit
+            )
+          }
+          variant="warning"
+          title="Confirm Opening Balance Entry"
+          description={`Setting an opening balance of Rs. ${(
+            Number(openingBalancePrompt.accountData.opening_balance) || 0
+          ).toLocaleString()} on account ${openingBalancePrompt.accountData.code} (${openingBalancePrompt.accountData.name}) directly affects the accounting equation.`}
+          confirmText="Apply Balance & Save"
+          isLoading={createAccount.isPending || updateAccount.isPending}
+          details={
+            <div className="p-3 bg-muted/50 rounded-lg border border-border text-xs space-y-2">
+              <div className="font-semibold text-foreground flex items-center justify-between">
+                <span>Automatic Double-Entry Offset:</span>
+                <Badge variant="outline" className="text-[10px]">
+                  Balanced Invariant
+                </Badge>
+              </div>
+              <div className="space-y-1 font-mono text-muted-foreground">
+                <div className="flex justify-between">
+                  <span>
+                    {openingBalancePrompt.accountData.debit ? "Debit (Dr)" : "Credit (Cr)"}: [
+                    {openingBalancePrompt.accountData.code}] {openingBalancePrompt.accountData.name}
+                  </span>
+                  <span className="font-semibold text-foreground">
+                    Rs. {(Number(openingBalancePrompt.accountData.opening_balance) || 0).toLocaleString()}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span>
+                    {openingBalancePrompt.accountData.debit ? "Credit (Cr)" : "Debit (Dr)"}: [5100] Owner's Capital
+                  </span>
+                  <span className="font-semibold text-foreground">
+                    Rs. {(Number(openingBalancePrompt.accountData.opening_balance) || 0).toLocaleString()}
+                  </span>
+                </div>
+              </div>
+              <p className="text-[11px] text-muted-foreground/80 italic pt-1 border-t border-border/50">
+                This ensures: Assets = Liabilities + Equity remains in equilibrium.
+              </p>
+            </div>
+          }
+        />
+      )}
+
+      {/* 3. General Informative Notice Modal */}
+      {noticeModal && (
+        <ConfirmModal
+          isOpen={true}
+          onClose={() => setNoticeModal(null)}
+          onConfirm={() => setNoticeModal(null)}
+          variant={noticeModal.variant || "warning"}
+          title={noticeModal.title}
+          description={noticeModal.message}
+          confirmText="Understood"
+          cancelText="Close"
+        />
+      )}
     </div>
   )
 }

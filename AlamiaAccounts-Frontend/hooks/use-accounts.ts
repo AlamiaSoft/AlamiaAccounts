@@ -39,12 +39,23 @@ export function useAccounts() {
         },
     })
 
+    const setOpeningBalance = useMutation({
+        mutationFn: ({ code, amount, date }: { code: string; amount: number; date?: string }) =>
+            accountApi.setOpeningBalance(code, amount, date),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['accounts'] })
+            queryClient.invalidateQueries({ queryKey: ['vouchers'] })
+            queryClient.invalidateQueries({ queryKey: ['reports'] })
+        },
+    })
+
     return {
         accounts: accounts || [],
         isLoading,
         createAccount,
         updateAccount,
         deleteAccount,
+        setOpeningBalance,
     }
 }
 

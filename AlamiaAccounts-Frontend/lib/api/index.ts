@@ -34,6 +34,8 @@ export const accountApi = {
     create: (data: any) => apiClient.post('/accounts', data),
     update: (code: string, data: any) => apiClient.put(`/accounts/${code}`, data),
     delete: (code: string) => apiClient.delete(`/accounts/${code}`),
+    setOpeningBalance: (code: string, amount: number, date?: string) =>
+        apiClient.post(`/accounts/${code}/opening-balance`, { opening_balance: amount, date }),
 }
 
 // Voucher API

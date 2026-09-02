@@ -38,7 +38,7 @@ export default function Sidebar({
         { id: "users", label: "Users & Roles" },
         { id: "companies", label: "Companies" },
         { id: "custom-voucher-types", label: "Custom Voucher Types" },
-        { id: "voucher-builder", label: "Voucher Builder" },
+        { id: "voucher-builder", label: "Voucher Builder", badge: "Experimental" },
         { id: "print-templates", label: "Print Templates" },
       ],
     },
@@ -144,13 +144,18 @@ export default function Sidebar({
                     key={subitem.id}
                     onClick={() => onPageChange(subitem.id)}
                     className={cn(
-                      "w-full text-left px-4 py-2 rounded-md text-sm transition-colors",
+                      "w-full flex items-center justify-between text-left px-4 py-2 rounded-md text-sm transition-colors",
                       currentPage === subitem.id
                         ? "bg-sidebar-accent text-sidebar-accent-foreground font-semibold"
                         : "text-muted-foreground hover:text-sidebar-foreground hover:bg-sidebar-border/30",
                     )}
                   >
-                    {subitem.label}
+                    <span>{subitem.label}</span>
+                    {"badge" in subitem && (
+                      <span className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">
+                        {(subitem as any).badge}
+                      </span>
+                    )}
                   </button>
                 ))}
               </div>

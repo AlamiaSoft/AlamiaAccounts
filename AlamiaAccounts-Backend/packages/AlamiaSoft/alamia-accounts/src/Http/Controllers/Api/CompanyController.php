@@ -302,7 +302,14 @@ class CompanyController extends Controller
         $company = $this->companyService->getDomain($currentCode);
         
         if (!$company) {
-            return response()->json(['message' => 'Company not found'], 404);
+            $first = $this->companyService->listCompanies()->first();
+            if ($first) {
+                $currentCode = $first->code;
+                DomainContext::set($currentCode);
+                $company = $first;
+            } else {
+                return response()->json(['message' => 'No companies found'], 404);
+            }
         }
         
         $extra = is_string($company->extra) ? json_decode($company->extra, true) : $company->extra;

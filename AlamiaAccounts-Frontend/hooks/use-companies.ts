@@ -57,10 +57,12 @@ export function useCompanies() {
         },
     })
 
+    const resolvedCurrentCompany = currentCompany || (companies && companies.length > 0 ? companies[0] : null)
+
     return {
         companies: companies || [],
-        currentCompany,
-        isLoading: loadingCompanies || loadingCurrent,
+        currentCompany: resolvedCurrentCompany,
+        isLoading: loadingCompanies && !resolvedCurrentCompany,
         switchCompany,
         createCompany,
         updateCompany,

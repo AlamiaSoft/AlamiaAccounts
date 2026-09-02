@@ -242,7 +242,12 @@ export default function VoucherBuilder() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-3xl font-bold">Voucher Builder</h2>
+          <div className="flex items-center gap-2.5">
+            <h2 className="text-3xl font-bold">Voucher Builder</h2>
+            <span className="text-xs uppercase font-semibold px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/30">
+              Experimental
+            </span>
+          </div>
           <p className="text-muted-foreground mt-1">Design custom voucher types with drag-and-drop</p>
         </div>
         <div className="flex gap-2">
@@ -263,6 +268,16 @@ export default function VoucherBuilder() {
             <Save className="w-4 h-4 mr-2" />
             Save Template
           </Button>
+        </div>
+      </div>
+
+      {/* Experimental Notice */}
+      <div className="flex items-start gap-3 p-3.5 bg-amber-500/10 border border-amber-500/30 rounded-lg text-sm text-amber-900 dark:text-amber-300">
+        <div className="font-semibold px-2 py-0.5 text-xs rounded bg-amber-500/20 uppercase tracking-wide shrink-0 mt-0.5">
+          Notice
+        </div>
+        <div>
+          <strong>Experimental Feature:</strong> The dynamic Voucher Builder is currently under active development and evaluation. Kamal Express-specific custom fields (such as PNR, Passenger Name, Ticket Number, Sector) will be configured and validated here before declaring this feature production ready.
         </div>
       </div>
 

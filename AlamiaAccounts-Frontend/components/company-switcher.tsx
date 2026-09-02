@@ -22,14 +22,15 @@ interface CompanySwitcherProps {
 
 export default function CompanySwitcher({ onAddCompany }: CompanySwitcherProps) {
   const [open, setOpen] = useState(false)
-  const { companies, currentCompany, switchCompany, isLoading } = useCompanies()
+  const { companies, currentCompany: apiCurrentCompany, switchCompany, isLoading } = useCompanies()
+  const currentCompany = apiCurrentCompany || (companies && companies.length > 0 ? companies[0] : null)
 
   const handleCompanyChange = (companyCode: string) => {
     switchCompany.mutate(companyCode)
     setOpen(false)
   }
 
-  if (isLoading || !currentCompany) {
+  if (isLoading && !currentCompany) {
     return (
       <Button
         variant="outline"
@@ -42,6 +43,10 @@ export default function CompanySwitcher({ onAddCompany }: CompanySwitcherProps) 
         </div>
       </Button>
     )
+  }
+
+  if (!currentCompany) {
+    return null
   }
 
   return (

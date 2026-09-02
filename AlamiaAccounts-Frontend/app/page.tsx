@@ -120,8 +120,11 @@ export default function Home() {
   }
 
   const handleCompanyChange = (company: Company) => {
-    // Use code as the identifier for switching
-    switchCompany.mutate(company.code || company.id)
+    const code = company.code || company.id
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('current_company_code', code)
+    }
+    switchCompany.mutate(code)
     setSelectedVoucher(null)
     setSelectedAccount(null)
     setSelectedUser(null)

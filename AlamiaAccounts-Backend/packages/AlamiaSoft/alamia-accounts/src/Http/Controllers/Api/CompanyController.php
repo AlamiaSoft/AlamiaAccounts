@@ -144,26 +144,22 @@ class CompanyController extends Controller
         ]);
 
         try {
-            // Use CompanyService to create company with proper domain setup
             $domain = $this->companyService->createCompany(
                 $validated['code'],
                 $validated['name'],
-                ['currency' => $validated['currency']]
+                [
+                    'currency' => $validated['currency'],
+                    'industry' => $validated['industry'],
+                ]
             );
-            
-            // Update extra field to include industry
-            $extra = json_decode($domain->extra, true);
-            $extra['name'] = $validated['name'];
-            $extra['industry'] = $validated['industry'];
-            $domain->extra = json_encode($extra);
-            $domain->save();
             
             return response()->json([
                 'data' => [
                     'id' => $domain->code,
-                    'name' => $extra['name'] ?? null,
-                    'industry' => $extra['industry'] ?? 'General',
-                    'currency' => $domain->currencyDefault,
+                    'code' => $domain->code,
+                    'name' => $validated['name'],
+                    'industry' => $validated['industry'],
+                    'currency' => $domain->currencyDefault ?? 'PKR',
                 ]
             ], 201);
         } catch (\Exception $e) {

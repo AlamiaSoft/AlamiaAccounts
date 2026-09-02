@@ -25,13 +25,16 @@ class DomainContext
         static::$currentDomain = $code;
     }
 
-    /**
-     * Get the current domain code.
-     *
-     * @return string|null Current domain code or null if not set
-     */
     public static function get(): ?string
     {
+        if (function_exists('request') && request()) {
+            $headerDomain = request()->header('X-Company-Code');
+            if (!empty($headerDomain)) {
+                static::$currentDomain = $headerDomain;
+                return static::$currentDomain;
+            }
+        }
+
         if (!isset(static::$currentDomain)) {
             // Default to first domain if not set
             $domain = LedgerDomain::first();

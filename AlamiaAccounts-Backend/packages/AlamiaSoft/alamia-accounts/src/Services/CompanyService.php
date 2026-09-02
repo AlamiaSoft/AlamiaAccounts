@@ -84,28 +84,30 @@ class CompanyService
             throw new Exception("Parent domain {$parentCode} not found");
         }
 
-        $message = new Domain();
-        $message->code = $code;
-        $message->name = $name;
+        $domainData = [
+            'code' => $code,
+            'names' => [
+                ['name' => $name, 'language' => 'en']
+            ],
+            'currency' => $config['currency'] ?? 'PKR',
+            'extra' => json_encode(array_merge([
+                'name' => $name,
+                'type' => $type,
+                'parent_code' => $parentCode,
+                'level' => $parentCode ? 1 : 0,
+                'industry' => $config['industry'] ?? 'General',
+            ], $config['extra'] ?? [])),
+        ];
+
+        $message = Domain::fromArray($domainData);
         
-        if (isset($config['currency'])) {
-            $message->currency = $config['currency'];
+        try {
+            $domain = $this->domainController->add($message);
+            return $domain;
+        } catch (\Abivia\Ledger\Exceptions\Breaker $b) {
+            $errors = $b->getErrors();
+            throw new Exception(!empty($errors) ? implode(', ', $errors) : $b->getMessage());
         }
-        
-        // Store metadata about domain type and hierarchy
-        $message->extra = json_encode([
-            'type' => $type,
-            'parent_code' => $parentCode,
-            'level' => $parentCode ? 1 : 0,
-        ]);
-        
-        $response = $this->domainController->add($message);
-        
-        if (!$response->success) {
-            throw new Exception($response->errors[0] ?? 'Failed to create domain');
-        }
-        
-        return $response->domain;
     }
 
     /**

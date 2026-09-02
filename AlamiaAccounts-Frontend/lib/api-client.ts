@@ -9,11 +9,17 @@ const apiClient = axios.create({
     withCredentials: true,
 })
 
-// Add auth token to requests
+// Add auth token and current company code to requests
 apiClient.interceptors.request.use((config) => {
-    const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null
-    if (token) {
-        config.headers.Authorization = `Bearer ${token}`
+    if (typeof window !== 'undefined') {
+        const token = localStorage.getItem('auth_token')
+        if (token) {
+            config.headers.Authorization = `Bearer ${token}`
+        }
+        const companyCode = localStorage.getItem('current_company_code')
+        if (companyCode) {
+            config.headers['X-Company-Code'] = companyCode
+        }
     }
     return config
 })

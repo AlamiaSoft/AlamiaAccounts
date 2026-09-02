@@ -22,7 +22,10 @@ export function useCompanies() {
 
     const switchCompany = useMutation({
         mutationFn: (code: string) => companyApi.switch(code),
-        onSuccess: () => {
+        onSuccess: (_data, code) => {
+            if (typeof window !== 'undefined') {
+                localStorage.setItem('current_company_code', code)
+            }
             queryClient.invalidateQueries({ queryKey: ['current-company'] })
             // Invalidate all data queries since company changed
             queryClient.invalidateQueries({ queryKey: ['accounts'] })

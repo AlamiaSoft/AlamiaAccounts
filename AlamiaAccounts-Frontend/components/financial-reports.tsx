@@ -3,7 +3,7 @@
 import { useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Download, Eye, Loader2 } from "lucide-react"
+import { Download, Eye, Loader2, CheckCircle2, AlertTriangle, Scale } from "lucide-react"
 import ReportView from "@/components/report-view"
 import { useTrialBalance, useProfitLoss, useBalanceSheet } from "@/hooks/use-reports"
 
@@ -107,9 +107,87 @@ export default function FinancialReports({ initialReport }: { initialReport?: st
     const totalAssets = balanceSheetData.assets.reduce((sum, item) => sum + item.amount, 0)
     const totalLiabilities = balanceSheetData.liabilities.reduce((sum, item) => sum + item.amount, 0)
     const totalEquity = balanceSheetData.equity.reduce((sum, item) => sum + item.amount, 0)
+    const totalLiabEquity = totalLiabilities + totalEquity
+    const isBalanced = Math.abs(totalAssets - totalLiabEquity) < 0.01
+    const discrepancy = Math.abs(totalAssets - totalLiabEquity)
 
     return (
       <div className="space-y-6">
+        {/* Prominent Equilibrium Status Banner */}
+        {isBalanced ? (
+          <div className="flex items-center justify-between p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-emerald-900 dark:text-emerald-200 shadow-xs">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 shrink-0">
+                <CheckCircle2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h4 className="font-semibold text-sm sm:text-base">Balance Sheet in Equilibrium</h4>
+                <p className="text-xs text-emerald-700/90 dark:text-emerald-300/80 mt-0.5">
+                  Total Assets (Rs. {totalAssets.toLocaleString()}) matches Total Liabilities & Equity (Rs. {totalLiabEquity.toLocaleString()}). Zero variance.
+                </p>
+              </div>
+            </div>
+            <span className="px-3 py-1 text-xs font-bold rounded-full bg-emerald-500/20 text-emerald-800 dark:text-emerald-300 border border-emerald-500/40 shrink-0">
+              Balance Sheet is balanced ✓
+            </span>
+          </div>
+        ) : (
+          <div className="p-4 bg-destructive/10 border-2 border-destructive rounded-xl text-destructive shadow-md animate-in fade-in duration-200">
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex items-start gap-3">
+                <div className="p-2 rounded-lg bg-destructive/20 text-destructive mt-0.5 shrink-0">
+                  <AlertTriangle className="w-6 h-6 animate-pulse" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h4 className="font-bold text-base">Action Required: Balance Sheet is NOT Balanced!</h4>
+                    <span className="px-2 py-0.5 text-xs font-extrabold rounded bg-destructive text-destructive-foreground uppercase tracking-wider">
+                      Difference: Rs. {discrepancy.toLocaleString()}
+                    </span>
+                  </div>
+                  <p className="text-sm mt-1 text-destructive/90">
+                    Total Assets (Rs. {totalAssets.toLocaleString()}) does not match Total Liabilities & Equity (Rs. {totalLiabEquity.toLocaleString()}).
+                    {totalAssets > totalLiabEquity
+                      ? ` Total Assets exceed Liabilities + Equity by Rs. ${discrepancy.toLocaleString()}.`
+                      : ` Liabilities + Equity exceed Total Assets by Rs. ${discrepancy.toLocaleString()}.`
+                    }
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-2">
+                    Note: Unbalanced balances typically occur if a transaction has not recognized current-period net profit in retained earnings, or if there is an unposted opening/suspense journal entry.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 3 KPI Summary Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <Card>
+            <CardContent className="p-4">
+              <p className="text-xs font-medium text-muted-foreground">Total Assets</p>
+              <p className="text-2xl font-bold text-green-600 mt-1">Rs.{totalAssets.toLocaleString()}</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-4">
+              <p className="text-xs font-medium text-muted-foreground">Total Liabilities & Equity</p>
+              <p className="text-2xl font-bold text-purple-600 mt-1">Rs.{totalLiabEquity.toLocaleString()}</p>
+            </CardContent>
+          </Card>
+          <Card className={isBalanced ? "border-emerald-500/30 bg-emerald-500/5" : "border-destructive bg-destructive/5"}>
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-medium text-muted-foreground">Audit Balance Check</p>
+                <Scale className={`w-4 h-4 ${isBalanced ? "text-emerald-600" : "text-destructive"}`} />
+              </div>
+              <p className={`text-2xl font-bold mt-1 ${isBalanced ? "text-emerald-600" : "text-destructive"}`}>
+                {isBalanced ? "Rs. 0 (Balanced)" : `Rs. ${discrepancy.toLocaleString()}`}
+              </p>
+            </CardContent>
+          </Card>
+        </div>
+
         <div className="grid md:grid-cols-2 gap-6">
           {/* Assets */}
           <Card>
@@ -121,12 +199,16 @@ export default function FinancialReports({ initialReport }: { initialReport?: st
             </CardHeader>
             <CardContent>
               <div className="space-y-2">
-                {balanceSheetData.assets.map((item, i) => (
-                  <div key={i} className="flex justify-between text-sm py-2">
-                    <span>{item.account}</span>
-                    <span className="font-medium">Rs.{item.amount.toLocaleString()}</span>
-                  </div>
-                ))}
+                {balanceSheetData.assets.length === 0 ? (
+                  <p className="text-sm text-muted-foreground py-4 text-center">No asset accounts recorded.</p>
+                ) : (
+                  balanceSheetData.assets.map((item, i) => (
+                    <div key={i} className="flex justify-between text-sm py-2">
+                      <span>{item.account}</span>
+                      <span className="font-medium">Rs.{item.amount.toLocaleString()}</span>
+                    </div>
+                  ))
+                )}
                 <div className="border-t pt-2 mt-2 flex justify-between font-bold">
                   <span>Total Assets</span>
                   <span className="text-green-600">Rs.{totalAssets.toLocaleString()}</span>
@@ -143,12 +225,16 @@ export default function FinancialReports({ initialReport }: { initialReport?: st
               </CardHeader>
               <CardContent>
                 <div className="space-y-2">
-                  {balanceSheetData.liabilities.map((item, i) => (
-                    <div key={i} className="flex justify-between text-sm py-2">
-                      <span>{item.account}</span>
-                      <span className="font-medium">Rs.{item.amount.toLocaleString()}</span>
-                    </div>
-                  ))}
+                  {balanceSheetData.liabilities.length === 0 ? (
+                    <p className="text-sm text-muted-foreground py-2">No liabilities recorded (Rs. 0).</p>
+                  ) : (
+                    balanceSheetData.liabilities.map((item, i) => (
+                      <div key={i} className="flex justify-between text-sm py-2">
+                        <span>{item.account}</span>
+                        <span className="font-medium">Rs.{item.amount.toLocaleString()}</span>
+                      </div>
+                    ))
+                  )}
                   <div className="border-t pt-2 mt-2 flex justify-between font-bold">
                     <span>Total Liabilities</span>
                     <span className="text-orange-600">Rs.{totalLiabilities.toLocaleString()}</span>
@@ -163,12 +249,16 @@ export default function FinancialReports({ initialReport }: { initialReport?: st
               </CardHeader>
               <CardContent>
                 <div className="space-y-2">
-                  {balanceSheetData.equity.map((item, i) => (
-                    <div key={i} className="flex justify-between text-sm py-2">
-                      <span>{item.account}</span>
-                      <span className="font-medium">Rs.{item.amount.toLocaleString()}</span>
-                    </div>
-                  ))}
+                  {balanceSheetData.equity.length === 0 ? (
+                    <p className="text-sm text-muted-foreground py-2">No equity accounts recorded.</p>
+                  ) : (
+                    balanceSheetData.equity.map((item, i) => (
+                      <div key={i} className="flex justify-between text-sm py-2">
+                        <span>{item.account}</span>
+                        <span className="font-medium">Rs.{item.amount.toLocaleString()}</span>
+                      </div>
+                    ))
+                  )}
                   <div className="border-t pt-2 mt-2 flex justify-between font-bold">
                     <span>Total Equity</span>
                     <span className="text-blue-600">Rs.{totalEquity.toLocaleString()}</span>
@@ -179,17 +269,25 @@ export default function FinancialReports({ initialReport }: { initialReport?: st
           </div>
         </div>
 
-        <Card className="bg-muted/50">
+        {/* Bottom Detailed Audit Footer Card */}
+        <Card className={isBalanced ? "bg-emerald-500/5 border-emerald-500/20" : "bg-destructive/5 border-destructive/30"}>
           <CardContent className="pt-6">
             <div className="flex justify-between text-lg font-bold">
               <span>Total Liabilities + Equity</span>
-              <span className="text-purple-600">Rs.{(totalLiabilities + totalEquity).toLocaleString()}</span>
+              <span className="text-purple-600">Rs.{totalLiabEquity.toLocaleString()}</span>
             </div>
-            <p className="text-xs text-muted-foreground mt-2">
-              {totalAssets === totalLiabilities + totalEquity
-                ? "Balance Sheet is balanced ✓"
-                : "Balance Sheet is not balanced"}
-            </p>
+            <div className="mt-3 flex items-center justify-between border-t pt-3">
+              <span className="text-sm font-medium">Equilibrium Status</span>
+              {isBalanced ? (
+                <span className="text-emerald-600 dark:text-emerald-400 font-semibold text-sm flex items-center gap-1.5">
+                  <CheckCircle2 className="w-4 h-4" /> Balance Sheet is balanced ✓ (Variance: Rs. 0)
+                </span>
+              ) : (
+                <span className="text-destructive font-bold text-sm flex items-center gap-1.5">
+                  <AlertTriangle className="w-4 h-4" /> Imbalance of Rs. {discrepancy.toLocaleString()} detected!
+                </span>
+              )}
+            </div>
           </CardContent>
         </Card>
       </div>
@@ -424,56 +522,144 @@ export default function FinancialReports({ initialReport }: { initialReport?: st
   const renderTrialBalance = () => {
     const totalDebit = trialBalanceData.reduce((sum, item) => sum + item.debit, 0)
     const totalCredit = trialBalanceData.reduce((sum, item) => sum + item.credit, 0)
+    const isBalanced = Math.abs(totalDebit - totalCredit) < 0.01
+    const discrepancy = Math.abs(totalDebit - totalCredit)
 
     return (
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <CardTitle>Trial Balance</CardTitle>
-            {isLoadingTB && <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />}
+      <div className="space-y-6">
+        {/* Prominent Status Header Banner */}
+        {isBalanced ? (
+          <div className="flex items-center justify-between p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-emerald-900 dark:text-emerald-200 shadow-xs">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 shrink-0">
+                <CheckCircle2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h4 className="font-semibold text-sm sm:text-base">Trial Balance in Equilibrium</h4>
+                <p className="text-xs text-emerald-700/90 dark:text-emerald-300/80 mt-0.5">
+                  Total Debits (Rs. {totalDebit.toLocaleString()}) matches Total Credits (Rs. {totalCredit.toLocaleString()}). Zero variance.
+                </p>
+              </div>
+            </div>
+            <span className="px-3 py-1 text-xs font-bold rounded-full bg-emerald-500/20 text-emerald-800 dark:text-emerald-300 border border-emerald-500/40 uppercase tracking-wider shrink-0">
+              Balanced ✓
+            </span>
           </div>
-        </CardHeader>
-        <CardContent>
-          <table className="w-full">
-            <thead>
-              <tr className="border-b-2">
-                <th className="text-left py-3">Account Code</th>
-                <th className="text-left py-3">Account Name</th>
-                <th className="text-right py-3">Debit (Rs.)</th>
-                <th className="text-right py-3">Credit (Rs.)</th>
-              </tr>
-            </thead>
-            <tbody>
-              {trialBalanceData.map((item, i) => (
-                <tr key={i} className="border-b">
-                  <td className="py-2">{item.code}</td>
-                  <td className="py-2">{item.account}</td>
-                  <td className="text-right">{item.debit > 0 ? item.debit.toLocaleString() : "—"}</td>
-                  <td className="text-right">{item.credit > 0 ? item.credit.toLocaleString() : "—"}</td>
+        ) : (
+          <div className="p-4 bg-destructive/10 border-2 border-destructive rounded-xl text-destructive shadow-md animate-in fade-in duration-200">
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex items-start gap-3">
+                <div className="p-2 rounded-lg bg-destructive/20 text-destructive mt-0.5 shrink-0">
+                  <AlertTriangle className="w-6 h-6 animate-pulse" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h4 className="font-bold text-base">Action Required: Trial Balance does NOT match!</h4>
+                    <span className="px-2 py-0.5 text-xs font-extrabold rounded bg-destructive text-destructive-foreground uppercase tracking-wider">
+                      Difference: Rs. {discrepancy.toLocaleString()}
+                    </span>
+                  </div>
+                  <p className="text-sm mt-1 text-destructive/90">
+                    Total Debits (Rs. {totalDebit.toLocaleString()}) does not equal Total Credits (Rs. {totalCredit.toLocaleString()}).
+                    {totalDebit > totalCredit
+                      ? ` Debits exceed Credits by Rs. ${discrepancy.toLocaleString()}.`
+                      : ` Credits exceed Debits by Rs. ${discrepancy.toLocaleString()}.`
+                    }
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-2">
+                    Review Day Book or ledger postings for single-sided entry anomalies or rounding variance.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 3 KPI Summary Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <Card>
+            <CardContent className="p-4">
+              <p className="text-xs font-medium text-muted-foreground">Total Debits</p>
+              <p className="text-2xl font-bold text-green-600 mt-1">Rs.{totalDebit.toLocaleString()}</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-4">
+              <p className="text-xs font-medium text-muted-foreground">Total Credits</p>
+              <p className="text-2xl font-bold text-blue-600 mt-1">Rs.{totalCredit.toLocaleString()}</p>
+            </CardContent>
+          </Card>
+          <Card className={isBalanced ? "border-emerald-500/30 bg-emerald-500/5" : "border-destructive bg-destructive/5"}>
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-medium text-muted-foreground">Audit Match Status</p>
+                <Scale className={`w-4 h-4 ${isBalanced ? "text-emerald-600" : "text-destructive"}`} />
+              </div>
+              <p className={`text-2xl font-bold mt-1 ${isBalanced ? "text-emerald-600" : "text-destructive"}`}>
+                {isBalanced ? "Rs. 0 (Matched)" : `Rs. ${discrepancy.toLocaleString()}`}
+              </p>
+            </CardContent>
+          </Card>
+        </div>
+
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <CardTitle>Trial Balance</CardTitle>
+              {isLoadingTB && <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />}
+            </div>
+          </CardHeader>
+          <CardContent>
+            <table className="w-full">
+              <thead>
+                <tr className="border-b-2">
+                  <th className="text-left py-3">Account Code</th>
+                  <th className="text-left py-3">Account Name</th>
+                  <th className="text-right py-3">Debit (Rs.)</th>
+                  <th className="text-right py-3">Credit (Rs.)</th>
                 </tr>
-              ))}
-            </tbody>
-            <tfoot>
-              <tr className="border-t-2 border-black font-bold">
-                <td colSpan={2} className="py-3">
-                  Total
-                </td>
-                <td className="text-right text-green-600">{totalDebit.toLocaleString()}</td>
-                <td className="text-right text-blue-600">{totalCredit.toLocaleString()}</td>
-              </tr>
-            </tfoot>
-          </table>
-          <div className="mt-4 p-4 bg-muted/50 rounded-lg">
-            <p className="text-sm">
-              {totalDebit === totalCredit ? (
-                <span className="text-green-600 font-semibold">✓ Trial Balance matches (Debit = Credit)</span>
-              ) : (
-                <span className="text-red-600 font-semibold">⚠ Trial Balance does not match</span>
-              )}
-            </p>
-          </div>
-        </CardContent>
-      </Card>
+              </thead>
+              <tbody>
+                {trialBalanceData.map((item, i) => (
+                  <tr key={i} className="border-b">
+                    <td className="py-2">{item.code}</td>
+                    <td className="py-2">{item.account}</td>
+                    <td className="text-right">{item.debit > 0 ? item.debit.toLocaleString() : "—"}</td>
+                    <td className="text-right">{item.credit > 0 ? item.credit.toLocaleString() : "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr className="border-t-2 border-black font-bold">
+                  <td colSpan={2} className="py-3">
+                    Total
+                  </td>
+                  <td className="text-right text-green-600">{totalDebit.toLocaleString()}</td>
+                  <td className="text-right text-blue-600">{totalCredit.toLocaleString()}</td>
+                </tr>
+              </tfoot>
+            </table>
+
+            {/* Bottom Audit Box */}
+            <div className={`mt-4 p-4 rounded-lg border ${isBalanced ? "bg-emerald-500/5 border-emerald-500/20" : "bg-destructive/5 border-destructive/30"}`}>
+              <div className="flex items-center justify-between text-sm">
+                {isBalanced ? (
+                  <span className="text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1.5">
+                    <CheckCircle2 className="w-4 h-4" /> Trial Balance matches (Debit = Credit, Variance: Rs. 0)
+                  </span>
+                ) : (
+                  <span className="text-destructive font-bold flex items-center gap-1.5">
+                    <AlertTriangle className="w-4 h-4" /> Trial Balance mismatch: Discrepancy of Rs. {discrepancy.toLocaleString()}!
+                  </span>
+                )}
+                <span className="text-xs text-muted-foreground">
+                  {trialBalanceData.length} accounts evaluated
+                </span>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
     )
   }
 

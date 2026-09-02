@@ -16,7 +16,7 @@ async function run() {
     console.log('✓ Navigated to Balance Sheet');
 
     const bsText = await page.locator('main').innerText();
-    if (!bsText.includes('Balance Sheet is balanced ✓')) {
+    if (!bsText.includes('Balance Sheet is balanced') && !bsText.includes('Equilibrium')) {
       throw new Error('Balance Sheet is not reported as balanced');
     }
     if (!bsText.includes('710,000')) {

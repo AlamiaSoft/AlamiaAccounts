@@ -6,6 +6,7 @@ const test01 = require('./01-auth-navigation.test');
 const test02 = require('./02-chart-of-accounts.test');
 const test03 = require('./03-financial-reports.test');
 const test04 = require('./04-multi-company-isolation.test');
+const test05 = require('./05-voucher-entry-ux.test');
 
 async function runAll() {
   console.log('================================================================');
@@ -18,6 +19,7 @@ async function runAll() {
     { name: '02: Chart of Accounts & Hierarchy', fn: test02 },
     { name: '03: Financial Reports & Mathematical Balances', fn: test03 },
     { name: '04: Multi-Company Isolation & Switching', fn: test04 },
+    { name: '05: Voucher Entry UX & Account Selection', fn: test05 },
   ];
 
   const results = [];

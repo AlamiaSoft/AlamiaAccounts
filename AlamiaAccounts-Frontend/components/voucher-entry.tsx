@@ -47,15 +47,15 @@ export default function VoucherEntry({ selectedVoucher, onClearSelection, defaul
   const [lineItems, setLineItems] = useState<LineItem[]>([
     {
       id: "1",
-      account: "1001",
-      accountName: "Cash in Hand",
+      account: "1110",
+      accountName: "Cash",
       debit: 0,
       credit: 0,
       description: "",
     },
     {
       id: "2",
-      account: "2001",
+      account: "2100",
       accountName: "Accounts Payable",
       debit: 0,
       credit: 0,
@@ -100,8 +100,57 @@ export default function VoucherEntry({ selectedVoucher, onClearSelection, defaul
     }
   }
 
-  const updateLineItem = (id: string, field: keyof LineItem, value: any) => {
-    setLineItems(lineItems.map((item) => (item.id === id ? { ...item, [field]: value } : item)))
+  const updateLineItem = (id: string, fieldOrUpdates: keyof LineItem | Partial<LineItem>, value?: any) => {
+    setLineItems((prev) =>
+      prev.map((item) => {
+        if (item.id !== id) return item
+        if (typeof fieldOrUpdates === "string") {
+          return { ...item, [fieldOrUpdates]: value }
+        }
+        return { ...item, ...fieldOrUpdates }
+      })
+    )
+  }
+
+  const handleAutoBalance = () => {
+    const diff = totalDebit - totalCredit
+    if (diff === 0) return
+
+    setLineItems((prev) => {
+      const items = [...prev]
+      const last = items[items.length - 1]
+      if (diff > 0) {
+        // Need credit
+        if (last.debit === 0 && last.credit === 0) {
+          items[items.length - 1] = { ...last, credit: diff }
+        } else {
+          items.push({
+            id: Date.now().toString(),
+            account: "",
+            accountName: "",
+            debit: 0,
+            credit: diff,
+            description: "Balancing entry",
+          })
+        }
+      } else {
+        // Need debit
+        const needed = Math.abs(diff)
+        if (last.debit === 0 && last.credit === 0) {
+          items[items.length - 1] = { ...last, debit: needed }
+        } else {
+          items.push({
+            id: Date.now().toString(),
+            account: "",
+            accountName: "",
+            debit: needed,
+            credit: 0,
+            description: "Balancing entry",
+          })
+        }
+      }
+      return items
+    })
   }
 
   const totalDebit = lineItems.reduce((sum, item) => sum + (item.debit || 0), 0)
@@ -162,15 +211,15 @@ export default function VoucherEntry({ selectedVoucher, onClearSelection, defaul
     setLineItems([
       {
         id: "1",
-        account: "1001",
-        accountName: "Cash in Hand",
+        account: "1110",
+        accountName: "Cash",
         debit: 0,
         credit: 0,
         description: "",
       },
       {
         id: "2",
-        account: "2001",
+        account: "2100",
         accountName: "Accounts Payable",
         debit: 0,
         credit: 0,
@@ -334,7 +383,12 @@ export default function VoucherEntry({ selectedVoucher, onClearSelection, defaul
         </Card>
 
         {/* Summary */}
-        <VoucherSummary totalDebit={totalDebit} totalCredit={totalCredit} isBalanced={isBalanced} />
+        <VoucherSummary
+          totalDebit={totalDebit}
+          totalCredit={totalCredit}
+          isBalanced={isBalanced}
+          onAutoBalance={handleAutoBalance}
+        />
 
         {/* Actions */}
         <div className="flex flex-col sm:flex-row gap-3 justify-end">

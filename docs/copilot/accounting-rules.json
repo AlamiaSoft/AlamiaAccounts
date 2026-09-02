@@ -1,0 +1,117 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "system": "AccounTech Accounting Engine",
+  "version": "1.0.0",
+  "description": "Formalized machine-readable accounting rules and system constraints for AI Copilot reasoning and execution.",
+  "invariants": {
+    "double_entry": {
+      "rule": "Every transaction must balance to zero discrepancy.",
+      "formula": "sum(debits) === sum(credits)",
+      "tolerance": 0.0001
+    },
+    "category_posting": {
+      "rule": "Entries CANNOT be posted to accounts flagged as category=true (folders/groups).",
+      "error_code": "CANNOT_POST_TO_CATEGORY",
+      "remediation": "Instruct user or select an underlying leaf account (category=false)."
+    },
+    "multi_tenant_isolation": {
+      "rule": "Every transaction and voucher must be scoped strictly to the current active domainUuid.",
+      "request_header": "X-Company-Code",
+      "remediation": "Never query or mix balances across different company codes."
+    }
+  },
+  "account_classification": {
+    "assets": {
+      "code_range": "1000-1999",
+      "normal_balance": "debit",
+      "root_parent": "1000",
+      "category_type": "Asset",
+      "sub_groups": {
+        "current_assets": "1100",
+        "cash_in_hand": "1110",
+        "bank_accounts_folder": "1120",
+        "accounts_receivable": "1200",
+        "inventory": "1300"
+      }
+    },
+    "liabilities": {
+      "code_range": "2000-2999",
+      "normal_balance": "credit",
+      "root_parent": "2000",
+      "category_type": "Liability",
+      "sub_groups": {
+        "accounts_payable": "2100",
+        "gst_payable": "2200",
+        "sales_tax_payable": "2300"
+      }
+    },
+    "equity": {
+      "code_range": "3000, 5100-5300",
+      "normal_balance": "credit",
+      "root_parent": "3000",
+      "category_type": "Equity",
+      "sub_groups": {
+        "owners_capital": "5100",
+        "retained_earnings": "5200",
+        "drawings": "5300"
+      }
+    },
+    "expenses": {
+      "code_range": "4000-4999",
+      "normal_balance": "debit",
+      "root_parent": "4000",
+      "category_type": "Expense",
+      "sub_groups": {
+        "cost_of_goods_sold": "4100",
+        "operating_expenses": "4200",
+        "salaries_wages": "4300",
+        "rent_expense": "4400",
+        "utilities": "4500",
+        "office_supplies": "4600"
+      }
+    },
+    "revenue": {
+      "code_range": "5000, 3100-3300",
+      "normal_balance": "credit",
+      "root_parent": "5000",
+      "category_type": "Income",
+      "sub_groups": {
+        "sales_revenue": "3100",
+        "service_revenue": "3200",
+        "other_income": "3300"
+      }
+    }
+  },
+  "standard_voucher_types": {
+    "receipt": {
+      "description": "Cash or bank inflow from customers, capital, or sales",
+      "debit_accounts": ["1110 (Cash)", "1130+ (Bank accounts)"],
+      "credit_accounts": ["1200 (Accounts Receivable)", "3100 (Sales Revenue)", "5100 (Capital)"]
+    },
+    "payment": {
+      "description": "Cash or bank outflow for expenses or supplier payables",
+      "debit_accounts": ["4100-4999 (Expense accounts)", "2100 (Accounts Payable)", "Assets"],
+      "credit_accounts": ["1110 (Cash)", "1130+ (Bank accounts)"]
+    },
+    "contra": {
+      "description": "Internal transfer between cash and bank accounts",
+      "debit_accounts": ["1110 (Cash) OR 1130+ (Bank accounts)"],
+      "credit_accounts": ["1110 (Cash) OR 1130+ (Bank accounts)"]
+    },
+    "sales": {
+      "description": "Customer sales invoices on cash or credit",
+      "debit_accounts": ["1110 (Cash) OR 1200 (Accounts Receivable)"],
+      "credit_accounts": ["3100 (Sales Revenue)", "2200/2300 (Tax payables)"]
+    },
+    "journal": {
+      "description": "General double-entry adjustments, depreciation, and closing entries",
+      "debit_accounts": ["Any valid non-category account"],
+      "credit_accounts": ["Any valid non-category account"]
+    }
+  },
+  "financial_statement_equations": {
+    "balance_sheet": "Assets = Liabilities + Equity + Retained Earnings",
+    "retained_earnings": "Prior Retained Earnings + Net Profit (from P&L) - Drawings",
+    "profit_and_loss": "Net Profit = Total Revenue - Total Expenses"
+  }
+}

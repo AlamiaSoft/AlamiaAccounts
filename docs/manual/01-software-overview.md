@@ -1,3 +1,23 @@
+---
+id: manual-01-software-overview
+title: Alamia Accounts Software Manual & System Overview
+module: Core System
+tags: [architecture, overview, laravel, nextjs, sqlite, double_entry, abivia_ledger, api]
+api_endpoints:
+  - POST /api/login
+  - GET /api/me
+  - GET /api/companies
+  - POST /api/companies/{code}/switch
+tables:
+  - users
+  - ledger_domains
+  - domain_ledger_accounts
+  - domain_journal_entries
+invariants:
+  - "all API requests must authenticate with Bearer token"
+  - "tenant scoping handled via X-Company-Code header"
+---
+
 # Alamia Accounts Software Manual & System Overview
 
 Welcome to the **Alamia Accounts** technical and operational software documentation.

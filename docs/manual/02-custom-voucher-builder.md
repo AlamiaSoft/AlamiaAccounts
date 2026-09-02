@@ -1,3 +1,22 @@
+---
+id: manual-02-custom-voucher-builder
+title: Custom Voucher Builder & Dynamic Fields
+module: Voucher Management
+tags: [vouchers, voucher_builder, custom_fields, travel_agency, formulas, account_rules, validation]
+api_endpoints:
+  - GET /api/voucher-types
+  - POST /api/voucher-types
+  - PUT /api/voucher-types/{id}
+  - POST /api/voucher-types/{id}/validate
+tables:
+  - custom_voucher_types
+  - custom_voucher_fields
+  - custom_voucher_account_rules
+invariants:
+  - "custom vouchers must generate balanced double-entry lines"
+  - "target accounts must be posting accounts (category=false)"
+---
+
 # Custom Voucher Builder & Dynamic Fields Manual
 
 This document details the architecture, configuration, and operational use of the **Voucher Builder** and **Custom Voucher Types** system in Alamia Accounts.

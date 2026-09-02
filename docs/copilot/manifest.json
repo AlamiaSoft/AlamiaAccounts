@@ -1,0 +1,74 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "AccounTech Copilot Knowledgebase Manifest",
+  "version": "1.0.0",
+  "description": "Semantic catalog mapping user conversational intents to accounting rules, documentation chapters, database tables, and API routes.",
+  "intents": [
+    {
+      "intent": "explain_folder_vs_posting_account",
+      "keywords": ["folder", "category", "non-posting", "posting", "leaf", "parent account", "cannot post"],
+      "doc_reference": "docs/manual/03-chart-of-accounts-and-multi-tenancy.md#1-account-roles-folder--category-vs-posting-account",
+      "summary": "Explains that folder/category accounts (category: true) are for grouping only and cannot accept transactions. Only leaf accounts (category: false) accept journal entries."
+    },
+    {
+      "intent": "create_account",
+      "keywords": ["add account", "new account", "create bank account", "chart of accounts", "add ledger"],
+      "doc_reference": "docs/manual/03-chart-of-accounts-and-multi-tenancy.md",
+      "api_endpoint": "POST /api/accounts",
+      "required_payload": ["code", "name", "parent_code", "category", "debit", "credit"],
+      "validation_rules": [
+        "Unique account code across ledger",
+        "Parent must exist",
+        "Cannot post to category accounts"
+      ]
+    },
+    {
+      "intent": "create_voucher",
+      "keywords": ["post voucher", "record expense", "cash sale", "receive payment", "contra entry", "transfer bank"],
+      "doc_reference": "docs/testing/accounting-workflows-verification-guide.md#2-verification-workflows",
+      "api_endpoint": "POST /api/vouchers",
+      "required_payload": ["reference", "date", "description", "details"],
+      "validation_rules": [
+        "Total debits must equal total credits",
+        "Every detail account must have category=false",
+        "Company domain must be set"
+      ]
+    },
+    {
+      "intent": "build_custom_voucher",
+      "keywords": ["voucher builder", "custom voucher", "dynamic fields", "air ticket voucher", "travel package invoice"],
+      "doc_reference": "docs/manual/02-custom-voucher-builder.md",
+      "api_endpoint": "POST /api/voucher-types",
+      "summary": "Create company-specific custom voucher templates with dynamic fields, validation formulas, and automatic double-entry journal rule mappings."
+    },
+    {
+      "intent": "switch_company_or_multi_tenancy",
+      "keywords": ["switch company", "tenant", "new company", "isolation", "separate database", "company context"],
+      "doc_reference": "docs/manual/03-chart-of-accounts-and-multi-tenancy.md#3-multi-tenant-coa-initialization-architecture",
+      "header": "X-Company-Code",
+      "summary": "Every company has an isolated ledger partition. Accounts inherit from the standard template; journal vouchers and balances are strictly segregated by domainUuid."
+    },
+    {
+      "intent": "generate_financial_reports",
+      "keywords": ["trial balance", "profit and loss", "balance sheet", "general ledger", "account statement", "financial position"],
+      "doc_reference": "docs/manual/01-software-overview.md#2-core-functional-modules",
+      "api_endpoints": [
+        "GET /api/reports/trial-balance",
+        "GET /api/reports/profit-loss",
+        "GET /api/reports/balance-sheet",
+        "GET /api/reports/ledger"
+      ]
+    }
+  ],
+  "database_entities": {
+    "ledger_domains": "Tenants and branches (code, name, currency, extra)",
+    "ledger_accounts": "Global account chart (code, category, debit, credit, parentUuid)",
+    "domain_ledger_accounts": "Pivot linking accounts to specific company domains",
+    "journal_entries": "Header for double-entry transactions (transDate, currency, reference)",
+    "journal_details": "Debit/credit line items per account (ledgerUuid, amount, balanceSide)",
+    "domain_journal_entries": "Pivot scoping every transaction to a specific domainUuid",
+    "custom_voucher_types": "Definitions for user-built dynamic voucher templates",
+    "custom_voucher_fields": "Form fields with data types and validation formulas",
+    "custom_voucher_account_rules": "Mapping rules that generate double-entry lines from form fields"
+  }
+}

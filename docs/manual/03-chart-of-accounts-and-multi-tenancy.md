@@ -1,3 +1,23 @@
+---
+id: manual-03-chart-of-accounts
+title: Chart of Accounts Architecture & Multi-Tenancy
+module: Chart of Accounts
+tags: [coa, accounts, category, folder, leaf, posting, normal_balance, multi_tenancy, isolation, domains]
+api_endpoints:
+  - GET /api/accounts
+  - POST /api/accounts
+  - PUT /api/accounts/{code}
+  - DELETE /api/accounts/{code}
+tables:
+  - ledger_accounts
+  - domain_ledger_accounts
+  - ledger_domains
+invariants:
+  - "category accounts cannot accept journal voucher postings"
+  - "account codes must be unique"
+  - "balances are computed strictly per domainUuid"
+---
+
 # 03 - Chart of Accounts (COA) Architecture & Multi-Tenancy
 
 This manual chapter documents the architecture, data model, validation rules, and multi-tenant scoping mechanisms governing the Chart of Accounts (COA) in AccounTech.

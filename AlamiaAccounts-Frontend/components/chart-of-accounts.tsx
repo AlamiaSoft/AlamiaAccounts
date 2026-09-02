@@ -42,6 +42,9 @@ export default function ChartOfAccounts() {
       .map(item => ({
         ...item,
         id: item.code,
+        name: item.name || item.names?.[0]?.name || item.code,
+        balance: typeof item.balance === 'number' ? item.balance : 0,
+        type: item.type || (item.debit ? "Debit" : "Credit"),
         children: buildAccountTree(items, item.code)
       }))
   }
@@ -55,7 +58,10 @@ export default function ChartOfAccounts() {
     return (apiAccounts || []).map((acc: any) => ({
       ...acc,
       id: acc.code,
-      currency: acc.currency || "PKR"
+      name: acc.name || acc.names?.[0]?.name || acc.code,
+      currency: acc.currency || "PKR",
+      balance: typeof acc.balance === 'number' ? acc.balance : 0,
+      type: acc.type || (acc.debit ? "Debit" : "Credit"),
     }))
   }, [apiAccounts])
 
@@ -70,8 +76,8 @@ export default function ChartOfAccounts() {
     if (!searchTerm) return accounts
     return accounts.filter(
       (acc: any) =>
-        acc.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        acc.code.toLowerCase().includes(searchTerm.toLowerCase()),
+        (acc.name || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (acc.code || "").toLowerCase().includes(searchTerm.toLowerCase()),
     )
   }, [accounts, searchTerm])
 
@@ -212,7 +218,7 @@ export default function ChartOfAccounts() {
                           </div>
                           <div className="flex items-center gap-4 mr-4">
                             <div className="text-right">
-                              <div className="font-medium text-sm">{account.balance.toLocaleString("en-IN")}</div>
+                              <div className="font-medium text-sm">{(Number(account.balance) || 0).toLocaleString("en-IN")}</div>
                               <Badge variant="outline" className="text-xs">
                                 {account.type}
                               </Badge>

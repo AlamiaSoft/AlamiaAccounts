@@ -98,7 +98,7 @@ export default function AccountView({ account, groupName, onBack, onEdit, onDele
               <div className="flex items-center justify-between">
                 <p className="text-sm text-muted-foreground">Current Balance</p>
                 <p className="text-2xl font-bold">
-                  {account.currency} {account.balance.toLocaleString("en-IN")}
+                  {account.currency || "PKR"} {(Number(account.balance) || 0).toLocaleString("en-IN")}
                 </p>
               </div>
               <Separator />

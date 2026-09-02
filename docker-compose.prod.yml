@@ -9,8 +9,8 @@ services:
       - "8000:8000"
     environment:
       - APP_NAME=AlamiaAccounts
-      - APP_ENV=local
-      - APP_DEBUG=true
+      - APP_ENV=production
+      - APP_DEBUG=false
       - APP_URL=http://localhost:8000
       - FRONTEND_URL=http://localhost:3000
       - DB_CONNECTION=sqlite
@@ -19,8 +19,6 @@ services:
       - SESSION_DRIVER=file
       - QUEUE_CONNECTION=sync
     volumes:
-      - ./AlamiaAccounts-Backend:/var/www
-      - backend_vendor:/var/www/vendor
       - ./AlamiaAccounts-Backend/database:/var/www/database
       - ./AlamiaAccounts-Backend/storage:/var/www/storage
     networks:
@@ -29,18 +27,16 @@ services:
   frontend:
     build:
       context: ./AlamiaAccounts-Frontend
-      dockerfile: Dockerfile.dev
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:8000/api
     container_name: alamia-accounts-frontend
     restart: unless-stopped
     ports:
       - "3000:3000"
     environment:
-      - NODE_ENV=development
+      - NODE_ENV=production
       - NEXT_PUBLIC_API_URL=http://localhost:8000/api
-      - WATCHPACK_POLLING=true
-    volumes:
-      - ./AlamiaAccounts-Frontend:/app
-      - frontend_node_modules:/app/node_modules
     depends_on:
       - backend
     networks:
@@ -49,7 +45,3 @@ services:
 networks:
   alamia-network:
     driver: bridge
-
-volumes:
-  backend_vendor:
-  frontend_node_modules:

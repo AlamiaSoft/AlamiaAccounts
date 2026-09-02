@@ -26,9 +26,15 @@ php artisan migrate --force
 echo "Checking seed state..."
 php artisan db:seed --force
 
-echo "Optimizing application configuration..."
-php artisan config:cache
-php artisan route:cache
+if [ "$APP_ENV" = "production" ]; then
+    echo "Optimizing application configuration..."
+    php artisan config:cache
+    php artisan route:cache
+else
+    echo "Development mode: clearing config & route caches for instant hot-reloading..."
+    php artisan config:clear
+    php artisan route:clear
+fi
 
 echo "Starting application..."
 exec "$@"

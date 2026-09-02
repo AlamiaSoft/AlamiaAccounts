@@ -20,7 +20,7 @@ import { TrendingUp, TrendingDown, DollarSign, Boxes } from "lucide-react"
 export default function AccountAnalytics({ groups, accounts }) {
   const groupBalances = groups.map((group) => {
     const groupAccounts = accounts.filter((a) => a.groupId === group.id)
-    const total = groupAccounts.reduce((sum, a) => sum + a.balance, 0)
+    const total = groupAccounts.reduce((sum, a) => sum + (Number(a.balance) || 0), 0)
     return {
       name: group.code,
       fullName: group.name,
@@ -59,7 +59,8 @@ export default function AccountAnalytics({ groups, accounts }) {
 
   const currencyDistribution = Object.entries(
     accounts.reduce((acc, account) => {
-      acc[account.currency] = (acc[account.currency] || 0) + account.balance
+      const curr = account.currency || "PKR"
+      acc[curr] = (acc[curr] || 0) + (Number(account.balance) || 0)
       return acc
     }, {}),
   ).map(([currency, balance]) => ({

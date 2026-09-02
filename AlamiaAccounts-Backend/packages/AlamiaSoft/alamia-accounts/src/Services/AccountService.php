@@ -176,6 +176,90 @@ class AccountService
     }
 
     /**
+     * Get all accounts formatted with parent_code, balances, and types for UI/API.
+     */
+    public function getChartOfAccountsFormatted(): array
+    {
+        $currentDomain = $this->getCurrentDomain();
+        $accountUuids = DomainLedgerAccount::getAccountUuidsForDomain($currentDomain->domainUuid);
+
+        $accounts = LedgerAccount::whereIn('ledgerUuid', $accountUuids)
+            ->where('code', '!=', '') // Exclude root ledger account
+            ->with('names')
+            ->orderBy('code')
+            ->get();
+
+        $uuidToCode = [];
+        $root = LedgerAccount::where('code', '')->first();
+        $rootUuid = $root ? $root->ledgerUuid : null;
+
+        foreach ($accounts as $acc) {
+            $uuidToCode[$acc->ledgerUuid] = $acc->code;
+        }
+
+        // Fetch balances for leaf accounts from journal_details
+        $balances = \Illuminate\Support\Facades\DB::table('journal_details')
+            ->join('journal_entries', 'journal_details.journalEntryId', '=', 'journal_entries.journalEntryId')
+            ->join('domain_journal_entries', 'journal_entries.journalEntryId', '=', 'domain_journal_entries.journalEntryId')
+            ->where('domain_journal_entries.domainUuid', $currentDomain->domainUuid)
+            ->groupBy('journal_details.ledgerUuid')
+            ->select('journal_details.ledgerUuid', \Illuminate\Support\Facades\DB::raw('SUM(journal_details.amount) as total_balance'))
+            ->pluck('total_balance', 'journal_details.ledgerUuid')
+            ->toArray();
+
+        $result = [];
+        foreach ($accounts as $account) {
+            $name = $account->names->first()->name ?? $account->code;
+            $parentCode = null;
+            if ($account->parentUuid && $account->parentUuid !== $rootUuid) {
+                $parentCode = $uuidToCode[$account->parentUuid] ?? null;
+            }
+
+            // Determine friendly accounting type and group ID
+            $type = 'Asset';
+            $groupId = 'current';
+            if (str_starts_with($account->code, '1')) {
+                $type = 'Asset';
+                $groupId = str_starts_with($account->code, '13') ? 'fixed' : 'current';
+            } elseif (str_starts_with($account->code, '2')) {
+                $type = 'Liability';
+                $groupId = 'liability';
+            } elseif (str_starts_with($account->code, '3')) {
+                $type = 'Income';
+                $groupId = 'income';
+            } elseif (str_starts_with($account->code, '4')) {
+                $type = 'Expense';
+                $groupId = 'expense';
+            } elseif (str_starts_with($account->code, '5')) {
+                $type = 'Capital';
+                $groupId = 'capital';
+            }
+
+            $rawBalance = (float)($balances[$account->ledgerUuid] ?? 0.0);
+            $balance = $account->debit ? $rawBalance : abs($rawBalance);
+
+            $result[] = [
+                'id' => $account->code,
+                'uuid' => $account->ledgerUuid,
+                'code' => $account->code,
+                'name' => $name,
+                'category' => (bool)$account->category,
+                'debit' => (bool)$account->debit,
+                'credit' => (bool)$account->credit,
+                'type' => $type,
+                'groupId' => $groupId,
+                'parent_code' => $parentCode,
+                'parent_uuid' => $account->parentUuid,
+                'balance' => round($balance, 2),
+                'currency' => $currentDomain->currencyDefault ?? 'PKR',
+                'names' => $account->names->toArray(),
+            ];
+        }
+
+        return $result;
+    }
+
+    /**
      * Update an account.
      */
     public function updateAccount(string $code, string $name, ?string $parentCode = null, ?string $category = null): LedgerAccount

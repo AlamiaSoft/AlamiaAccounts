@@ -90,9 +90,9 @@ function TreeNode({ account, onEditAccount, onDeleteAccount, level }) {
           {!isCategory && (
             <Badge className={`text-xs ${getAccountTypeColor(account.type)}`}>{account.type}</Badge>
           )}
-          {account.balance !== undefined && (
+          {account.balance !== undefined && account.balance !== null && (
             <span className="text-sm font-medium text-right min-w-max">
-              {account.balance.toLocaleString("en-IN")}
+              {(Number(account.balance) || 0).toLocaleString("en-IN")}
             </span>
           )}
 

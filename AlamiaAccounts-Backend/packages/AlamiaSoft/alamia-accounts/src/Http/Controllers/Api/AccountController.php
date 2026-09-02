@@ -34,7 +34,7 @@ class AccountController extends Controller
 
     public function index()
     {
-        $accounts = $this->accountService->getChartOfAccounts();
+        $accounts = $this->accountService->getChartOfAccountsFormatted();
         
         return response()->json(['data' => $accounts]);
     }

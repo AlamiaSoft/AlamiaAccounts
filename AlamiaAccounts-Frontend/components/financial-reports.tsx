@@ -8,9 +8,13 @@ import ReportView from "@/components/report-view"
 import { useTrialBalance, useProfitLoss, useBalanceSheet } from "@/hooks/use-reports"
 
 export default function FinancialReports() {
+  const today = new Date().toISOString().split("T")[0]
+  const currentYear = new Date().getFullYear()
+  const startOfYear = `${currentYear}-01-01`
+
   const [selectedReport, setSelectedReport] = useState("balance-sheet")
-  const [reportPeriod, setReportPeriod] = useState("2024-12-31") // Used as 'asOfDate' or 'toDate'
-  const [fromDate, setFromDate] = useState("2024-01-01")
+  const [reportPeriod, setReportPeriod] = useState(today) // Used as 'asOfDate' or 'toDate'
+  const [fromDate, setFromDate] = useState(startOfYear)
   const [plLayout, setPlLayout] = useState<"income-expense" | "vertical">("income-expense")
   const [viewingReport, setViewingReport] = useState(false)
 
@@ -41,23 +45,51 @@ export default function FinancialReports() {
   const { data: apiPL, isLoading: isLoadingPL } = useProfitLoss(fromDate, reportPeriod, "PKR")
   const { data: apiBS, isLoading: isLoadingBS } = useBalanceSheet(reportPeriod, "PKR")
 
-  // Map backend trial balance to frontend format
-  const trialBalanceData = (apiTrialBalance || []).map((item: any) => ({
-    account: item.account_name,
-    code: item.account_code,
-    debit: item.debit,
-    credit: item.credit
+  // Map backend trial balance to frontend format (handle both array and { accounts: [...] } object)
+  const trialBalanceAccounts = Array.isArray(apiTrialBalance)
+    ? apiTrialBalance
+    : (Array.isArray(apiTrialBalance?.accounts) ? apiTrialBalance.accounts : [])
+
+  const trialBalanceData = trialBalanceAccounts.map((item: any) => ({
+    account: item.account_name || item.account || item.code || "Account",
+    code: item.account_code || item.code || "",
+    debit: Number(item.debit) || 0,
+    credit: Number(item.credit) || 0
   }))
 
+  const rawEquity = (Array.isArray(apiBS?.equity) ? apiBS.equity : []).map((item: any) => ({
+    account: item.account_name || item.account || "Equity",
+    amount: Number(item.amount) || 0
+  }))
+
+  if (apiBS?.retained_earnings) {
+    rawEquity.push({
+      account: "Retained Earnings (Net Profit)",
+      amount: Number(apiBS.retained_earnings) || 0
+    })
+  }
+
   const balanceSheetData = {
-    assets: (apiBS?.assets || []).map((item: any) => ({ account: item.account_name, amount: item.amount })),
-    liabilities: (apiBS?.liabilities || []).map((item: any) => ({ account: item.account_name, amount: item.amount })),
-    equity: (apiBS?.equity || []).map((item: any) => ({ account: item.account_name, amount: item.amount })),
+    assets: (Array.isArray(apiBS?.assets) ? apiBS.assets : []).map((item: any) => ({
+      account: item.account_name || item.account || "Asset",
+      amount: Number(item.amount) || 0
+    })),
+    liabilities: (Array.isArray(apiBS?.liabilities) ? apiBS.liabilities : []).map((item: any) => ({
+      account: item.account_name || item.account || "Liability",
+      amount: Number(item.amount) || 0
+    })),
+    equity: rawEquity,
   }
 
   const profitLossData = {
-    revenue: (apiPL?.income || []).map((item: any) => ({ account: item.account_name, amount: item.amount })),
-    expenses: (apiPL?.expenses || []).map((item: any) => ({ account: item.account_name, amount: item.amount })),
+    revenue: (Array.isArray(apiPL?.income) ? apiPL.income : []).map((item: any) => ({
+      account: item.account_name || item.account || "Income",
+      amount: Number(item.amount) || 0
+    })),
+    expenses: (Array.isArray(apiPL?.expenses) ? apiPL.expenses : []).map((item: any) => ({
+      account: item.account_name || item.account || "Expense",
+      amount: Number(item.amount) || 0
+    })),
   }
 
   const cashFlowData = {

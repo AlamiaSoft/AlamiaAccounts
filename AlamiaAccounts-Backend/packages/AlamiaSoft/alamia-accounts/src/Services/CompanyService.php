@@ -3,8 +3,10 @@
 namespace AlamiaSoft\AlamiaAccounts\Services;
 
 use Abivia\Ledger\Models\LedgerDomain;
+use Abivia\Ledger\Models\LedgerAccount;
 use Abivia\Ledger\Http\Controllers\LedgerDomainController;
 use Abivia\Ledger\Messages\Domain;
+use AlamiaSoft\AlamiaAccounts\Models\DomainLedgerAccount;
 use Illuminate\Support\Collection;
 use Carbon\Carbon;
 use Exception;
@@ -29,7 +31,35 @@ class CompanyService
      */
     public function createCompany(string $code, string $name, array $config = []): LedgerDomain
     {
-        return $this->createDomain($code, $name, 'company', null, $config);
+        $domain = $this->createDomain($code, $name, 'company', null, $config);
+
+        // Auto-initialize standard Chart of Accounts structure for the new company
+        $this->initializeCompanyChartOfAccounts($domain);
+
+        return $domain;
+    }
+
+    /**
+     * Initialize standard Chart of Accounts structure for a company domain.
+     */
+    public function initializeCompanyChartOfAccounts(LedgerDomain $domain): void
+    {
+        // Get standard base accounts from MAIN or root accounts
+        $mainDomain = LedgerDomain::where('code', 'MAIN')->first();
+        if ($mainDomain) {
+            $baseAccountUuids = DomainLedgerAccount::where('domainUuid', $mainDomain->domainUuid)
+                ->pluck('ledgerUuid')
+                ->toArray();
+        } else {
+            $baseAccountUuids = LedgerAccount::pluck('ledgerUuid')->toArray();
+        }
+
+        foreach ($baseAccountUuids as $ledgerUuid) {
+            DomainLedgerAccount::firstOrCreate([
+                'domainUuid' => $domain->domainUuid,
+                'ledgerUuid' => $ledgerUuid,
+            ]);
+        }
     }
 
     /**

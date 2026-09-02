@@ -31,11 +31,8 @@ return new class extends Migration
                 ->on('ledger_accounts')
                 ->onDelete('cascade');
             
-            // Unique constraint: one account can only belong to ONE domain
+            // Unique constraint: an account cannot be linked to the SAME domain twice
             $table->unique(['domainUuid', 'ledgerUuid'], 'domain_account_unique');
-            
-            // Also ensure one account can't be in multiple domains
-            $table->unique('ledgerUuid', 'account_unique');
             
             // Indexes for performance
             $table->index('domainUuid');

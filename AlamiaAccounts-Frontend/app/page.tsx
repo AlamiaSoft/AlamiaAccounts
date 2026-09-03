@@ -129,13 +129,16 @@ function HomeContent() {
 
   // Update print settings when company changes
   useEffect(() => {
-    if (currentCompany) {
-      setPrintSettings(prev => ({
-        ...prev,
-        companyName: currentCompany.name
-      }))
+    if (currentCompany?.name) {
+      setPrintSettings(prev => {
+        if (prev.companyName === currentCompany.name) return prev
+        return {
+          ...prev,
+          companyName: currentCompany.name
+        }
+      })
     }
-  }, [currentCompany])
+  }, [currentCompany?.name])
 
   const getSearchContext = (): "vouchers" | "accounts" | "ledgers" | "users" | "reports" | "dashboard" | undefined => {
     switch (currentPage) {

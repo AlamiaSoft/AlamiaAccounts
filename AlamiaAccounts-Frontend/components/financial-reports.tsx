@@ -31,7 +31,7 @@ export default function FinancialReports({ initialReport, companyName, printSett
   const [viewingReport, setViewingReport] = useState(false)
 
   useEffect(() => {
-    if (initialReport) {
+    if (initialReport && initialReport !== selectedReport) {
       setSelectedReport(initialReport)
     }
   }, [initialReport])

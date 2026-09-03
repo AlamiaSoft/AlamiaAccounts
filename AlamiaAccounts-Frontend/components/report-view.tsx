@@ -1,20 +1,37 @@
 "use client"
 
 import type React from "react"
-
 import { useEffect } from "react"
 import { Button } from "@/components/ui/button"
-import { X, Printer } from "lucide-react"
+import { X, Printer, Building2, Calendar, FileText } from "lucide-react"
 
 interface ReportViewProps {
   title: string
   children: React.ReactNode
   onClose: () => void
   companyName?: string
+  companyCode?: string
+  companyAddress?: string
+  companyPhone?: string
+  companyEmail?: string
   reportDate?: string
+  currency?: string
+  footerNote?: string
 }
 
-export default function ReportView({ title, children, onClose, companyName, reportDate }: ReportViewProps) {
+export default function ReportView({
+  title,
+  children,
+  onClose,
+  companyName,
+  companyCode,
+  companyAddress,
+  companyPhone,
+  companyEmail,
+  reportDate,
+  currency = "PKR",
+  footerNote,
+}: ReportViewProps) {
   useEffect(() => {
     // Prevent body scroll when modal is open
     document.body.style.overflow = "hidden"
@@ -27,8 +44,13 @@ export default function ReportView({ title, children, onClose, companyName, repo
     window.print()
   }
 
+  const printTimestamp = new Date().toLocaleString("en-PK", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  })
+
   return (
-    <div className="fixed inset-0 bg-background z-50 overflow-auto">
+    <div className="fixed inset-0 bg-background/90 backdrop-blur-xs z-50 overflow-auto">
       <style jsx global>{`
         @media print {
           body * {
@@ -43,6 +65,9 @@ export default function ReportView({ title, children, onClose, companyName, repo
             left: 0;
             top: 0;
             width: 100%;
+            padding: 0;
+            box-shadow: none !important;
+            border: none !important;
           }
           .no-print {
             display: none !important;
@@ -50,35 +75,91 @@ export default function ReportView({ title, children, onClose, companyName, repo
         }
       `}</style>
 
-      <div className="max-w-5xl mx-auto p-6">
-        <div className="no-print mb-4 flex justify-between items-center sticky top-0 bg-background py-2 z-10 border-b">
-          <h2 className="text-xl font-semibold">{title}</h2>
-          <div className="flex gap-2">
-            <Button onClick={handlePrint} variant="default">
-              <Printer className="w-4 h-4 mr-2" />
-              Print
+      <div className="max-w-5xl mx-auto p-4 sm:p-6 lg:p-8">
+        {/* Navigation & Action Bar */}
+        <div className="no-print mb-6 flex justify-between items-center sticky top-0 bg-background/95 backdrop-blur py-3 z-10 border-b border-border">
+          <div className="flex items-center gap-2">
+            <FileText className="w-5 h-5 text-primary" />
+            <h2 className="text-lg font-semibold text-foreground">{title} — Print Preview</h2>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button onClick={handlePrint} variant="default" size="sm" className="gap-1.5 shadow-xs">
+              <Printer className="w-4 h-4" />
+              <span>Print / Save PDF</span>
             </Button>
-            <Button onClick={onClose} variant="outline">
-              <X className="w-4 h-4 mr-2" />
-              Close
+            <Button onClick={onClose} variant="outline" size="sm" className="gap-1.5 bg-background">
+              <X className="w-4 h-4" />
+              <span>Close</span>
             </Button>
           </div>
         </div>
 
-        <div id="report-content" className="bg-white text-black p-8 rounded-lg shadow-lg">
-          {/* Header */}
-          <div className="text-center mb-8 pb-4 border-b-2 border-black">
-            <h1 className="text-2xl font-bold">{companyName || "Company Name"}</h1>
-            <h2 className="text-lg font-semibold mt-2">{title}</h2>
-            {reportDate && <p className="text-sm mt-1">As at {reportDate}</p>}
+        {/* Printable Report Document */}
+        <div
+          id="report-content"
+          className="bg-white text-slate-900 dark:bg-slate-950 dark:text-slate-100 p-8 sm:p-12 rounded-xl shadow-xl border border-border transition-colors"
+        >
+          {/* Header Banner */}
+          <div className="border-b-2 border-slate-900 dark:border-slate-100 pb-6 mb-8">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4">
+              <div>
+                <div className="flex items-center gap-2 text-primary">
+                  <Building2 className="w-6 h-6" />
+                  <span className="text-xs uppercase font-bold tracking-widest text-muted-foreground">
+                    Alamia Accounts • Certified Financial Report
+                  </span>
+                </div>
+                <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight mt-1 text-slate-900 dark:text-white">
+                  {companyName || "Main Company"}
+                </h1>
+                {companyAddress && (
+                  <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">
+                    {companyAddress}
+                  </p>
+                )}
+                {(companyPhone || companyEmail) && (
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                    {companyPhone && <span>Tel: {companyPhone} </span>}
+                    {companyEmail && <span>• Email: {companyEmail}</span>}
+                  </p>
+                )}
+              </div>
+
+              <div className="text-left sm:text-right">
+                <span className="inline-block px-3 py-1 bg-slate-100 dark:bg-slate-900 text-slate-900 dark:text-slate-200 text-xs font-bold rounded-md uppercase tracking-wider border border-slate-300 dark:border-slate-800">
+                  {title}
+                </span>
+                {reportDate && (
+                  <p className="text-xs font-medium text-slate-600 dark:text-slate-400 mt-2 flex items-center sm:justify-end gap-1">
+                    <Calendar className="w-3.5 h-3.5" />
+                    <span>{reportDate}</span>
+                  </p>
+                )}
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                  Currency: <strong className="font-semibold">{currency}</strong>
+                </p>
+              </div>
+            </div>
           </div>
 
-          {/* Report Content */}
-          {children}
+          {/* Report Body / Tables */}
+          <div className="min-h-[400px]">
+            {children}
+          </div>
 
-          {/* Footer */}
-          <div className="mt-8 pt-4 border-t text-center text-sm text-gray-600">
-            <p>This is a computer generated report</p>
+          {/* Institutional Footer */}
+          <div className="mt-12 pt-6 border-t border-slate-300 dark:border-slate-800 text-xs text-slate-500 dark:text-slate-400 flex flex-col sm:flex-row justify-between items-center gap-3">
+            <div>
+              <p className="font-medium text-slate-700 dark:text-slate-300">
+                {footerNote || "This is a computer generated document and does not require signature."}
+              </p>
+              <p className="text-[10px] text-slate-400 mt-0.5">
+                Alamia Accounts Double-Entry Engine • GAAP/IFRS Ledger Immutability Enforced
+              </p>
+            </div>
+            <div className="text-right text-[11px]">
+              <p>Printed on: {printTimestamp}</p>
+            </div>
           </div>
         </div>
       </div>

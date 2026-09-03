@@ -24,10 +24,10 @@ export default function VoucherView({ voucher, onBack, onEdit, onDelete, printSe
   const totalCredit = voucher.lineItems.reduce((sum, item) => sum + (item.credit || 0), 0)
 
   const defaultPrintSettings: PrintSettings = printSettings || {
-    companyName: "Acme Corporation",
-    companyAddress: "123 Business Park, Islamabad, Punjab 400001",
-    companyPhone: "+92 22 1234 5678",
-    companyEmail: "accounts@acme.com",
+    companyName: "Main Company",
+    companyAddress: "Head Office, Alamia Complex, Islamabad, Pakistan",
+    companyPhone: "+92 51 111 252 642",
+    companyEmail: "accounts@alamiaconnect.com",
     footerNote: "This is a computer generated document and does not require signature.",
     showHeader: true,
     showFooter: true,

@@ -30,6 +30,7 @@ export function useCompanies() {
             // Invalidate all data queries since company changed
             queryClient.invalidateQueries({ queryKey: ['accounts'] })
             queryClient.invalidateQueries({ queryKey: ['vouchers'] })
+            queryClient.invalidateQueries({ queryKey: ['report'] })
             queryClient.invalidateQueries({ queryKey: ['reports'] })
         },
     })

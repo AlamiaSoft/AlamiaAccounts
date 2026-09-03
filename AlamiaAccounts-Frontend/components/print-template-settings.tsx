@@ -28,10 +28,10 @@ interface PrintTemplateSettingsProps {
 export default function PrintTemplateSettings({ onSave, initialSettings }: PrintTemplateSettingsProps) {
   const [settings, setSettings] = useState<PrintSettings>(
     initialSettings || {
-      companyName: "Acme Corporation",
-      companyAddress: "123 Business Park, Islamabad, Punjab 400001",
-      companyPhone: "+92 22 1234 5678",
-      companyEmail: "accounts@acme.com",
+      companyName: "Main Company",
+      companyAddress: "Head Office, Alamia Complex, Islamabad, Pakistan",
+      companyPhone: "+92 51 111 252 642",
+      companyEmail: "accounts@alamiaconnect.com",
       footerNote: "This is a computer generated document and does not require signature.",
       showHeader: true,
       showFooter: true,

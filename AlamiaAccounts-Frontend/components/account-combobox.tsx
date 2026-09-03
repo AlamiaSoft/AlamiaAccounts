@@ -1,4 +1,4 @@
-﻿"use client"
+"use client"
 
 import React, { useState, useRef, useEffect, useMemo } from "react"
 import { Check, ChevronsUpDown, Search, Folder, X, AlertCircle } from "lucide-react"
@@ -150,7 +150,7 @@ export default function AccountCombobox({
   }
 
   return (
-    <div ref={containerRef} className={cn("relative w-full", className)}>
+    <div ref={containerRef} className={cn("relative w-full", isOpen ? "z-50" : "z-auto", className)}>
       {/* Trigger Button / Input */}
       <div
         role="button"
@@ -200,7 +200,7 @@ export default function AccountCombobox({
 
       {/* Floating Searchable Dropdown */}
       {isOpen && (
-        <div className="absolute left-0 top-full mt-1 w-full min-w-[320px] max-w-[420px] z-50 bg-popover text-popover-foreground border border-border rounded-lg shadow-xl overflow-hidden animate-in fade-in-0 zoom-in-95 duration-150">
+        <div className="absolute left-0 top-full mt-1 w-full min-w-[340px] max-w-[480px] z-[100] bg-popover text-popover-foreground border border-border rounded-lg shadow-2xl overflow-hidden animate-in fade-in-0 zoom-in-95 duration-150">
           {/* Search Input */}
           <div className="flex items-center px-3 py-2 border-b border-border bg-muted/30">
             <Search className="w-4 h-4 text-muted-foreground mr-2 shrink-0" />

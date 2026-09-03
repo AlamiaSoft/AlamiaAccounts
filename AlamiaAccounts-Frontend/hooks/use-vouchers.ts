@@ -21,6 +21,8 @@ export function useVouchers(params?: any) {
         mutationFn: (data: any) => voucherApi.create(data),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['vouchers'] })
+            queryClient.invalidateQueries({ queryKey: ['report'] })
+            queryClient.invalidateQueries({ queryKey: ['accounts'] })
         },
     })
 
@@ -29,6 +31,8 @@ export function useVouchers(params?: any) {
             voucherApi.update(reference, data),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['vouchers'] })
+            queryClient.invalidateQueries({ queryKey: ['report'] })
+            queryClient.invalidateQueries({ queryKey: ['accounts'] })
         },
     })
 
@@ -36,6 +40,8 @@ export function useVouchers(params?: any) {
         mutationFn: (reference: string) => voucherApi.delete(reference),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['vouchers'] })
+            queryClient.invalidateQueries({ queryKey: ['report'] })
+            queryClient.invalidateQueries({ queryKey: ['accounts'] })
         },
     })
 

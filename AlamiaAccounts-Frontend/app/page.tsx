@@ -118,10 +118,10 @@ function HomeContent() {
   }, [apiCurrentCompany, companies])
 
   const [printSettings, setPrintSettings] = useState<PrintSettings>({
-    companyName: currentCompany?.name || "Acme Corporation",
-    companyAddress: "123 Business Park, Islamabad, Punjab 400001",
-    companyPhone: "+92 22 1234 5678",
-    companyEmail: "accounts@acme.com",
+    companyName: currentCompany?.name || "Main Company",
+    companyAddress: "Head Office, Alamia Complex, Islamabad, Pakistan",
+    companyPhone: "+92 51 111 252 642",
+    companyEmail: "accounts@alamiaconnect.com",
     footerNote: "This is a computer generated document and does not require signature.",
     showHeader: true,
     showFooter: true,
@@ -388,7 +388,13 @@ function HomeContent() {
       case "cash-flow":
       case "reports":
       case "financial-reports":
-        return <FinancialReports initialReport={currentPage === "reports" || currentPage === "financial-reports" ? "balance-sheet" : currentPage} />
+        return (
+          <FinancialReports
+            initialReport={currentPage === "reports" || currentPage === "financial-reports" ? "balance-sheet" : currentPage}
+            companyName={currentCompany?.name}
+            printSettings={printSettings}
+          />
+        )
       case "print-templates":
         return <PrintTemplateSettings onSave={setPrintSettings} initialSettings={printSettings} />
       default:

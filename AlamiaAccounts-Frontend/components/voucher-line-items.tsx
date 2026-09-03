@@ -1,4 +1,4 @@
-﻿"use client"
+"use client"
 
 import React, { useMemo } from "react"
 import { Trash2, Check, AlertTriangle } from "lucide-react"
@@ -104,7 +104,7 @@ export default function VoucherLineItems({
   }
 
   return (
-    <div className="overflow-x-auto">
+    <div className="overflow-x-auto min-h-[360px] pb-32">
       <table className="w-full border-collapse">
         <thead>
           <tr className="border-b border-border bg-muted/20">
@@ -137,7 +137,8 @@ export default function VoucherLineItems({
             return (
               <tr
                 key={item.id}
-                className="border-b border-border/70 hover:bg-muted/30 transition-colors"
+                style={{ zIndex: (lineItems.length - index) * 10 }}
+                className="border-b border-border/70 hover:bg-muted/30 transition-colors relative"
               >
                 {/* 1. Account Code with Live Validation */}
                 <td className="py-2.5 px-3 align-top">

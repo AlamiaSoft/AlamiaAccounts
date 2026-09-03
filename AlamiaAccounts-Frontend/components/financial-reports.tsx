@@ -1,14 +1,25 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Download, Eye, Loader2, CheckCircle2, AlertTriangle, Scale, Users, Building2 } from "lucide-react"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import ReportView from "@/components/report-view"
 import { useTrialBalance, useProfitLoss, useBalanceSheet, useReceivables, usePayables } from "@/hooks/use-reports"
+import { useCompanies } from "@/hooks/use-companies"
+import type { PrintSettings } from "@/components/print-template-settings"
 
-export default function FinancialReports({ initialReport }: { initialReport?: string } = {}) {
+interface FinancialReportsProps {
+  initialReport?: string
+  companyName?: string
+  printSettings?: PrintSettings
+}
+
+export default function FinancialReports({ initialReport, companyName, printSettings }: FinancialReportsProps = {}) {
+  const { currentCompany } = useCompanies()
+  const activeCompanyName = companyName || currentCompany?.name || "Main Company"
+
   const today = new Date().toISOString().split("T")[0]
   const currentYear = new Date().getFullYear()
   const startOfYear = `${currentYear}-01-01`
@@ -18,6 +29,12 @@ export default function FinancialReports({ initialReport }: { initialReport?: st
   const [fromDate, setFromDate] = useState(startOfYear)
   const [plLayout, setPlLayout] = useState<"income-expense" | "vertical">("income-expense")
   const [viewingReport, setViewingReport] = useState(false)
+
+  useEffect(() => {
+    if (initialReport) {
+      setSelectedReport(initialReport)
+    }
+  }, [initialReport])
 
   const reports = [
     {
@@ -633,14 +650,22 @@ export default function FinancialReports({ initialReport }: { initialReport?: st
                 </tr>
               </thead>
               <tbody>
-                {trialBalanceData.map((item, i) => (
-                  <tr key={i} className="border-b">
-                    <td className="py-2">{item.code}</td>
-                    <td className="py-2">{item.account}</td>
-                    <td className="text-right">{item.debit > 0 ? item.debit.toLocaleString() : "—"}</td>
-                    <td className="text-right">{item.credit > 0 ? item.credit.toLocaleString() : "—"}</td>
+                {trialBalanceData.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} className="py-8 text-center text-sm text-muted-foreground italic">
+                      No ledger transactions posted for the selected period.
+                    </td>
                   </tr>
-                ))}
+                ) : (
+                  trialBalanceData.map((item, i) => (
+                    <tr key={i} className="border-b">
+                      <td className="py-2 font-mono text-xs sm:text-sm">{item.code}</td>
+                      <td className="py-2">{item.account}</td>
+                      <td className="text-right font-mono">{item.debit > 0 ? item.debit.toLocaleString() : "—"}</td>
+                      <td className="text-right font-mono">{item.credit > 0 ? item.credit.toLocaleString() : "—"}</td>
+                    </tr>
+                  ))
+                )}
               </tbody>
               <tfoot>
                 <tr className="border-t-2 border-black font-bold">
@@ -1088,14 +1113,22 @@ export default function FinancialReports({ initialReport }: { initialReport?: st
           </tr>
         </thead>
         <tbody>
-          {trialBalanceData.map((item, i) => (
-            <tr key={i} className="border-b">
-              <td className="py-1">{item.code}</td>
-              <td className="py-1">{item.account}</td>
-              <td className="text-right">{item.debit > 0 ? item.debit.toLocaleString() : "—"}</td>
-              <td className="text-right">{item.credit > 0 ? item.credit.toLocaleString() : "—"}</td>
+          {trialBalanceData.length === 0 ? (
+            <tr>
+              <td colSpan={4} className="py-6 text-center text-slate-500 italic">
+                No ledger transactions posted for the selected period.
+              </td>
             </tr>
-          ))}
+          ) : (
+            trialBalanceData.map((item, i) => (
+              <tr key={i} className="border-b">
+                <td className="py-1 font-mono text-xs">{item.code}</td>
+                <td className="py-1">{item.account}</td>
+                <td className="text-right font-mono">{item.debit > 0 ? item.debit.toLocaleString() : "—"}</td>
+                <td className="text-right font-mono">{item.credit > 0 ? item.credit.toLocaleString() : "—"}</td>
+              </tr>
+            ))
+          )}
         </tbody>
         <tfoot>
           <tr className="border-t-2 border-black font-bold">
@@ -1265,12 +1298,18 @@ export default function FinancialReports({ initialReport }: { initialReport?: st
       {viewingReport && (
         <ReportView
           title={reports.find((r) => r.id === selectedReport)?.name || "Financial Report"}
-          companyName="Acme Corporation"
-          reportDate={new Date(reportPeriod).toLocaleDateString("en-IN", {
-            year: "numeric",
-            month: "long",
-            day: "numeric",
-          })}
+          companyName={activeCompanyName}
+          companyCode={currentCompany?.code}
+          companyAddress={printSettings?.companyAddress}
+          companyPhone={printSettings?.companyPhone}
+          companyEmail={printSettings?.companyEmail}
+          reportDate={
+            selectedReport === "profit-loss" || selectedReport === "cash-flow"
+              ? `${new Date(fromDate).toLocaleDateString("en-PK", { dateStyle: "medium" })} — ${new Date(reportPeriod).toLocaleDateString("en-PK", { dateStyle: "medium" })}`
+              : `As at ${new Date(reportPeriod).toLocaleDateString("en-PK", { dateStyle: "medium" })}`
+          }
+          currency="PKR"
+          footerNote={printSettings?.footerNote}
           onClose={() => setViewingReport(false)}
         >
           {renderReportContent()}

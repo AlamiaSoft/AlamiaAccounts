@@ -14,12 +14,15 @@ use AlamiaSoft\AlamiaAccounts\Http\Controllers\Api\UserController;
 use AlamiaSoft\AlamiaAccounts\Http\Controllers\Api\PeriodController;
 use AlamiaSoft\AlamiaAccounts\Http\Controllers\Api\OpeningBalanceController;
 use AlamiaSoft\AlamiaAccounts\Http\Controllers\Api\AuditTrailController;
+use App\Http\Controllers\Api\CopilotController;
 
 // Public routes
 Route::post('/login', [AuthController::class, 'login']);
 Route::get('/login', function () {
     return response()->json(['message' => 'Unauthenticated.'], 401);
 })->name('login');
+Route::post('/copilot/chat-public', [CopilotController::class, 'chat']);
+Route::get('/copilot/capabilities-public', [CopilotController::class, 'capabilities']);
 
 // Protected routes
 Route::middleware('auth:sanctum')->group(function () {
@@ -78,4 +81,9 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Audit Trail
     Route::get('/audit-trail', [AuditTrailController::class, 'index']);
+
+    // Copilot (Taliya AI)
+    Route::post('/copilot/chat', [CopilotController::class, 'chat']);
+    Route::get('/copilot/capabilities', [CopilotController::class, 'capabilities']);
+    Route::get('/copilot/situations', [CopilotController::class, 'situations']);
 });

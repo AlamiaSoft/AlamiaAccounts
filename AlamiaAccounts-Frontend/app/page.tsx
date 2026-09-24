@@ -24,6 +24,7 @@ import DayBook from "@/components/daybook"
 import CustomVoucherTypes from "@/components/custom-voucher-types"
 import VoucherBuilder from "@/components/voucher-builder"
 import PeriodManagement from "@/components/period-management"
+import CopilotWidget from "@/components/copilot-widget"
 import { useCompanies } from "@/hooks/use-companies"
 import { Loader2 } from "lucide-react"
 
@@ -436,6 +437,7 @@ function HomeContent() {
         </div>
         <div className="max-w-7xl mx-auto p-6 lg:p-8">{renderPage()}</div>
       </main>
+      <CopilotWidget companyCode={currentCompany?.code} />
     </div>
   )
 }

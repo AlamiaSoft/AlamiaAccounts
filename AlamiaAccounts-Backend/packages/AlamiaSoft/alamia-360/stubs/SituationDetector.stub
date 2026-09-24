@@ -1,0 +1,59 @@
+<?php
+
+namespace {{ namespace }};
+
+use Alamia360\Observation\Observation;
+use Alamia360\Situations\AbstractSituationDetector;
+use Alamia360\Situations\Situation;
+use Alamia360\Situations\SituationPriority;
+
+/**
+ * {{ class }}
+ *
+ * Detects operational situations from incoming observations.
+ *
+ * Register this detector in your ServiceProvider:
+ *   Alamia360::observer()->addDetector(new {{ class }}());
+ *
+ * Or bind it as a singleton:
+ *   $this->app->make(\Alamia360\Observation\Observer::class)->addDetector(
+ *       $this->app->make({{ class }}::class)
+ *   );
+ */
+class {{ class }} extends AbstractSituationDetector
+{
+    /**
+     * Return the observation types this detector handles.
+     * Leave empty to handle every observation type.
+     *
+     * @return string[]
+     */
+    protected function handles(): array
+    {
+        return [
+            // e.g. 'invoice.overdue', 'lab_result.created'
+        ];
+    }
+
+    /**
+     * Evaluate whether the observation is an operationally meaningful
+     * situation. Return a new Situation, or null to discard the observation.
+     */
+    protected function evaluate(Observation $observation): ?Situation
+    {
+        // Example:
+        // if (($observation->payload['status'] ?? null) === 'critical') {
+        //     return new Situation(
+        //         type: 'your_situation_type',
+        //         summary: 'A brief human-readable description of what happened',
+        //         priority: SituationPriority::High,
+        //         subjectType: $observation->entityType,
+        //         subjectId: $observation->entityId,
+        //         context: $observation->payload,
+        //         source: $observation,
+        //     );
+        // }
+
+        return null;
+    }
+}

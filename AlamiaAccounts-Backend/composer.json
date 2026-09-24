@@ -11,6 +11,7 @@
     "require": {
         "php": "^8.2",
         "abivia/ledger": "^1.11",
+        "alamia/alamia-360": "@dev",
         "alamiasoft/alamia-accounts": "@dev",
         "darkaonline/l5-swagger": "^9.0",
         "laravel/ai": "1.x-dev || ^0.1",
@@ -23,6 +24,10 @@
         {
             "type": "path",
             "url": "packages/AlamiaSoft/alamia-accounts"
+        },
+        {
+            "type": "path",
+            "url": "packages/AlamiaSoft/alamia-360"
         }
     ],
     "require-dev": {

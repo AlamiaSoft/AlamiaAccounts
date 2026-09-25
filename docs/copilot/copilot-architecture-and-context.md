@@ -79,15 +79,23 @@ The **Alamia Accounts MCP Server** exposes the complete double-entry accounting 
 
 ---
 
-## 6. Copilot Intent Classification & Routing Roadmap (TODO / TO-FIX)
+## 6. Copilot Intent Classification & LLM Integration (Ollama qwen3.5:4b)
 
-### Current Architecture:
-- Prompt routing utilizes heuristic rule triggers and regex patterns (`preg_match` for voucher references like `OB-`, `JV-`, `PV-`, and keyword matching for accounts/reports).
+### Architecture Overview:
+- The Copilot uses a dedicated **`IntentClassifierService`** powered by **`qwen3.5:4b`** running on the local Ollama server (or any OpenAI-compatible API).
+- It classifies user prompts into structured enum intents (`INQUIRE_VOUCHER`, `INQUIRE_ACCOUNT`, `INQUIRE_REPORT`, `DRAFT_VOUCHER`, `LIST_SITUATIONS`, `GENERAL_SEARCH`) and extracts named entities (`reference`, `code`, `account_name`, `amount`, `report_type`).
+- **Resilience & Fallback**: If Ollama or the AI endpoint is offline/unreachable, the service automatically falls back to the deterministic heuristic/regex engine, ensuring 100% uptime and zero latency disruption.
 
-### Target Architecture:
-- **Dedicated Intent Classifier Pipeline**:
-  1. **Intent Categorization**: Natural language router classifies incoming prompts into structured enum intents (`INQUIRE_VOUCHER`, `INQUIRE_ACCOUNT`, `INQUIRE_REPORT`, `SEARCH_GLOBAL`, `DRAFT_VOUCHER`, `REVERSE_VOUCHER`).
-  2. **Named Entity Recognition (NER)**: Extracts structured entities (`reference_code`, `account_identifier`, `monetary_amount`, `currency`, `date_range`, `contact_name`).
-  3. **Disambiguation Matrix**: When NER extracts multiple ambiguous entities across domain tables, returns ranked options for user selection before downstream capability execution.
+### Environment Variable Configuration:
+All AI endpoints, models, and authentication keys are kept strictly in environment variables:
+
+| Variable | Default Value | Purpose |
+| :--- | :--- | :--- |
+| `AI_ENABLED` | `true` | Toggles LLM intent classification |
+| `AI_ENDPOINT` | `http://host.docker.internal:11434` | Ollama / LLM server URL |
+| `AI_MODEL` | `qwen3.5:4b` | Model name for classification |
+| `AI_API_KEY` | *(empty)* | Optional Bearer API key |
+| `AI_TIMEOUT` | `5` | Request timeout in seconds |
+
 
 

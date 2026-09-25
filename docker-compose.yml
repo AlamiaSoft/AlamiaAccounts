@@ -18,6 +18,11 @@ services:
       - CACHE_STORE=file
       - SESSION_DRIVER=file
       - QUEUE_CONNECTION=sync
+      - AI_ENABLED=${AI_ENABLED:-true}
+      - AI_ENDPOINT=${AI_ENDPOINT:-http://host.docker.internal:11434}
+      - AI_MODEL=${AI_MODEL:-qwen3.5:4b}
+      - AI_API_KEY=${AI_API_KEY:-}
+      - AI_TIMEOUT=${AI_TIMEOUT:-5}
     volumes:
       - ./AlamiaAccounts-Backend:/var/www
       - backend_vendor:/var/www/vendor

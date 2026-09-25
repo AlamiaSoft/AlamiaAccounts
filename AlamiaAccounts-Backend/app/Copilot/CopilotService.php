@@ -62,70 +62,84 @@ class CopilotService
             }
         }
 
-        // 3. Financial Reports Query
-        if (str_contains($promptLower, 'trial balance') || str_contains($promptLower, 'tb')) {
-            $result = Alamia360::capabilities()->execute('get_financial_report', [
-                'report_type' => 'trial-balance',
-            ], $copilotActor);
+        // 3. Classify Prompt Intent via LLM (Ollama qwen3.5:4b) with graceful fallback
+        $classifier = app(IntentClassifierService::class);
+        $classification = $classifier->classify($prompt);
+        $intent = $classification['intent'] ?? 'UNKNOWN';
+        $entity = $classification['entity'] ?? '';
+        $reportType = $classification['report_type'] ?? null;
 
-            $data = $result['data'] ?? [];
-            $totalDebit = $data['total_debit'] ?? $data['totals']['debit'] ?? 0;
-            $totalCredit = $data['total_credit'] ?? $data['totals']['credit'] ?? 0;
-            $isBalanced = ($totalDebit == $totalCredit) && ($totalDebit > 0);
+        // 4. Financial Reports Query
+        if ($intent === 'INQUIRE_REPORT' || str_contains($promptLower, 'trial balance') || str_contains($promptLower, 'tb') || str_contains($promptLower, 'profit') || str_contains($promptLower, 'balance sheet')) {
+            $effectiveReportType = $reportType ?: (
+                (str_contains($promptLower, 'profit') || str_contains($promptLower, 'loss') || str_contains($promptLower, 'p&l')) ? 'profit-loss' :
+                (str_contains($promptLower, 'balance sheet') ? 'balance-sheet' : 'trial-balance')
+            );
 
-            return [
-                'sender' => 'Taliya',
-                'intent' => 'report_trial_balance',
-                'message' => "Here is the Trial Balance summary as of today. " . 
-                    ($isBalanced ? "The books are in balance with total debits matching credits." : "Review total balances below."),
-                'data' => [
-                    'type' => 'trial-balance',
-                    'total_debit' => $totalDebit,
-                    'total_credit' => $totalCredit,
-                    'is_balanced' => $isBalanced,
-                    'accounts_count' => count($data['accounts'] ?? $data['rows'] ?? []),
-                    'raw' => $data,
-                ],
-                'card_type' => 'financial_report',
-            ];
+            if ($effectiveReportType === 'trial-balance') {
+                $result = Alamia360::capabilities()->execute('get_financial_report', [
+                    'report_type' => 'trial-balance',
+                ], $copilotActor);
+
+                $data = $result['data'] ?? [];
+                $totalDebit = $data['total_debit'] ?? $data['totals']['debit'] ?? 0;
+                $totalCredit = $data['total_credit'] ?? $data['totals']['credit'] ?? 0;
+                $isBalanced = ($totalDebit == $totalCredit) && ($totalDebit > 0);
+
+                return [
+                    'sender' => 'Taliya',
+                    'intent' => 'report_trial_balance',
+                    'message' => "Here is the Trial Balance summary as of today. " . 
+                        ($isBalanced ? "The books are in balance with total debits matching credits." : "Review total balances below."),
+                    'data' => [
+                        'type' => 'trial-balance',
+                        'total_debit' => $totalDebit,
+                        'total_credit' => $totalCredit,
+                        'is_balanced' => $isBalanced,
+                        'accounts_count' => count($data['accounts'] ?? $data['rows'] ?? []),
+                        'raw' => $data,
+                    ],
+                    'card_type' => 'financial_report',
+                ];
+            }
+
+            if ($effectiveReportType === 'profit-loss') {
+                $result = Alamia360::capabilities()->execute('get_financial_report', [
+                    'report_type' => 'profit-loss',
+                ], $copilotActor);
+
+                return [
+                    'sender' => 'Taliya',
+                    'intent' => 'report_profit_loss',
+                    'message' => "Here is the Profit & Loss statement for the current period.",
+                    'data' => [
+                        'type' => 'profit-loss',
+                        'raw' => $result['data'] ?? [],
+                    ],
+                    'card_type' => 'financial_report',
+                ];
+            }
+
+            if ($effectiveReportType === 'balance-sheet') {
+                $result = Alamia360::capabilities()->execute('get_financial_report', [
+                    'report_type' => 'balance-sheet',
+                ], $copilotActor);
+
+                return [
+                    'sender' => 'Taliya',
+                    'intent' => 'report_balance_sheet',
+                    'message' => "Here is the Balance Sheet as of today.",
+                    'data' => [
+                        'type' => 'balance-sheet',
+                        'raw' => $result['data'] ?? [],
+                    ],
+                    'card_type' => 'financial_report',
+                ];
+            }
         }
 
-        if (str_contains($promptLower, 'profit') || str_contains($promptLower, 'loss') || str_contains($promptLower, 'p&l') || str_contains($promptLower, 'income statement')) {
-            $result = Alamia360::capabilities()->execute('get_financial_report', [
-                'report_type' => 'profit-loss',
-            ], $copilotActor);
-
-            return [
-                'sender' => 'Taliya',
-                'intent' => 'report_profit_loss',
-                'message' => "Here is the Profit & Loss statement for the current period.",
-                'data' => [
-                    'type' => 'profit-loss',
-                    'raw' => $result['data'] ?? [],
-                ],
-                'card_type' => 'financial_report',
-            ];
-        }
-
-        if (str_contains($promptLower, 'balance sheet')) {
-            $result = Alamia360::capabilities()->execute('get_financial_report', [
-                'report_type' => 'balance-sheet',
-            ], $copilotActor);
-
-            return [
-                'sender' => 'Taliya',
-                'intent' => 'report_balance_sheet',
-                'message' => "Here is the Balance Sheet as of today.",
-                'data' => [
-                    'type' => 'balance-sheet',
-                    'raw' => $result['data'] ?? [],
-                ],
-                'card_type' => 'financial_report',
-            ];
-        }
-
-        // 4. Situations / Alerts Query
-        if (str_contains($promptLower, 'situation') || str_contains($promptLower, 'alert') || str_contains($promptLower, 'warning') || str_contains($promptLower, 'anomal')) {
+        // 5. Situations / Alerts Query
+        if ($intent === 'LIST_SITUATIONS' || str_contains($promptLower, 'situation') || str_contains($promptLower, 'alert') || str_contains($promptLower, 'warning') || str_contains($promptLower, 'anomal')) {
             $result = Alamia360::capabilities()->execute('list_situations', [], $copilotActor);
             $count = $result['count'] ?? 0;
 
@@ -140,20 +154,10 @@ class CopilotService
             ];
         }
 
-        /**
-         * TODO / ROADMAP (Intent Identification & Classification):
-         * Currently, prompt routing uses heuristic rule matching and regex patterns (preg_match)
-         * to identify entity references, reports, and voucher drafting.
-         * In a future release, this should be replaced / augmented with a dedicated Intent Classifier
-         * (e.g. LLM-based Intent Router or NLP Classifier) that categorizes prompts into structured
-         * intents (e.g. `INQUIRE_VOUCHER`, `INQUIRE_ACCOUNT_BALANCE`, `SEARCH_CONTACT`, `DRAFT_TRANSACTION`)
-         * with extracted named entities before capability dispatch.
-         */
-
-        // 5. Explicit Voucher Inquiries with Reference Pattern (e.g. "OB-2026-001", "JV-20260924-142714")
-        if (preg_match('/\b(ob|jv|pv|rv|cv|sv|rev)-[0-9a-z-]+\b/i', $prompt, $refMatch)) {
+        // 6. Explicit Voucher Inquiries
+        if ($intent === 'INQUIRE_VOUCHER' || preg_match('/\b(ob|jv|pv|rv|cv|sv|rev)-[0-9a-z-]+\b/i', $prompt, $refMatch)) {
             $searchService = app(SearchService::class);
-            $searchKey = $refMatch[0];
+            $searchKey = $entity ?: ($refMatch[0] ?? $prompt);
             $vouchers = $searchService->searchVouchers($searchKey);
 
             if (!empty($vouchers)) {
@@ -164,90 +168,83 @@ class CopilotService
             }
         }
 
-        // 6. Conversational Voucher Drafting (Transaction posting keywords with amounts)
+        // 7. Conversational Voucher Drafting
         if (
-            (str_contains($promptLower, 'paid') ||
-             str_contains($promptLower, 'received') ||
-             str_contains($promptLower, 'transfer') ||
-             str_contains($promptLower, 'draft voucher')) &&
-            preg_match('/(?:rs\.?|pkr|\$)?\s*([0-9]+(?:,[0-9]{3})*(?:\.[0-9]{1,2})?)/i', $prompt)
+            $intent === 'DRAFT_VOUCHER' ||
+            ((str_contains($promptLower, 'paid') ||
+              str_contains($promptLower, 'received') ||
+              str_contains($promptLower, 'transfer') ||
+              str_contains($promptLower, 'draft voucher')) &&
+             preg_match('/(?:rs\.?|pkr|\$)?\s*([0-9]+(?:,[0-9]{3})*(?:\.[0-9]{1,2})?)/i', $prompt))
         ) {
             return $this->parseAndDraftVoucher($prompt, $copilotActor);
         }
 
-        // 7. General Entity Search & Account/Voucher/Contact Inquiries
-        if (
-            str_contains($promptLower, 'tell me about') ||
-            str_contains($promptLower, 'balance of') ||
-            str_contains($promptLower, 'balance in') ||
-            str_contains($promptLower, 'what is') ||
-            str_contains($promptLower, 'how much') ||
-            str_contains($promptLower, 'search') ||
-            str_contains($promptLower, 'find') ||
-            str_contains($promptLower, 'lookup') ||
-            str_contains($promptLower, 'account') ||
-            str_contains($promptLower, 'voucher') ||
-            str_contains($promptLower, 'ledger') ||
-            str_contains($promptLower, 'who is')
-        ) {
-            // Clean inquiry prefixes
-            $cleanQuery = preg_replace('/^(tell me about|what is the balance of|what is the balance in|what is the balance|what is|how much is in|how much in|balance of|who is|show me|find|lookup|search for|search|details of|details for|info about|information about)\s+(the\s+|account\s+|voucher\s+)?/i', '', $prompt);
-            $cleanQuery = trim($cleanQuery, " ?:.'\"");
+        // 8. General Entity Search & Account/Voucher/Contact Inquiries
+        $cleanQuery = !empty($entity) ? $entity : preg_replace('/^(tell me about|what is the balance of|what is the balance in|what is the balance|what is|how much is in|how much in|balance of|who is|show me|find|lookup|search for|search|details of|details for|info about|information about)\s+(the\s+|account\s+|voucher\s+)?/i', '', $prompt);
+        $cleanQuery = trim($cleanQuery, " ?:.'\"");
 
-            if (!empty($cleanQuery)) {
-                $searchService = app(SearchService::class);
-                $searchResult = $searchService->globalSearch($cleanQuery);
-                $vouchers = $searchResult['vouchers'] ?? [];
-                $accounts = $searchResult['accounts'] ?? [];
+        if (!empty($cleanQuery)) {
+            $searchService = app(SearchService::class);
+            $searchResult = $searchService->globalSearch($cleanQuery);
+            $vouchers = $searchResult['vouchers'] ?? [];
+            $accounts = $searchResult['accounts'] ?? [];
 
-                // Search users
-                $users = \DB::table('users')
-                    ->where(function ($q) use ($cleanQuery) {
-                        $q->where('name', 'like', "%{$cleanQuery}%")
-                          ->orWhere('email', 'like', "%{$cleanQuery}%");
-                    })
-                    ->get()
-                    ->toArray();
+            // Search users
+            $users = \DB::table('users')
+                ->where(function ($q) use ($cleanQuery) {
+                    $q->where('name', 'like', "%{$cleanQuery}%")
+                      ->orWhere('email', 'like', "%{$cleanQuery}%");
+                })
+                ->get()
+                ->toArray();
 
-                $totalMatches = count($vouchers) + count($accounts) + count($users);
+            $totalMatches = count($vouchers) + count($accounts) + count($users);
 
-                // Prioritize Exact Account Code Match (e.g. "account 1130" or query is 4 digits)
-                if (preg_match('/\b(\d{4})\b/', $cleanQuery, $codeMatch) || preg_match('/\baccount\s+(\d{4})\b/i', $prompt, $codeMatch)) {
-                    $exactAccount = collect($accounts)->firstWhere('code', $codeMatch[1]);
-                    if ($exactAccount) {
-                        return $this->formatAccountBrief($exactAccount);
-                    }
+            // Prioritize Exact Account Code Match (e.g. "account 1130" or query is 4 digits)
+            if (preg_match('/\b(\d{4})\b/', $cleanQuery, $codeMatch) || preg_match('/\baccount\s+(\d{4})\b/i', $prompt, $codeMatch)) {
+                $exactAccount = collect($accounts)->firstWhere('code', $codeMatch[1]);
+                if ($exactAccount) {
+                    return $this->formatAccountBrief($exactAccount);
                 }
+            }
 
-                // Prioritize Exact Voucher Reference Match when user explicitly asks for voucher
-                if (str_contains($promptLower, 'voucher') && !empty($vouchers)) {
-                    $exactVoucher = collect($vouchers)->first(function ($v) use ($cleanQuery) {
-                        return stripos($v['reference'] ?? '', $cleanQuery) !== false;
-                    });
-                    if ($exactVoucher) {
-                        return $this->formatVoucherBrief($exactVoucher);
-                    }
+            // Prioritize Exact Voucher Reference Match when user explicitly asks for voucher
+            if (($intent === 'INQUIRE_VOUCHER' || str_contains($promptLower, 'voucher')) && !empty($vouchers)) {
+                $exactVoucher = collect($vouchers)->first(function ($v) use ($cleanQuery) {
+                    return stripos($v['reference'] ?? '', $cleanQuery) !== false;
+                });
+                if ($exactVoucher) {
+                    return $this->formatVoucherBrief($exactVoucher);
                 }
+            }
 
-                // Exactly 1 Voucher Match (and 0 accounts/users)
-                if (count($vouchers) === 1 && count($accounts) === 0 && count($users) === 0) {
-                    return $this->formatVoucherBrief($vouchers[0]);
-                }
-
-                // Exactly 1 Account Match (and 0 vouchers/users)
-                if (count($accounts) === 1 && count($vouchers) === 0 && count($users) === 0) {
+            // Prioritize Account Match when intent is INQUIRE_ACCOUNT
+            if ($intent === 'INQUIRE_ACCOUNT' && !empty($accounts)) {
+                if (count($accounts) === 1) {
                     return $this->formatAccountBrief($accounts[0]);
                 }
+            }
 
-                // Multiple Matches (Disambiguation required)
-                if ($totalMatches > 1) {
-                    return $this->formatDisambiguation($cleanQuery, $vouchers, $accounts, $users);
-                }
+            // Exactly 1 Voucher Match (and 0 accounts/users)
+            if (count($vouchers) === 1 && count($accounts) === 0 && count($users) === 0) {
+                return $this->formatVoucherBrief($vouchers[0]);
+            }
 
-                // Zero matches - Fallback to lookup_account capability with partial word search
-                $lookupResult = Alamia360::capabilities()->execute('lookup_account', [
-                    'query' => $cleanQuery,
-                ], $copilotActor);
+            // Exactly 1 Account Match (and 0 vouchers/users)
+            if (count($accounts) === 1 && count($vouchers) === 0 && count($users) === 0) {
+                return $this->formatAccountBrief($accounts[0]);
+            }
+
+            // Multiple Matches (Disambiguation required)
+            if ($totalMatches > 1) {
+                return $this->formatDisambiguation($cleanQuery, $vouchers, $accounts, $users);
+            }
+
+            // Zero matches - Fallback to lookup_account capability with partial word search
+            $lookupResult = Alamia360::capabilities()->execute('lookup_account', [
+                'query' => $cleanQuery,
+            ], $copilotActor);
 
                 $foundAccounts = $lookupResult['accounts'] ?? [];
                 if (count($foundAccounts) === 1) {
@@ -268,7 +265,6 @@ class CopilotService
                     'card_type' => 'not_found',
                 ];
             }
-        }
 
         // Default Help & Guidance
         return [

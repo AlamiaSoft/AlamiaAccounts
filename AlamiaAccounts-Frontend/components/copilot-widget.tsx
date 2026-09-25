@@ -80,11 +80,19 @@ export default function CopilotWidget({ companyCode }: { companyCode?: string })
     setInput("")
     setLoading(true)
 
+    const history = messages
+      .filter((m) => m.id !== "welcome")
+      .slice(-4)
+      .map((m) => ({ sender: m.sender, text: m.text, cardType: m.cardType }))
+
     try {
       const response = await apiClient.post("/copilot/chat", {
         prompt: promptText,
         company_code: companyCode,
-        context: contextOverride || {},
+        context: {
+          history,
+          ...(contextOverride || {}),
+        },
       })
 
       const reply = response.data?.data

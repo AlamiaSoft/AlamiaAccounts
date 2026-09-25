@@ -53,6 +53,70 @@ class SearchService
             return false;
         });
 
+        return $filtered->values()->all();
+    }
+
+    /**
+     * Search transactions/vouchers by party, contact, organization, or human relationships
+     */
+    public function searchTransactionsByParty(array $filters, ?string $domainCode = null): array
+    {
+        if ($domainCode) {
+            DomainContext::set($domainCode);
+        }
+
+        $allVouchers = $this->voucherService->getJournalEntries();
+        $party = strtolower(trim($filters['party'] ?? ''));
+        $partyClean = trim(preg_replace('/^(mr\.?|mrs\.?|ms\.?|dr\.?)\s+/i', '', $party));
+        $org = strtolower(trim($filters['organization'] ?? ''));
+        $orgClean = trim(preg_replace('/\b(ltd\.?|limited|inc\.?|corp\.?|pvt\.?|private)\b/i', '', $org));
+
+        $partyTokens = array_filter(explode(' ', $partyClean), fn($t) => strlen($t) >= 2);
+        $orgTokens = array_filter(explode(' ', $orgClean), fn($t) => strlen($t) >= 2);
+
+        if (empty($partyTokens) && empty($orgTokens) && empty($partyClean) && empty($orgClean)) {
+            return [];
+        }
+
+        $filtered = $allVouchers->filter(function ($v) use ($partyClean, $orgClean, $partyTokens, $orgTokens) {
+            $desc = strtolower($v['description'] ?? '');
+            $ref = strtolower($v['reference'] ?? '');
+
+            // Exact phrase match in description or reference
+            if (!empty($partyClean) && (str_contains($desc, $partyClean) || str_contains($ref, $partyClean))) return true;
+            if (!empty($orgClean) && (str_contains($desc, $orgClean) || str_contains($ref, $orgClean))) return true;
+
+            $lines = $v['lineItems'] ?? $v['line_items'] ?? $v['details'] ?? [];
+            foreach ($lines as $line) {
+                $memo = strtolower($line['memo'] ?? $line['description'] ?? '');
+                $accName = strtolower($line['account_name'] ?? $line['raw_name'] ?? '');
+
+                if (!empty($partyClean) && (str_contains($memo, $partyClean) || str_contains($accName, $partyClean))) return true;
+                if (!empty($orgClean) && (str_contains($memo, $orgClean) || str_contains($accName, $orgClean))) return true;
+            }
+
+            // Party token matching
+            if (!empty($partyTokens)) {
+                $matched = 0;
+                foreach ($partyTokens as $tok) {
+                    if (str_contains($desc, $tok)) { $matched++; continue; }
+                    foreach ($lines as $line) {
+                        $memo = strtolower($line['memo'] ?? '');
+                        $accName = strtolower($line['account_name'] ?? '');
+                        if (str_contains($memo, $tok) || str_contains($accName, $tok)) {
+                            $matched++;
+                            break;
+                        }
+                    }
+                }
+                if ($matched === count($partyTokens)) {
+                    return true;
+                }
+            }
+
+            return false;
+        });
+
         return $filtered->values()->take(50)->toArray();
     }
 

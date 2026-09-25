@@ -64,9 +64,12 @@ class CopilotService
 
         // 3. Classify Prompt Intent via LLM (Ollama qwen3.5:4b) with graceful fallback
         $classifier = app(IntentClassifierService::class);
-        $classification = $classifier->classify($prompt);
+        $classification = $classifier->classify($prompt, $context);
         $intent = $classification['intent'] ?? 'UNKNOWN';
         $entity = $classification['entity'] ?? '';
+        $party = $classification['party'] ?? '';
+        $org = $classification['organization'] ?? '';
+        $targetObject = $classification['target_object'] ?? null;
         $reportType = $classification['report_type'] ?? null;
 
         // 4. Greetings & Conversational Welcome
@@ -94,6 +97,7 @@ class CopilotService
                 'sender' => 'Taliya',
                 'intent' => 'general_guidance',
                 'message' => "I am **Taliya**, your AI Accounting Copilot backed by Alamia 360.\n\nHere are some of the things you can ask me:\n" .
+                    "• **Find Transactions**: *\"Transaction with Mr. Ali Raza of Izoc Ltd\"*\n" .
                     "• **Inquire Vouchers**: *\"Tell me about voucher OB-2026-001\"*\n" .
                     "• **Account Balances**: *\"What is the balance of Meezan Bank?\"* or *\"Account 1130\"*\n" .
                     "• **Drafting Vouchers**: *\"Paid Rs. 25,000 for office rent via Meezan Bank\"*\n" .
@@ -177,7 +181,7 @@ class CopilotService
             }
         }
 
-        // 5. Situations / Alerts Query
+        // 7. Situations / Alerts Query
         if ($intent === 'LIST_SITUATIONS' || str_contains($promptLower, 'situation') || str_contains($promptLower, 'alert') || str_contains($promptLower, 'warning') || str_contains($promptLower, 'anomal')) {
             $result = Alamia360::capabilities()->execute('list_situations', [], $copilotActor);
             $count = $result['count'] ?? 0;
@@ -193,10 +197,63 @@ class CopilotService
             ];
         }
 
-        // 6. Explicit Voucher Inquiries
+        // 8. Find Transaction / Voucher by Party, Contact, or Organization
+        if ($intent === 'FIND_TRANSACTION' || (!empty($party) && ($targetObject === 'voucher' || str_contains($promptLower, 'transaction') || str_contains($promptLower, 'voucher')))) {
+            $searchService = app(SearchService::class);
+            $vouchers = $searchService->searchTransactionsByParty([
+                'party' => $party,
+                'organization' => $org,
+            ]);
+
+            $partyDisplay = !empty($party) ? trim($party) : (!empty($org) ? $org : $prompt);
+            $orgSuffix = !empty($org) && stripos($partyDisplay, $org) === false ? " of **{$org}**" : "";
+
+            if (count($vouchers) === 1) {
+                return $this->formatVoucherBrief($vouchers[0]);
+            }
+
+            if (count($vouchers) > 1) {
+                return $this->formatDisambiguation("{$partyDisplay}{$orgSuffix}", $vouchers, []);
+            }
+
+            // Zero matching transactions found - DO NOT do blind fuzzy account lookup
+            $activeCompany = DomainContext::get() ?: 'Active Company';
+            return [
+                'sender' => 'Taliya',
+                'intent' => 'transaction_not_found',
+                'message' => "I searched for transactions involving **{$partyDisplay}**{$orgSuffix} across vouchers, line item memos, and sub-ledgers, but found no matching records in company [{$activeCompany}].\n\n" .
+                    "Would you like to draft a new transaction for {$partyDisplay} or search the Daybook?",
+                'data' => [
+                    'party' => $party,
+                    'organization' => $org,
+                ],
+                'card_type' => 'not_found',
+                'actions' => [
+                    [
+                        'label' => "📝 Draft Voucher for " . ($party ?: $org ?: "Party"),
+                        'action' => 'draft_prompt',
+                        'payload' => [
+                            'prompt' => "Paid Rs. 10,000 to " . ($party ?: $org) . ($org && stripos($party, $org) === false ? " ({$org})" : "")
+                        ]
+                    ],
+                    [
+                        'label' => '📄 View Daybook',
+                        'action' => 'navigate_page',
+                        'payload' => ['page' => 'daybook']
+                    ],
+                    [
+                        'label' => '📖 Chart of Accounts',
+                        'action' => 'navigate_page',
+                        'payload' => ['page' => 'coa']
+                    ],
+                ]
+            ];
+        }
+
+        // 9. Explicit Voucher Inquiries with Reference Pattern (e.g. "OB-2026-001")
         if ($intent === 'INQUIRE_VOUCHER' || preg_match('/\b(ob|jv|pv|rv|cv|sv|rev)-[0-9a-z-]+\b/i', $prompt, $refMatch)) {
             $searchService = app(SearchService::class);
-            $searchKey = $entity ?: ($refMatch[0] ?? $prompt);
+            $searchKey = $classification['reference'] ?? ($refMatch[0] ?? $entity ?? $prompt);
             $vouchers = $searchService->searchVouchers($searchKey);
 
             if (!empty($vouchers)) {
@@ -207,7 +264,7 @@ class CopilotService
             }
         }
 
-        // 7. Conversational Voucher Drafting
+        // 10. Conversational Voucher Drafting
         if (
             $intent === 'DRAFT_VOUCHER' ||
             ((str_contains($promptLower, 'paid') ||
@@ -219,7 +276,7 @@ class CopilotService
             return $this->parseAndDraftVoucher($prompt, $copilotActor);
         }
 
-        // 8. General Entity Search & Account/Voucher/Contact Inquiries
+        // 11. General Entity Search & Account/Voucher/Contact Inquiries
         $cleanQuery = !empty($entity) ? $entity : preg_replace('/^(tell me about|what is the balance of|what is the balance in|what is the balance|what is|how much is in|how much in|balance of|who is|show me|find|lookup|search for|search|details of|details for|info about|information about)\s+(the\s+|account\s+|voucher\s+)?/i', '', $prompt);
         $cleanQuery = trim($cleanQuery, " ?:.'\"");
 
@@ -280,35 +337,22 @@ class CopilotService
                 return $this->formatDisambiguation($cleanQuery, $vouchers, $accounts, $users);
             }
 
-            // Zero matches - Fallback to lookup_account capability with partial word search
-            $lookupResult = Alamia360::capabilities()->execute('lookup_account', [
-                'query' => $cleanQuery,
-            ], $copilotActor);
-
-                $foundAccounts = $lookupResult['accounts'] ?? [];
-                if (count($foundAccounts) === 1) {
-                    return $this->formatAccountBrief($foundAccounts[0]);
-                }
-                if (count($foundAccounts) > 1) {
-                    return $this->formatDisambiguation($cleanQuery, [], $foundAccounts);
-                }
-
-                return [
-                    'sender' => 'Taliya',
-                    'intent' => 'entity_not_found',
-                    'message' => "I couldn't find any vouchers, accounts, or contacts matching '**{$cleanQuery}**'.\n\n" .
-                        "• Try searching by exact account code (e.g., `1110`, `1130`, `5100`)\n" .
-                        "• Or voucher reference (e.g., `OB-2026-001`, `JV-2026-001`)\n" .
-                        "• Or explore accounts and ledger statements below:",
-                    'data' => ['query' => $cleanQuery],
-                    'card_type' => 'not_found',
-                    'actions' => [
-                        ['label' => '📖 Chart of Accounts', 'action' => 'navigate_page', 'payload' => ['page' => 'coa']],
-                        ['label' => '📄 Open Daybook', 'action' => 'navigate_page', 'payload' => ['page' => 'daybook']],
-                        ['label' => '📊 Trial Balance', 'action' => 'draft_prompt', 'payload' => ['prompt' => 'Show Trial Balance summary']],
-                    ]
-                ];
-            }
+            return [
+                'sender' => 'Taliya',
+                'intent' => 'entity_not_found',
+                'message' => "I couldn't find any vouchers, accounts, or contacts matching '**{$cleanQuery}**'.\n\n" .
+                    "• Try searching by exact account code (e.g., `1110`, `1130`, `5100`)\n" .
+                    "• Or voucher reference (e.g., `OB-2026-001`, `JV-2026-001`)\n" .
+                    "• Or explore accounts and ledger statements below:",
+                'data' => ['query' => $cleanQuery],
+                'card_type' => 'not_found',
+                'actions' => [
+                    ['label' => '📖 Chart of Accounts', 'action' => 'navigate_page', 'payload' => ['page' => 'coa']],
+                    ['label' => '📄 Open Daybook', 'action' => 'navigate_page', 'payload' => ['page' => 'daybook']],
+                    ['label' => '📊 Trial Balance', 'action' => 'draft_prompt', 'payload' => ['prompt' => 'Show Trial Balance summary']],
+                ]
+            ];
+        }
 
         // Default Help & Guidance
         return [

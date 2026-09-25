@@ -36,7 +36,10 @@ class AlamiaAccountsServiceProvider extends ServiceProvider
         });
         
         $this->app->singleton(SearchService::class, function ($app) {
-            return new SearchService();
+            return new SearchService(
+                $app->make(VoucherService::class),
+                $app->make(AccountService::class)
+            );
         });
         
         $this->app->singleton(PrintService::class, function ($app) {

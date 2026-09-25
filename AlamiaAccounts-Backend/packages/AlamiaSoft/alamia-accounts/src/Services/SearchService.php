@@ -2,71 +2,122 @@
 
 namespace AlamiaSoft\AlamiaAccounts\Services;
 
-use Illuminate\Support\Facades\DB;
 use Abivia\Ledger\Models\LedgerAccount;
-use Abivia\Ledger\Models\JournalEntry;
+use Abivia\Ledger\Models\LedgerDomain;
+use AlamiaSoft\AlamiaAccounts\Models\DomainLedgerAccount;
+use AlamiaSoft\AlamiaAccounts\Models\DomainJournalEntry;
+use Illuminate\Support\Facades\DB;
 
 class SearchService
 {
-    /**
-     * Search vouchers
-     */
-    public function searchVouchers(string $query, string $domainCode): array
+    protected VoucherService $voucherService;
+    protected AccountService $accountService;
+
+    public function __construct(?VoucherService $voucherService = null, ?AccountService $accountService = null)
     {
-        return DB::table('journal_entries')
-            ->where('domain', $domainCode)
-            ->where(function($q) use ($query) {
-                $q->where('reference', 'like', "%{$query}%")
-                  ->orWhere('description', 'like', "%{$query}%");
-            })
-            ->orderBy('date', 'desc')
-            ->limit(50)
-            ->get()
-            ->toArray();
+        $this->voucherService = $voucherService ?? app(VoucherService::class);
+        $this->accountService = $accountService ?? app(AccountService::class);
     }
-    
+
     /**
-     * Search accounts
+     * Search vouchers for a domain
      */
-    public function searchAccounts(string $query, string $domainCode): array
+    public function searchVouchers(string $query, ?string $domainCode = null): array
     {
-        return DB::table('ledger_accounts')
-            ->where('domain', $domainCode)
-            ->where(function($q) use ($query) {
-                $q->where('code', 'like', "%{$query}%")
-                  ->orWhere('name', 'like', "%{$query}%");
-            })
-            ->orderBy('code')
-            ->limit(50)
-            ->get()
-            ->toArray();
+        if ($domainCode) {
+            DomainContext::set($domainCode);
+        }
+
+        $allVouchers = $this->voucherService->getJournalEntries();
+        $q = strtolower(trim($query));
+
+        if (empty($q)) {
+            return [];
+        }
+
+        $filtered = $allVouchers->filter(function ($v) use ($q) {
+            if (str_contains(strtolower($v['reference'] ?? ''), $q)) return true;
+            if (str_contains(strtolower($v['number'] ?? ''), $q)) return true;
+            if (str_contains(strtolower($v['description'] ?? ''), $q)) return true;
+            if (str_contains(strtolower($v['type'] ?? ''), $q)) return true;
+            if (str_contains(strtolower($v['voucher_type'] ?? ''), $q)) return true;
+            if (str_contains(strtolower($v['date'] ?? ''), $q)) return true;
+
+            $lines = $v['lineItems'] ?? $v['line_items'] ?? $v['details'] ?? [];
+            foreach ($lines as $line) {
+                if (str_contains(strtolower($line['account_code'] ?? $line['account'] ?? ''), $q)) return true;
+                if (str_contains(strtolower($line['account_name'] ?? $line['raw_name'] ?? ''), $q)) return true;
+                if (str_contains(strtolower($line['memo'] ?? $line['description'] ?? ''), $q)) return true;
+            }
+
+            return false;
+        });
+
+        return $filtered->values()->take(50)->toArray();
     }
-    
+
     /**
-     * Search ledger entries
+     * Search accounts for a domain
      */
-    public function searchLedgerEntries(string $query, string $domainCode): array
+    public function searchAccounts(string $query, ?string $domainCode = null): array
     {
-        return DB::table('journal_details')
-            ->join('journal_entries', 'journal_details.entry_id', '=', 'journal_entries.entry_id')
-            ->join('ledger_accounts', 'journal_details.account_uuid', '=', 'ledger_accounts.account_uuid')
-            ->where('journal_entries.domain', $domainCode)
-            ->where(function($q) use ($query) {
-                $q->where('journal_entries.reference', 'like', "%{$query}%")
-                  ->orWhere('ledger_accounts.name', 'like', "%{$query}%")
-                  ->orWhere('journal_details.description', 'like', "%{$query}%");
-            })
-            ->select('journal_details.*', 'journal_entries.reference', 'ledger_accounts.name as account_name')
-            ->orderBy('journal_entries.date', 'desc')
-            ->limit(50)
-            ->get()
-            ->toArray();
+        if ($domainCode) {
+            DomainContext::set($domainCode);
+        }
+
+        $accounts = collect($this->accountService->getChartOfAccountsFormatted());
+        $q = strtolower(trim($query));
+
+        if (empty($q)) {
+            return [];
+        }
+
+        $filtered = $accounts->filter(function ($acc) use ($q) {
+            $code = strtolower($acc['code'] ?? '');
+            $name = strtolower($acc['name'] ?? '');
+            return str_contains($code, $q) || str_contains($name, $q);
+        });
+
+        return $filtered->values()->take(50)->toArray();
     }
-    
+
+    /**
+     * Search ledger entries for a domain
+     */
+    public function searchLedgerEntries(string $query, ?string $domainCode = null): array
+    {
+        $vouchers = $this->searchVouchers($query, $domainCode);
+        $entries = [];
+
+        foreach ($vouchers as $v) {
+            $lines = $v['lineItems'] ?? $v['line_items'] ?? $v['details'] ?? [];
+            foreach ($lines as $line) {
+                $code = $line['account_code'] ?? $line['account'] ?? '';
+                $name = $line['account_name'] ?? $line['raw_name'] ?? '';
+                $memo = $line['memo'] ?? $line['description'] ?? '';
+
+                $entries[] = [
+                    'id' => $line['id'] ?? $v['id'],
+                    'entry_id' => $v['id'],
+                    'voucher_reference' => $v['reference'],
+                    'date' => $v['date'],
+                    'account_code' => $code,
+                    'account_name' => $name,
+                    'debit' => $line['debit'] ?? 0,
+                    'credit' => $line['credit'] ?? 0,
+                    'amount' => $line['amount'] ?? max($line['debit'] ?? 0, $line['credit'] ?? 0),
+                    'description' => !empty($memo) ? $memo : ($v['description'] ?? ''),
+                ];
+            }
+        }
+
+        return array_slice($entries, 0, 50);
+    }
+
     /**
      * Global search across all entities
      */
-    public function globalSearch(string $query, string $domainCode): array
+    public function globalSearch(string $query, ?string $domainCode = null): array
     {
         return [
             'vouchers' => $this->searchVouchers($query, $domainCode),

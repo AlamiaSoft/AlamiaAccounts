@@ -110,6 +110,15 @@ class CopilotService
             }
             $refDisplay = !empty($targetRef) ? "Voucher **{$targetRef}**" : "A posted voucher";
 
+            $targetVoucher = null;
+            if (!empty($targetRef)) {
+                $searchService = app(SearchService::class);
+                $found = $searchService->searchVouchers($targetRef);
+                if (!empty($found)) {
+                    $targetVoucher = $found[0];
+                }
+            }
+
             return [
                 'sender' => 'Taliya',
                 'intent' => 'safety_policy_rejection',
@@ -119,19 +128,20 @@ class CopilotService
                     'reference' => $targetRef,
                     'action' => 'edit_narration',
                     'policy' => 'VOUCHER_DESCRIPTION_IMMUTABILITY',
+                    'voucher' => $targetVoucher,
                 ],
                 'card_type' => 'safety_policy',
                 'actions' => [
                     [
                         'label' => 'Reverse in Daybook',
                         'action' => 'navigate_page',
-                        'payload' => ['page' => 'daybook'],
+                        'payload' => ['page' => 'daybook', 'reference' => $targetRef],
                         'variant' => 'default',
                     ],
                     [
                         'label' => 'View Voucher Details',
                         'action' => 'navigate_page',
-                        'payload' => ['page' => 'voucher-view', 'type' => 'voucher', 'id' => $targetRef],
+                        'payload' => ['page' => 'voucher-view', 'type' => 'voucher', 'id' => $targetRef, 'rawItem' => $targetVoucher],
                         'variant' => 'outline',
                     ],
                 ]
@@ -144,6 +154,15 @@ class CopilotService
                 $targetRef = strtoupper($rm[0]);
             }
 
+            $targetVoucher = null;
+            if (!empty($targetRef)) {
+                $searchService = app(SearchService::class);
+                $found = $searchService->searchVouchers($targetRef);
+                if (!empty($found)) {
+                    $targetVoucher = $found[0];
+                }
+            }
+
             return [
                 'sender' => 'Taliya',
                 'intent' => 'voucher_reversal_confirmation',
@@ -151,6 +170,7 @@ class CopilotService
                 'data' => [
                     'reference' => $targetRef,
                     'action' => 'reverse_voucher',
+                    'voucher' => $targetVoucher,
                 ],
                 'card_type' => 'voucher_action',
                 'actions' => [
@@ -163,7 +183,7 @@ class CopilotService
                     [
                         'label' => 'View in Daybook',
                         'action' => 'navigate_page',
-                        'payload' => ['page' => 'daybook'],
+                        'payload' => ['page' => 'daybook', 'reference' => $targetRef],
                         'variant' => 'outline',
                     ],
                 ]
@@ -171,12 +191,18 @@ class CopilotService
         }
 
         if ($isMutationRequest) {
+            $targetRef = $classification['reference'] ?? '';
+            if (empty($targetRef) && preg_match('/\b(ob|jv|pv|rv|cv|sv|rev)-[0-9a-z-]+\b/i', $prompt, $rm)) {
+                $targetRef = strtoupper($rm[0]);
+            }
+
             return [
                 'sender' => 'Taliya',
                 'intent' => 'safety_policy_rejection',
                 'message' => "🔒 **Accounting Invariant (Ledger Immutability)**: Posted accounting entries are immutable and cannot be directly overwritten or mutated.\n\n" .
                     "To adjust balances, please post a new adjusting journal voucher (`JV-`) or reverse and re-issue the transaction.",
                 'data' => [
+                    'reference' => $targetRef,
                     'policy' => 'LEDGER_ENTRY_IMMUTABILITY',
                 ],
                 'card_type' => 'safety_policy',
@@ -184,7 +210,7 @@ class CopilotService
                     [
                         'label' => '📄 Open Daybook to Reverse',
                         'action' => 'navigate_page',
-                        'payload' => ['page' => 'daybook'],
+                        'payload' => ['page' => 'daybook', 'reference' => $targetRef],
                         'variant' => 'outline',
                     ],
                 ]
@@ -215,6 +241,15 @@ class CopilotService
 
         if ($isDeleteVoucherRequest) {
             $targetRef = !empty($delMatch[2]) ? strtoupper($delMatch[2]) : ($classification['reference'] ?? 'posted vouchers');
+            $targetVoucher = null;
+            if (!empty($targetRef) && $targetRef !== 'POSTED VOUCHERS') {
+                $searchService = app(SearchService::class);
+                $found = $searchService->searchVouchers($targetRef);
+                if (!empty($found)) {
+                    $targetVoucher = $found[0];
+                }
+            }
+
             return [
                 'sender' => 'Taliya',
                 'intent' => 'safety_policy_rejection',
@@ -223,13 +258,14 @@ class CopilotService
                 'data' => [
                     'reference' => $targetRef,
                     'policy' => 'HISTORICAL_LEDGER_IMMUTABILITY',
+                    'voucher' => $targetVoucher,
                 ],
                 'card_type' => 'safety_policy',
                 'actions' => [
                     [
                         'label' => "Reverse in Daybook",
                         'action' => 'navigate_page',
-                        'payload' => ['page' => 'daybook'],
+                        'payload' => ['page' => 'daybook', 'reference' => $targetRef],
                         'variant' => 'default',
                     ],
                     [

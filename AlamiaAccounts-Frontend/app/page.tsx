@@ -26,6 +26,7 @@ import VoucherBuilder from "@/components/voucher-builder"
 import PeriodManagement from "@/components/period-management"
 import CopilotWidget from "@/components/copilot-widget"
 import { useCompanies } from "@/hooks/use-companies"
+import { useVouchers } from "@/hooks/use-vouchers"
 import { Loader2 } from "lucide-react"
 
 function HomeContent() {
@@ -83,6 +84,8 @@ function HomeContent() {
     deleteCompany,
     isLoading: isLoadingCompanies
   } = useCompanies()
+
+  const { vouchers: apiVouchers } = useVouchers()
 
   // Map API data to component expected format (using code or id)
   const companies = useMemo(
@@ -191,7 +194,15 @@ function HomeContent() {
 
     switch (result.type) {
       case "voucher": {
-        const v = result.rawItem
+        let v = result.rawItem
+        if (!v && result.id && Array.isArray(apiVouchers)) {
+          v = apiVouchers.find((item: any) =>
+            String(item.reference || '').toLowerCase() === String(result.id).toLowerCase() ||
+            String(item.number || '').toLowerCase() === String(result.id).toLowerCase() ||
+            String(item.id || '') === String(result.id)
+          )
+        }
+
         if (v) {
           const rawLines = v.lineItems || v.line_items || v.details || []
           const lineItems = rawLines.map((item: any, idx: number) => ({
@@ -304,12 +315,20 @@ function HomeContent() {
     const handleCopilotNav = (e: Event) => {
       const detail = (e as CustomEvent).detail
       if (!detail) return
-      if (detail.page === "voucher-view" && (detail.rawItem || detail.voucher)) {
+      if (detail.page === "voucher-view") {
+        let rawItem = detail.rawItem || detail.voucher
+        if (!rawItem && detail.id && Array.isArray(apiVouchers)) {
+          rawItem = apiVouchers.find((item: any) =>
+            String(item.reference || '').toLowerCase() === String(detail.id).toLowerCase() ||
+            String(item.number || '').toLowerCase() === String(detail.id).toLowerCase() ||
+            String(item.id || '') === String(detail.id)
+          )
+        }
         handleSearchResultClick({
-          id: detail.id || detail.voucher?.reference || "voucher",
+          id: detail.id || detail.voucher?.reference || (rawItem?.reference || "voucher"),
           type: "voucher",
-          title: `Voucher ${detail.id || detail.voucher?.reference || ""}`,
-          rawItem: detail.rawItem || detail.voucher,
+          title: `Voucher ${detail.id || detail.voucher?.reference || rawItem?.reference || ""}`,
+          rawItem: rawItem,
         })
       } else if (detail.page === "ledger-detail-view" && detail.code) {
         setSelectedLedgerAccount({
@@ -330,7 +349,7 @@ function HomeContent() {
     }
     window.addEventListener("copilot:navigate", handleCopilotNav)
     return () => window.removeEventListener("copilot:navigate", handleCopilotNav)
-  }, [currentCompany?.id])
+  }, [currentCompany?.id, apiVouchers])
 
   const handleAddCompanySubmit = (company: Omit<Company, "id">) => {
     // API expects code, name, industry. Ensure code is present.

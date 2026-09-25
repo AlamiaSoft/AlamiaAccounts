@@ -11,6 +11,7 @@ interface SearchResult {
   type: "voucher" | "account" | "ledger" | "user"
   title: string
   subtitle?: string
+  rawItem?: any
 }
 
 interface GlobalSearchProps {
@@ -31,28 +32,32 @@ export default function GlobalSearch({ currentContext, onResultClick }: GlobalSe
   // Transform API data to SearchResult format
   const results: SearchResult[] = searchData ? [
     ...(searchData.vouchers || []).map((v: any) => ({
-      id: v.entry_id || v.id,
+      id: String(v.reference || v.number || v.id || v.entry_id),
       type: "voucher" as const,
-      title: `Voucher ${v.reference}`,
-      subtitle: v.description,
+      title: `Voucher ${v.reference || v.number || v.id}`,
+      subtitle: `${v.type ? `${v.type} • ` : ''}${v.description || ''}${v.date ? ` • ${v.date}` : ''}`,
+      rawItem: v,
     })),
     ...(searchData.accounts || []).map((a: any) => ({
-      id: a.account_uuid || a.id,
+      id: a.code || String(a.id || a.account_uuid),
       type: "account" as const,
       title: a.name,
-      subtitle: `${a.code}`,
+      subtitle: `Code: ${a.code}${a.type ? ` • ${a.type}` : ''}`,
+      rawItem: a,
     })),
     ...(searchData.ledger_entries || []).map((l: any) => ({
-      id: l.id,
+      id: String(l.account_code || l.id),
       type: "ledger" as const,
-      title: l.account_name,
-      subtitle: l.description,
+      title: l.account_name || `Account ${l.account_code}`,
+      subtitle: `${l.voucher_reference ? `Ref: ${l.voucher_reference} • ` : ''}${l.description || ''}`,
+      rawItem: l,
     })),
     ...(searchData.users || []).map((u: any) => ({
-      id: u.id,
+      id: String(u.id),
       type: "user" as const,
       title: u.name,
       subtitle: u.email,
+      rawItem: u,
     })),
   ] : []
 

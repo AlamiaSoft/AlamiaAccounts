@@ -186,11 +186,41 @@ function HomeContent() {
     setCurrentPage("companies")
   }
 
-  const handleSearchResultClick = (result: { id: string; type: string; title: string }) => {
-    console.log("[v0] Search result clicked:", JSON.stringify(result))
+  const handleSearchResultClick = (result: { id: string; type: string; title: string; rawItem?: any }) => {
+    console.log("[v0] Search result clicked:", result)
 
     switch (result.type) {
-      case "voucher":
+      case "voucher": {
+        const v = result.rawItem
+        if (v) {
+          const rawLines = v.lineItems || v.line_items || v.details || []
+          const lineItems = rawLines.map((item: any, idx: number) => ({
+            id: String(item.id || idx),
+            account: item.account_code || item.account || "",
+            accountName: item.account_name || item.raw_name || item.name || item.account || "",
+            debit: Number(item.debit) || 0,
+            credit: Number(item.credit) || 0,
+            description: item.memo || item.description || v.description || "",
+          }))
+
+          const totalAmt = lineItems.reduce((s: number, i: any) => s + (i.debit || 0), 0)
+
+          const voucherObj: Voucher = {
+            id: String(v.id || v.entry_id || result.id),
+            number: v.reference || v.number || `JV-${v.id}`,
+            reference: v.reference || v.number || "",
+            type: (v.voucher_type || v.type || "journal").toLowerCase() as any,
+            date: v.date || new Date().toISOString().split("T")[0],
+            narration: v.description || v.narration || "",
+            companyId: currentCompany?.id || "MAIN",
+            amount: totalAmt,
+            lineItems: lineItems,
+          }
+          setSelectedVoucher(voucherObj)
+          setVoucherViewMode("view")
+          setCurrentPage("voucher-view")
+          return
+        }
         const voucher = getVoucherById(result.id)
         if (voucher) {
           setSelectedVoucher(voucher)
@@ -198,28 +228,72 @@ function HomeContent() {
           setCurrentPage("voucher-view")
         }
         break
-      case "account":
+      }
+
+      case "account": {
+        const a = result.rawItem
+        if (a) {
+          const accountObj: Account = {
+            id: a.code || String(a.id || a.account_uuid),
+            code: a.code,
+            name: a.name,
+            type: (a.type || (a.code?.startsWith('1') ? 'asset' : a.code?.startsWith('2') ? 'liability' : a.code?.startsWith('3') ? 'income' : a.code?.startsWith('4') ? 'expense' : 'equity')).toLowerCase() as any,
+            companyId: currentCompany?.id || "MAIN",
+            balance: Number(a.balance) || 0,
+          }
+          setSelectedAccount(accountObj)
+          setCurrentPage("account-view")
+          return
+        }
         const account = getAccountById(result.id)
         if (account) {
           setSelectedAccount(account)
           setCurrentPage("account-view")
         }
         break
-      case "ledger":
+      }
+
+      case "ledger": {
+        const l = result.rawItem
+        if (l) {
+          setSelectedLedgerAccount({
+            name: l.account_name || l.name || `Account ${l.account_code || result.id}`,
+            code: l.account_code || l.code || result.id,
+          })
+          setCurrentPage("ledger-detail-view")
+          return
+        }
         const ledgerAccount = getAccountById(result.id)
         if (ledgerAccount) {
           setSelectedLedgerAccount({ name: ledgerAccount.name, code: ledgerAccount.code })
           setCurrentPage("ledger-detail-view")
         }
         break
+      }
+
       case "user":
-      case "role":
+      case "role": {
+        const u = result.rawItem
+        if (u) {
+          const userObj: User = {
+            id: String(u.id),
+            name: u.name,
+            email: u.email,
+            role: (u.role || "accountant").toLowerCase() as any,
+            companyId: currentCompany?.id || "MAIN",
+          }
+          setSelectedUser(userObj)
+          setCurrentPage("user-view")
+          return
+        }
         const user = getUserById(result.id)
         if (user) {
           setSelectedUser(user)
           setCurrentPage("user-view")
         }
         break
+      }
+
       case "company":
         setCurrentPage("companies")
         break

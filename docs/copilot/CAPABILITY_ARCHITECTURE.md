@@ -113,3 +113,20 @@ The Alamia Accounts AI Copilot (**Taliya**) operates on a bounded **Semantic Cap
    - Requests to bulk delete or wipe accounts are rejected with policy `CHART_OF_ACCOUNTS_PROTECTION`.
 5. **No Blind Account Projections**:
    - When a person or contact name is queried, the copilot never arbitrarily projects the name onto an unrelated ledger account (e.g. Cash or Inventory).
+
+---
+
+## 6. Next Session Roadmap & Advanced References (`feedback0.1.11.md`)
+
+For subsequent architectural iterations, evaluate and incorporate structural patterns from the following state-of-the-art multi-turn agent frameworks:
+
+| Framework / Reference | Focus Area | Application to Alamia Accounts |
+| :--- | :--- | :--- |
+| **`LLMRouter` / `Router-R1`** (`ulab-uiuc/LLMRouter`) | Multi-round conversational routing | Optimizes multi-turn dialogue routing with trained round-aware representations rather than single-turn static classify-and-forget loops. |
+| **`ai-assistant-framework`** | Memory + entity resolution + contextual retrieval | Explicit short-term conversation memory, entity alias registries, query rewriting, and contextual graph expansion (`she`, `that payment`, `Izoc Ltd`, `Ali Raza`). |
+
+### Key Focus Tasks for Next Session:
+1. **Contextual Query Rewriting**: Expand the `ConversationContextService` with a pre-classification rewrite pass that substitutes resolved entities into anaphoric user queries before intent parsing.
+2. **Entity Alias Index**: Provide persistent and dynamic alias graphs (e.g., `"IZOC" <-> "IZOC Ltd" <-> "IZOC Pvt Ltd"`) linked with sub-ledger account codes and external contact records.
+3. **Multi-Round Turn Memory Lifecycles**: Implement scoped TTL and decay on conversation slots (`active_voucher`, `active_party`, `active_account`) across long sessions.
+

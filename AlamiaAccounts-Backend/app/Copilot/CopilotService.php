@@ -73,6 +73,57 @@ class CopilotService
         $targetObject = $classification['target_object'] ?? null;
         $reportType = $classification['report_type'] ?? null;
 
+        // 3.5 Accounting Invariants & Safety Interceptors (GAAP / IFRS Ledger Immutability)
+        if (preg_match('/\b(delete|remove|purge|erase|drop)\s+(?:the\s+)?voucher\s+([a-z0-9-]+)/i', $promptTrimmed, $delMatch)) {
+            $targetRef = strtoupper($delMatch[2]);
+            return [
+                'sender' => 'Taliya',
+                'intent' => 'safety_policy_rejection',
+                'message' => "🔒 **Accounting Invariant (GAAP/IFRS)**: Posted vouchers cannot be deleted or purged from the general ledger to preserve permanent double-entry audit history.\n\n" .
+                    "If voucher **{$targetRef}** was posted in error, you can create a compensating **Reversal Voucher** (`REV-`) with documented audit reasons.",
+                'data' => [
+                    'reference' => $targetRef,
+                    'policy' => 'HISTORICAL_LEDGER_IMMUTABILITY',
+                ],
+                'card_type' => 'safety_policy',
+                'actions' => [
+                    [
+                        'label' => "Reverse Voucher {$targetRef}",
+                        'action' => 'reverse_voucher',
+                        'payload' => ['reference' => $targetRef],
+                        'variant' => 'default',
+                    ],
+                    [
+                        'label' => 'View in Daybook',
+                        'action' => 'navigate_page',
+                        'payload' => ['page' => 'daybook'],
+                        'variant' => 'outline',
+                    ],
+                ]
+            ];
+        }
+
+        if (preg_match('/\b(change|modify|update|edit|alter)\s+(?:the\s+)?(?:voucher\s+)?(?:amount|total|lines?)\b/i', $promptTrimmed)) {
+            return [
+                'sender' => 'Taliya',
+                'intent' => 'safety_policy_rejection',
+                'message' => "🔒 **Accounting Invariant (Ledger Immutability)**: Posted accounting entries are immutable and cannot be directly overwritten or mutated.\n\n" .
+                    "To adjust balances, please post a new adjusting journal voucher (`JV-`) or reverse and re-issue the transaction.",
+                'data' => [
+                    'policy' => 'LEDGER_ENTRY_IMMUTABILITY',
+                ],
+                'card_type' => 'safety_policy',
+                'actions' => [
+                    [
+                        'label' => '📄 Open Daybook to Reverse',
+                        'action' => 'navigate_page',
+                        'payload' => ['page' => 'daybook'],
+                        'variant' => 'outline',
+                    ],
+                ]
+            ];
+        }
+
         // 4. Greetings & Conversational Welcome
         if ($intent === 'GREETING') {
             $userGreeting = trim(preg_replace('/^(hi|hello|hey|salam|assalam|good morning|good afternoon|good evening)\s*/i', '', $prompt), " !?,.");
@@ -322,13 +373,23 @@ class CopilotService
         }
 
         // 11. Conversational Voucher Drafting
+        $isQuestionInquiry = (bool) preg_match('/^(what was|what did|what is|how much was|did we|was there|show|find|lookup|tell me about|check)\b/i', $promptTrimmed);
+        $promptWithoutDates = preg_replace('/\b[0-9]{1,2}\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|january|february|march|april|may|june|july|august|september|october|november|december)\b/i', '', $promptTrimmed);
+
         if (
-            $intent === 'DRAFT_VOUCHER' ||
-            ((str_contains($promptLower, 'paid') ||
-              str_contains($promptLower, 'received') ||
-              str_contains($promptLower, 'transfer') ||
-              str_contains($promptLower, 'draft voucher')) &&
-             preg_match('/(?:rs\.?|pkr|\$)?\s*([0-9]+(?:,[0-9]{3})*(?:\.[0-9]{1,2})?)/i', $prompt))
+            !$isQuestionInquiry && (
+                $intent === 'DRAFT_VOUCHER' ||
+                ((str_contains($promptLower, 'paid') ||
+                  str_contains($promptLower, 'pay ') ||
+                  str_contains($promptLower, 'payment') ||
+                  str_contains($promptLower, 'received') ||
+                  str_contains($promptLower, 'receipt') ||
+                  str_contains($promptLower, 'spent') ||
+                  str_contains($promptLower, 'transfer') ||
+                  str_contains($promptLower, 'record') ||
+                  str_contains($promptLower, 'draft voucher')) &&
+                 preg_match('/(?:rs\.?|pkr|\$)?\s*([0-9]+(?:,[0-9]{3})*(?:\.[0-9]{1,2})?)/i', $promptWithoutDates))
+            )
         ) {
             return $this->parseAndDraftVoucher($prompt, $copilotActor);
         }

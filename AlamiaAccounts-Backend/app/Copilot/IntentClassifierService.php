@@ -251,14 +251,24 @@ PROMPT;
             ];
         }
 
-        // 5. Voucher Drafting with financial action AND amount (e.g. "Paid Rs. 25,000 for office supplies")
+        // 5. Voucher Drafting with financial action AND amount (e.g. "Paid Rs. 25,000 for office supplies", "Create payment of Rs. 10,000 to Ali")
+        $isQuestionInquiry = (bool) preg_match('/^(what was|what did|what is|how much was|did we|was there|show|find|lookup|tell me about|check)\b/i', $promptTrimmed);
+
+        // Strip date patterns (e.g. "15 March", "25 Sep") before checking for currency amounts
+        $promptWithoutDates = preg_replace('/\b[0-9]{1,2}\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|january|february|march|april|may|june|july|august|september|october|november|december)\b/i', '', $promptTrimmed);
+
         if (
+            !$isQuestionInquiry &&
             (str_contains($promptLower, 'paid') ||
+             str_contains($promptLower, 'pay ') ||
+             str_contains($promptLower, 'payment') ||
              str_contains($promptLower, 'received') ||
+             str_contains($promptLower, 'receipt') ||
              str_contains($promptLower, 'spent') ||
              str_contains($promptLower, 'transfer') ||
+             str_contains($promptLower, 'record') ||
              str_contains($promptLower, 'draft voucher')) &&
-            preg_match('/(?:rs\.?|pkr|\$)?\s*([0-9]+(?:,[0-9]{3})*(?:\.[0-9]{1,2})?)/i', $prompt)
+            preg_match('/(?:rs\.?|pkr|\$)?\s*([0-9]+(?:,[0-9]{3})*(?:\.[0-9]{1,2})?)/i', $promptWithoutDates)
         ) {
             return [
                 'success' => true,

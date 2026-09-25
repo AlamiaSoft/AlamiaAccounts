@@ -403,6 +403,195 @@ class CopilotService
             ];
         }
 
+        // 7.5 Inquire Entity (Person / Contact / Organization / Party Discovery)
+        if ($intent === 'INQUIRE_ENTITY' || ($targetObject === 'contact' && (!empty($party) || !empty($org)))) {
+            $searchService = app(SearchService::class);
+
+            $targetName = !empty($party) ? $party : (!empty($org) ? $org : $entity);
+            $targetNameClean = trim(preg_replace('/^(this|that|the|a|an)\s+/i', '', $targetName), " ?!.#\"'");
+
+            // Deictic pronoun resolution from conversation history
+            if (empty($targetNameClean) || in_array(strtolower($targetNameClean), ['he', 'she', 'him', 'her', 'it', 'them', 'this', 'that', 'this company', 'that company', 'this person'])) {
+                if (!empty($context['history'])) {
+                    foreach (array_reverse($context['history']) as $h) {
+                        $htext = $h['text'] ?? '';
+                        if (preg_match('/(?:mr\.?|ms\.?|mrs\.?|dr\.?)?\s*([a-z0-9\s]+(?:ltd|pvt|inc|corp|company|ali raza|izoc))/i', $htext, $histMatch)) {
+                            $targetNameClean = trim($histMatch[0]);
+                            break;
+                        }
+                    }
+                }
+            }
+
+            $isOrg = ($classification['entity_type'] ?? '') === 'organization' ||
+                preg_match('/\b(ltd|limited|inc|corp|pvt|co|company|technologies|solutions|services|group|holdings|enterprises)\b/i', $targetNameClean) ||
+                (ctype_upper($targetNameClean) && strlen($targetNameClean) <= 6);
+
+            $effectiveParty = $isOrg ? '' : $targetNameClean;
+            $effectiveOrg = $isOrg ? $targetNameClean : '';
+
+            // Layer 1: Check users / contacts
+            $users = \DB::table('users')
+                ->where(function ($q) use ($targetNameClean) {
+                    $q->where('name', 'like', "%{$targetNameClean}%")
+                      ->orWhere('email', 'like', "%{$targetNameClean}%");
+                })
+                ->get()
+                ->toArray();
+
+            // Layer 2: Search accounting transaction footprint
+            $vouchers = $searchService->searchTransactionsByParty([
+                'party' => $effectiveParty,
+                'organization' => $effectiveOrg,
+            ]);
+
+            $activeCompany = DomainContext::get() ?: 'Active Company';
+
+            if (!empty($users) && empty($vouchers)) {
+                $u = (array) $users[0];
+                $uName = $u['name'] ?? $targetNameClean;
+                $uEmail = $u['email'] ?? '';
+                $uRole = $u['role'] ?? 'System User / Contact';
+
+                return [
+                    'sender' => 'Taliya',
+                    'intent' => 'entity_party_brief',
+                    'message' => "Here is the contact profile for **{$uName}**:\n" .
+                        "• **Type**: Person / Contact\n" .
+                        "• **Role**: {$uRole}\n" .
+                        (!empty($uEmail) ? "• **Email**: `{$uEmail}`\n" : "") .
+                        "• **Accounting Footprint**: No direct accounting transactions recorded yet.",
+                    'data' => [
+                        'type' => 'contact',
+                        'entity_type' => 'person',
+                        'name' => $uName,
+                        'email' => $uEmail,
+                        'role' => $uRole,
+                        'transactions_count' => 0,
+                    ],
+                    'card_type' => 'entity_brief',
+                    'actions' => [
+                        [
+                            'label' => "📝 Draft Payment to {$uName}",
+                            'action' => 'draft_prompt',
+                            'payload' => ['prompt' => "Paid Rs. 10,000 to {$uName}"],
+                            'variant' => 'default',
+                        ],
+                        [
+                            'label' => '📄 View Daybook',
+                            'action' => 'navigate_page',
+                            'payload' => ['page' => 'daybook'],
+                            'variant' => 'outline',
+                        ],
+                    ]
+                ];
+            }
+
+            if (!empty($vouchers)) {
+                $vCount = count($vouchers);
+                $totalVol = 0.0;
+                foreach ($vouchers as $v) {
+                    $rawLines = $v['lineItems'] ?? $v['line_items'] ?? $v['details'] ?? [];
+                    $vDr = 0.0;
+                    foreach ($rawLines as $l) {
+                        $vDr += (float)($l['debit'] ?? 0);
+                    }
+                    $totalVol += $vDr > 0 ? $vDr : (float)($v['amount'] ?? 0);
+                }
+
+                $latestV = $vouchers[0];
+                $latestRef = $latestV['reference'] ?? $latestV['number'] ?? '';
+                $latestDesc = $latestV['description'] ?? '';
+                $latestDate = $latestV['date'] ?? '';
+
+                $typeLabel = $isOrg ? "Organization / Client" : "Person / Contact";
+                $displayName = $targetNameClean;
+                if ($isOrg && preg_match('/\b(' . preg_quote($targetNameClean, '/') . '(?:\s+pvt\s+ltd|\s+ltd|\s+limited|\s+inc)?)\b/i', $latestDesc, $canonicalMatch)) {
+                    $displayName = $canonicalMatch[1];
+                }
+
+                $userAffiliation = "";
+                if (!empty($users)) {
+                    $u = (array) $users[0];
+                    $userAffiliation = "• **Associated Contact**: {$u['name']} (" . ($u['email'] ?? 'User') . ")\n";
+                }
+
+                return [
+                    'sender' => 'Taliya',
+                    'intent' => 'entity_party_brief',
+                    'message' => "**{$displayName}** appears in your accounting records as a **{$typeLabel}** involved in company [{$activeCompany}] transactions.\n\n" .
+                        "• **Accounting Footprint**: Found **{$vCount}** related transaction(s) totaling **Rs. " . number_format($totalVol, 2) . "**\n" .
+                        "• **Recent Voucher**: **{$latestRef}**" . ($latestDate ? " ({$latestDate})" : "") . (!empty($latestDesc) ? " — *\"{$latestDesc}\"*" : "") . "\n" .
+                        $userAffiliation .
+                        "\nWould you like to review related transactions or draft a new voucher?",
+                    'data' => [
+                        'type' => 'party',
+                        'entity_type' => $isOrg ? 'organization' : 'person',
+                        'name' => $displayName,
+                        'transactions_count' => $vCount,
+                        'total_volume' => $totalVol,
+                        'latest_voucher' => $latestV,
+                        'vouchers' => $vouchers,
+                    ],
+                    'card_type' => 'entity_brief',
+                    'actions' => [
+                        [
+                            'label' => "📄 View Voucher {$latestRef}",
+                            'action' => 'navigate_page',
+                            'payload' => ['page' => 'voucher-view', 'type' => 'voucher', 'id' => $latestRef, 'rawItem' => $latestV],
+                            'variant' => 'default',
+                        ],
+                        [
+                            'label' => "📝 Draft Voucher for {$displayName}",
+                            'action' => 'draft_prompt',
+                            'payload' => ['prompt' => "Paid Rs. 10,000 to {$displayName}"],
+                            'variant' => 'outline',
+                        ],
+                        [
+                            'label' => '📄 View Daybook',
+                            'action' => 'navigate_page',
+                            'payload' => ['page' => 'daybook'],
+                            'variant' => 'outline',
+                        ],
+                    ]
+                ];
+            }
+
+            // 0 matches found in users and vouchers
+            return [
+                'sender' => 'Taliya',
+                'intent' => 'entity_not_found',
+                'message' => "I couldn't find any contact profile or accounting transaction footprint matching **{$targetNameClean}** in company [{$activeCompany}].\n\n" .
+                    "• You can draft a new transaction involving {$targetNameClean}\n" .
+                    "• Or search the Daybook and Chart of Accounts below:",
+                'data' => [
+                    'entity' => $targetNameClean,
+                    'entity_type' => $isOrg ? 'organization' : 'person',
+                ],
+                'card_type' => 'not_found',
+                'actions' => [
+                    [
+                        'label' => "📝 Draft Voucher for {$targetNameClean}",
+                        'action' => 'draft_prompt',
+                        'payload' => ['prompt' => "Paid Rs. 10,000 to {$targetNameClean}"],
+                        'variant' => 'default',
+                    ],
+                    [
+                        'label' => '📄 View Daybook',
+                        'action' => 'navigate_page',
+                        'payload' => ['page' => 'daybook'],
+                        'variant' => 'outline',
+                    ],
+                    [
+                        'label' => '📖 Chart of Accounts',
+                        'action' => 'navigate_page',
+                        'payload' => ['page' => 'coa'],
+                        'variant' => 'outline',
+                    ],
+                ]
+            ];
+        }
+
         // 8. Find Transaction / Voucher by Party, Contact, or Organization
         if ($intent === 'FIND_TRANSACTION' || (!empty($party) && ($targetObject === 'transaction' || $targetObject === 'voucher' || str_contains($promptLower, 'transaction') || str_contains($promptLower, 'voucher')))) {
             $searchService = app(SearchService::class);

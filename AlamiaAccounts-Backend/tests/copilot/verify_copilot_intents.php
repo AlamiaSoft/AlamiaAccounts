@@ -296,6 +296,86 @@ $tests = [
         'expected_card' => 'voucher_brief',
         'validate' => fn($res) => ($res['data']['reference'] ?? '') === 'OB-2026-001',
     ],
+    // ------------------------------------------------------------------------
+    // PART 4: ENTITY RESOLUTION & INQUIRE PARTY/ORGANIZATION (Feedback 0.1.7)
+    // ------------------------------------------------------------------------
+    [
+        'category' => 'Entity Resolution',
+        'title' => 'Person Entity Inquiry -> Inquire Person Contact / Footprint',
+        'query' => 'Who is Ali Raza?',
+        'expected_card' => 'not_found',
+        'validate' => function ($res) {
+            return in_array($res['card_type'] ?? '', ['not_found', 'entity_brief']) &&
+                   in_array($res['intent'] ?? '', ['entity_not_found', 'entity_party_brief']);
+        },
+    ],
+    [
+        'category' => 'Entity Resolution',
+        'title' => 'Organization Inquiry -> Discovers IZOC in Accounting Records',
+        'query' => 'Who is IZOC?',
+        'expected_card' => 'entity_brief',
+        'validate' => function ($res) {
+            $data = $res['data'] ?? [];
+            return ($data['entity_type'] ?? '') === 'organization' &&
+                   stripos($data['name'] ?? '', 'IZOC') !== false &&
+                   ($data['transactions_count'] ?? 0) >= 1 &&
+                   stripos($data['latest_voucher']['reference'] ?? '', 'SV-2026-112') !== false;
+        },
+    ],
+    [
+        'category' => 'Entity Resolution',
+        'title' => 'Deictic Word Stripping -> "Who is this IZOC???" Resolves to IZOC Entity',
+        'query' => 'Who is this IZOC???',
+        'expected_card' => 'entity_brief',
+        'validate' => function ($res) {
+            $data = $res['data'] ?? [];
+            return ($data['entity_type'] ?? '') === 'organization' &&
+                   stripos($data['name'] ?? '', 'IZOC') !== false &&
+                   ($data['transactions_count'] ?? 0) >= 1;
+        },
+    ],
+    [
+        'category' => 'Entity Resolution',
+        'title' => 'Formal Organization Name Inquiry -> Discovers IZOC Pvt Ltd',
+        'query' => 'Who is IZOC Pvt Ltd?',
+        'expected_card' => 'entity_brief',
+        'validate' => function ($res) {
+            $data = $res['data'] ?? [];
+            return ($data['entity_type'] ?? '') === 'organization' &&
+                   stripos($data['name'] ?? '', 'IZOC') !== false &&
+                   ($data['transactions_count'] ?? 0) >= 1;
+        },
+    ],
+    [
+        'category' => 'Entity Resolution',
+        'title' => 'Entity Briefing Query -> Tell me about Ali Raza',
+        'query' => 'Tell me about Ali Raza',
+        'expected_card' => 'not_found',
+        'validate' => function ($res) {
+            return in_array($res['card_type'] ?? '', ['not_found', 'entity_brief']);
+        },
+    ],
+    [
+        'category' => 'Entity Resolution',
+        'title' => 'Entity Briefing Query -> Tell me about IZOC',
+        'query' => 'Tell me about IZOC',
+        'expected_card' => 'entity_brief',
+        'validate' => function ($res) {
+            return ($res['card_type'] ?? '') === 'entity_brief' &&
+                   ($res['data']['entity_type'] ?? '') === 'organization' &&
+                   stripos($res['data']['name'] ?? '', 'IZOC') !== false;
+        },
+    ],
+    [
+        'category' => 'Entity Resolution',
+        'title' => 'Transaction History Query -> Show me what we have with IZOC',
+        'query' => 'Show me what we have with IZOC',
+        'expected_card' => 'voucher_brief',
+        'validate' => function ($res) {
+            return ($res['card_type'] ?? '') === 'voucher_brief' &&
+                   stripos($res['data']['reference'] ?? '', 'SV-2026-112') !== false;
+        },
+    ],
 ];
 
 $passed = 0;
@@ -378,6 +458,50 @@ if (($c3['intent'] ?? '') === 'VOUCHER_ACTION' && ($c3['action'] ?? '') === 'edi
     $passed++;
 } else {
     echo "  [FAIL] Expected VOUCHER_ACTION with edit_narration, got: " . json_encode($c3) . "\n";
+    $failed++;
+}
+echo "------------------------------------------------------------------------\n";
+
+echo "Test " . (count($tests) + 5) . " [Classifier Invariant]: 'Who is Ali Raza?' -> INQUIRE_ENTITY (person)\n";
+$c4 = $classifier->classify("Who is Ali Raza?");
+if (($c4['intent'] ?? '') === 'INQUIRE_ENTITY' && ($c4['entity_type'] ?? '') === 'person' && ($c4['party'] ?? '') === 'Ali Raza') {
+    echo "  [PASS] 'Who is Ali Raza?' -> INQUIRE_ENTITY / person (Ali Raza)\n";
+    $passed++;
+} else {
+    echo "  [FAIL] Expected INQUIRE_ENTITY person Ali Raza, got: " . json_encode($c4) . "\n";
+    $failed++;
+}
+echo "------------------------------------------------------------------------\n";
+
+echo "Test " . (count($tests) + 6) . " [Classifier Invariant]: 'Who is this IZOC???' -> INQUIRE_ENTITY (organization: IZOC)\n";
+$c5 = $classifier->classify("Who is this IZOC???");
+if (($c5['intent'] ?? '') === 'INQUIRE_ENTITY' && ($c5['entity_type'] ?? '') === 'organization' && stripos($c5['organization'] ?? '', 'IZOC') !== false) {
+    echo "  [PASS] 'Who is this IZOC???' -> INQUIRE_ENTITY / organization (IZOC)\n";
+    $passed++;
+} else {
+    echo "  [FAIL] Expected INQUIRE_ENTITY organization IZOC, got: " . json_encode($c5) . "\n";
+    $failed++;
+}
+echo "------------------------------------------------------------------------\n";
+
+echo "Test " . (count($tests) + 7) . " [Classifier Invariant]: 'What company is Ali Raza associated with?' -> INQUIRE_ENTITY\n";
+$c6 = $classifier->classify("What company is Ali Raza associated with?");
+if (($c6['intent'] ?? '') === 'INQUIRE_ENTITY' && stripos($c6['party'] ?? '', 'Ali Raza') !== false) {
+    echo "  [PASS] 'What company is Ali Raza associated with?' -> INQUIRE_ENTITY (Ali Raza)\n";
+    $passed++;
+} else {
+    echo "  [FAIL] Expected INQUIRE_ENTITY with Ali Raza, got: " . json_encode($c6) . "\n";
+    $failed++;
+}
+echo "------------------------------------------------------------------------\n";
+
+echo "Test " . (count($tests) + 8) . " [Classifier Invariant]: 'Who is he?' -> INQUIRE_ENTITY with conversational history inheritance\n";
+$c7 = $classifier->classify("Who is he?", ['history' => [['sender' => 'user', 'text' => 'There was a transaction with Mr. Ali Raza']]]);
+if (($c7['intent'] ?? '') === 'INQUIRE_ENTITY' && stripos($c7['party'] ?? '', 'Ali Raza') !== false) {
+    echo "  [PASS] 'Who is he?' -> INQUIRE_ENTITY resolved to Ali Raza\n";
+    $passed++;
+} else {
+    echo "  [FAIL] Expected INQUIRE_ENTITY resolved to Ali Raza, got: " . json_encode($c7) . "\n";
     $failed++;
 }
 

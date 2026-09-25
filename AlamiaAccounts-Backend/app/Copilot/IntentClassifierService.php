@@ -47,9 +47,10 @@ class IntentClassifierService
 You are an intent and entity classification engine for Alamia Accounts double-entry ERP.
 Analyze the user query inside <user_query>...</user_query> and return JSON ONLY matching this exact schema:
 {
-  "intent": "FIND_TRANSACTION" | "INQUIRE_VOUCHER" | "VOUCHER_ACTION" | "INQUIRE_ACCOUNT" | "INQUIRE_REPORT" | "DRAFT_VOUCHER" | "RESTRICTED_ACTION" | "LIST_SITUATIONS" | "GENERAL_SEARCH" | "GREETING" | "HELP" | "UNKNOWN",
+  "intent": "FIND_TRANSACTION" | "INQUIRE_VOUCHER" | "VOUCHER_ACTION" | "INQUIRE_ENTITY" | "INQUIRE_ACCOUNT" | "INQUIRE_REPORT" | "DRAFT_VOUCHER" | "RESTRICTED_ACTION" | "LIST_SITUATIONS" | "GENERAL_SEARCH" | "GREETING" | "HELP" | "UNKNOWN",
   "party": "extracted contact person / party name (e.g. 'Ali Raza') or empty string",
   "organization": "extracted company / client / vendor name (e.g. 'Izoc Ltd') or empty string",
+  "entity_type": "person" | "organization" | "account" | "voucher" | null,
   "target_object": "transaction" | "voucher" | "account" | "report" | "contact" | null,
   "reference": "extracted voucher reference (e.g. 'OB-2026-001', 'JV-102') or empty string",
   "account": "extracted account code or account name (e.g. 'Meezan Bank', '1130', 'Cash in Hand') or empty string",
@@ -68,33 +69,36 @@ Analyze the user query inside <user_query>...</user_query> and return JSON ONLY 
 }
 
 Intents & Semantic Rules:
-1. FIND_TRANSACTION: Searching for historical transactions involving a person, contact, vendor, or organization.
+1. INQUIRE_ENTITY: Inquiries asking about an individual person, vendor, client, contact, or organization (e.g. "Who is Ali Raza?", "Who is IZOC?", "Who is this IZOC???", "Tell me about Ali Raza", "Tell me about IZOC").
+   - Strip deictic words ("this", "that", "the") from extracted party/organization names (e.g. "this IZOC" -> "IZOC").
+   - entity_type: "person" or "organization".
+2. FIND_TRANSACTION: Searching for historical transactions involving a person, contact, vendor, or organization.
    - target_object: "transaction" by default (or "voucher" if user explicitly asks for voucher e.g. "show voucher for...").
    - direction: "outgoing" (paid to / spent on), "incoming" (received from / customer paid), "any" (general).
-2. INQUIRE_VOUCHER: Inquiries retrieving a specific voucher's details or narration (e.g. "Show OB-2026-001", "What is the narration of OB-2026-001?").
-3. VOUCHER_ACTION: Action requests targeting a voucher (e.g. "delete the wrong narration entered in voucher number: ob-2026-001", "change the narration of OB-2026-001", "reverse OB-2026-001", "remove narration from OB-2026-001").
+3. INQUIRE_VOUCHER: Inquiries retrieving a specific voucher's details or narration (e.g. "Show OB-2026-001", "What is the narration of OB-2026-001?").
+4. VOUCHER_ACTION: Action requests targeting a voucher (e.g. "delete the wrong narration entered in voucher number: ob-2026-001", "change the narration of OB-2026-001", "reverse OB-2026-001", "remove narration from OB-2026-001").
    - action: "edit_narration" | "delete_narration" | "reverse_voucher" | "modify_amount" | "delete_voucher"
-4. INQUIRE_ACCOUNT: Explicit inquiries about ledger accounts, chart of accounts, or account balances.
+5. INQUIRE_ACCOUNT: Explicit inquiries about ledger accounts, chart of accounts, or account balances.
    - Requires explicit account language (e.g. "balance of...", "account 1130", "Cash in Hand balance", "show chart of accounts").
    - Do NOT classify queries containing person/party names as INQUIRE_ACCOUNT simply because "bank" or "cash" is mentioned in passing.
-5. INQUIRE_REPORT: Financial reports ("Trial Balance", "Profit & Loss", "Balance Sheet").
-6. DRAFT_VOUCHER: Recording or preparing a new transaction with an amount and intent to post.
-7. RESTRICTED_ACTION: Destructive or prohibited requests (e.g. "delete all accounts", "Delete voucher OB-2026-001", "wipe ledger", "change voucher amount to 500k").
-8. LIST_SITUATIONS: Operational alerts, approvals, or anomalies.
-9. GREETING: "Hello", "Hi", "Salam", "Hey"
-10. HELP: "Help", "What can you do?"
+6. INQUIRE_REPORT: Financial reports ("Trial Balance", "Profit & Loss", "Balance Sheet").
+7. DRAFT_VOUCHER: Recording or preparing a new transaction with an amount and intent to post.
+8. RESTRICTED_ACTION: Destructive or prohibited requests (e.g. "delete all accounts", "Delete voucher OB-2026-001", "wipe ledger", "change voucher amount to 500k").
+9. LIST_SITUATIONS: Operational alerts, approvals, or anomalies.
+10. GREETING: "Hello", "Hi", "Salam", "Hey"
+11. HELP: "Help", "What can you do?"
 
 Examples:
-- "delete the wrong narration entered in voucher number: ob-2026-001" -> {"intent": "VOUCHER_ACTION", "party": "", "organization": "", "target_object": "voucher", "reference": "OB-2026-001", "account": "", "action": "edit_narration", "direction": null, "action_type": null, "amount": null, "currency": null, "date_filter": null, "report_type": null, "is_correction": false, "confidence": 0.99}
-- "change the narration of OB-2026-001" -> {"intent": "VOUCHER_ACTION", "party": "", "organization": "", "target_object": "voucher", "reference": "OB-2026-001", "account": "", "action": "edit_narration", "direction": null, "action_type": null, "amount": null, "currency": null, "date_filter": null, "report_type": null, "is_correction": false, "confidence": 0.99}
-- "reverse OB-2026-001" -> {"intent": "VOUCHER_ACTION", "party": "", "organization": "", "target_object": "voucher", "reference": "OB-2026-001", "account": "", "action": "reverse_voucher", "direction": null, "action_type": null, "amount": null, "currency": null, "date_filter": null, "report_type": null, "is_correction": false, "confidence": 0.99}
-- "What is the balance of Meezan Bank?" -> {"intent": "INQUIRE_ACCOUNT", "party": "", "organization": "", "target_object": "account", "reference": "", "account": "Meezan Bank", "action": null, "direction": null, "action_type": null, "amount": null, "currency": null, "date_filter": null, "report_type": null, "is_correction": false, "confidence": 0.98}
-- "delete all accounts" -> {"intent": "RESTRICTED_ACTION", "party": "", "organization": "", "target_object": "account", "reference": "", "account": "", "action": "delete_account", "direction": null, "action_type": null, "amount": null, "currency": null, "date_filter": null, "report_type": null, "is_correction": false, "confidence": 0.99}
-- "Delete voucher OB-2026-001" -> {"intent": "RESTRICTED_ACTION", "party": "", "organization": "", "target_object": "voucher", "reference": "OB-2026-001", "account": "", "action": "delete_voucher", "direction": null, "action_type": null, "amount": null, "currency": null, "date_filter": null, "report_type": null, "is_correction": false, "confidence": 0.99}
-- "Transaction with Mr. Ali Raza of Izoc Ltd" -> {"intent": "FIND_TRANSACTION", "party": "Ali Raza", "organization": "Izoc Ltd", "target_object": "transaction", "reference": "", "account": "", "action": null, "direction": "any", "action_type": null, "amount": null, "currency": null, "date_filter": null, "report_type": null, "is_correction": false, "confidence": 0.95}
-- "What did we pay Ali Raza?" -> {"intent": "FIND_TRANSACTION", "party": "Ali Raza", "organization": "", "target_object": "transaction", "reference": "", "account": "", "action": null, "direction": "outgoing", "action_type": "payment", "amount": null, "currency": null, "date_filter": null, "report_type": null, "is_correction": false, "confidence": 0.95}
-- "What did Ali Raza pay us?" -> {"intent": "FIND_TRANSACTION", "party": "Ali Raza", "organization": "", "target_object": "transaction", "reference": "", "account": "", "action": null, "direction": "incoming", "action_type": "receipt", "amount": null, "currency": null, "date_filter": null, "report_type": null, "is_correction": false, "confidence": 0.95}
-- "Paid Rs. 25,000 for office supplies via Meezan Bank" -> {"intent": "DRAFT_VOUCHER", "party": "", "organization": "", "target_object": "voucher", "reference": "", "account": "Meezan Bank", "action": null, "direction": "outgoing", "action_type": "payment", "amount": 25000, "currency": "PKR", "date_filter": null, "report_type": null, "is_correction": false, "confidence": 0.95}
+- "Who is Ali Raza?" -> {"intent": "INQUIRE_ENTITY", "party": "Ali Raza", "organization": "", "entity_type": "person", "target_object": "contact", "reference": "", "account": "", "action": null, "direction": null, "action_type": null, "amount": null, "currency": null, "date_filter": null, "report_type": null, "is_correction": false, "confidence": 0.98}
+- "Who is this IZOC???" -> {"intent": "INQUIRE_ENTITY", "party": "", "organization": "IZOC", "entity_type": "organization", "target_object": "contact", "reference": "", "account": "", "action": null, "direction": null, "action_type": null, "amount": null, "currency": null, "date_filter": null, "report_type": null, "is_correction": false, "confidence": 0.98}
+- "Who is IZOC Pvt Ltd?" -> {"intent": "INQUIRE_ENTITY", "party": "", "organization": "IZOC Pvt Ltd", "entity_type": "organization", "target_object": "contact", "reference": "", "account": "", "action": null, "direction": null, "action_type": null, "amount": null, "currency": null, "date_filter": null, "report_type": null, "is_correction": false, "confidence": 0.98}
+- "delete the wrong narration entered in voucher number: ob-2026-001" -> {"intent": "VOUCHER_ACTION", "party": "", "organization": "", "entity_type": null, "target_object": "voucher", "reference": "OB-2026-001", "account": "", "action": "edit_narration", "direction": null, "action_type": null, "amount": null, "currency": null, "date_filter": null, "report_type": null, "is_correction": false, "confidence": 0.99}
+- "reverse OB-2026-001" -> {"intent": "VOUCHER_ACTION", "party": "", "organization": "", "entity_type": null, "target_object": "voucher", "reference": "OB-2026-001", "account": "", "action": "reverse_voucher", "direction": null, "action_type": null, "amount": null, "currency": null, "date_filter": null, "report_type": null, "is_correction": false, "confidence": 0.99}
+- "What is the balance of Meezan Bank?" -> {"intent": "INQUIRE_ACCOUNT", "party": "", "organization": "", "entity_type": "account", "target_object": "account", "reference": "", "account": "Meezan Bank", "action": null, "direction": null, "action_type": null, "amount": null, "currency": null, "date_filter": null, "report_type": null, "is_correction": false, "confidence": 0.98}
+- "delete all accounts" -> {"intent": "RESTRICTED_ACTION", "party": "", "organization": "", "entity_type": null, "target_object": "account", "reference": "", "account": "", "action": "delete_account", "direction": null, "action_type": null, "amount": null, "currency": null, "date_filter": null, "report_type": null, "is_correction": false, "confidence": 0.99}
+- "Transaction with Mr. Ali Raza of Izoc Ltd" -> {"intent": "FIND_TRANSACTION", "party": "Ali Raza", "organization": "Izoc Ltd", "entity_type": null, "target_object": "transaction", "reference": "", "account": "", "action": null, "direction": "any", "action_type": null, "amount": null, "currency": null, "date_filter": null, "report_type": null, "is_correction": false, "confidence": 0.95}
+- "What did we pay Ali Raza?" -> {"intent": "FIND_TRANSACTION", "party": "Ali Raza", "organization": "", "entity_type": null, "target_object": "transaction", "reference": "", "account": "", "action": null, "direction": "outgoing", "action_type": "payment", "amount": null, "currency": null, "date_filter": null, "report_type": null, "is_correction": false, "confidence": 0.95}
+- "Paid Rs. 25,000 for office supplies via Meezan Bank" -> {"intent": "DRAFT_VOUCHER", "party": "", "organization": "", "entity_type": null, "target_object": "voucher", "reference": "", "account": "Meezan Bank", "action": null, "direction": "outgoing", "action_type": "payment", "amount": 25000, "currency": "PKR", "date_filter": null, "report_type": null, "is_correction": false, "confidence": 0.95}
 
 {$contextSnippet}<user_query>
 {$prompt}
@@ -128,8 +132,12 @@ PROMPT;
                         $ref = trim($parsed['reference'] ?? '');
                         $acc = trim($parsed['account'] ?? '');
 
+                        // Clean deictic words from party / organization
+                        $party = trim(preg_replace('/^(this|that|the|a|an)\s+/i', '', $party));
+                        $org = trim(preg_replace('/^(this|that|the|a|an)\s+/i', '', $org));
+
                         // Typed entity value for generic display fallback
-                        $entityType = !empty($acc) ? 'account' : (!empty($ref) ? 'reference' : (!empty($party) ? 'party' : (!empty($org) ? 'organization' : null)));
+                        $entityType = $parsed['entity_type'] ?? (!empty($acc) ? 'account' : (!empty($ref) ? 'reference' : (!empty($party) ? 'party' : (!empty($org) ? 'organization' : null))));
                         $entityValue = !empty($acc) ? $acc : (!empty($ref) ? $ref : (!empty($party) ? $party : $org));
 
                         return [
@@ -520,6 +528,62 @@ PROMPT;
             ];
         }
 
+        // 7.8 Inquire Entity / Contact / Organization Queries (e.g. "Who is Ali Raza?", "Who is this IZOC???", "Tell me about IZOC", "Who is he?", "What company is Ali Raza associated with?")
+        if (
+            preg_match('/^who\s+(?:is|are)\s+(?:this\s+|that\s+|the\s+|a\s+|an\s+)?([a-z0-9\s.,-]+?)[\s?!.]*$/i', $promptTrimmed, $whoMatch) ||
+            preg_match('/^tell\s+me\s+about\s+(?:party\s+|contact\s+|person\s+|client\s+|vendor\s+|company\s+)?([a-z0-9\s.,-]+?)[\s?!.]*$/i', $promptTrimmed, $tellMatch) ||
+            preg_match('/^(?:what\s+company\s+is|what\s+firm\s+is|who\s+is)\s+([a-z0-9\s.,-]+?)\s+(?:associated\s+with|working\s+with|affiliated\s+with)[\s?!.]*$/i', $promptTrimmed, $assocMatch)
+        ) {
+            $rawCand = !empty($whoMatch[1]) ? $whoMatch[1] : (!empty($tellMatch[1]) ? $tellMatch[1] : ($assocMatch[1] ?? ''));
+            $rawCand = trim(preg_replace('/^(this|that|the|a|an)\s+/i', '', $rawCand), " ?.!\"'");
+
+            $candLower = strtolower($rawCand);
+            $isAccountLike = preg_match('/^[0-9]{4}$/', $rawCand) || in_array($candLower, ['cash', 'cash in hand', 'meezan bank', 'bank alfalah', 'bank', 'capital', 'equity', 'payable', 'receivable']);
+            $isVoucherLike = preg_match('/^(ob|jv|pv|rv|cv|sv|rev)-[0-9a-z-]+$/i', $rawCand);
+            $isReportLike = in_array($candLower, ['trial balance', 'profit and loss', 'balance sheet', 'tb', 'p&l']);
+
+            if (!$isAccountLike && !$isVoucherLike && !$isReportLike && !empty($rawCand)) {
+                // Conversational pronoun / deictic resolution from context history
+                $resolvedCand = $rawCand;
+                if (in_array($candLower, ['he', 'she', 'him', 'her', 'it', 'them', 'this', 'that', 'this company', 'that company', 'this person'])) {
+                    if (!empty($context['history'])) {
+                        foreach (array_reverse($context['history']) as $h) {
+                            $htext = $h['text'] ?? '';
+                            if (preg_match('/(?:mr\.?|ms\.?|mrs\.?|dr\.?)?\s*([a-z0-9\s]+(?:ltd|pvt|inc|corp|company|ali raza|izoc))/i', $htext, $hm)) {
+                                $resolvedCand = trim($hm[0]);
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                $isOrg = preg_match('/\b(ltd|limited|inc|corp|pvt|co|company|technologies|solutions|services|group|holdings|enterprises)\b/i', $resolvedCand) ||
+                    (ctype_upper($resolvedCand) && strlen($resolvedCand) <= 6);
+
+                return [
+                    'success' => true,
+                    'source' => 'heuristic',
+                    'intent' => 'INQUIRE_ENTITY',
+                    'party' => $isOrg ? '' : $resolvedCand,
+                    'organization' => $isOrg ? $resolvedCand : '',
+                    'target_object' => 'contact',
+                    'reference' => '',
+                    'account' => '',
+                    'direction' => null,
+                    'action_type' => null,
+                    'amount' => null,
+                    'currency' => null,
+                    'date_filter' => null,
+                    'entity_type' => $isOrg ? 'organization' : 'person',
+                    'entity_value' => $resolvedCand,
+                    'entity' => $resolvedCand,
+                    'report_type' => null,
+                    'is_correction' => false,
+                    'confidence' => 0.95,
+                ];
+            }
+        }
+
         // 8. Find Transaction for Party or Organization
         if (
             str_contains($promptLower, 'transaction') ||
@@ -534,11 +598,14 @@ PROMPT;
             str_contains($promptLower, 'what was') ||
             str_contains($promptLower, 'payment to') ||
             str_contains($promptLower, 'receipt from') ||
+            str_contains($promptLower, 'what we have with') ||
+            str_contains($promptLower, 'what do we have with') ||
+            str_contains($promptLower, 'show me what we have') ||
             ($isCorrection && (str_contains($promptLower, 'transaction') || str_contains($promptLower, 'voucher') || str_contains($promptLower, 'mr.') || str_contains($promptLower, 'ltd')))
         ) {
             $party = '';
             $org = '';
-            if (preg_match('/(?:with|for|paid\s+to|payment\s+to|pay)\s+(?:mr\.?|ms\.?|mrs\.?|dr\.?)?\s*([a-z0-9\s]+?)(?:\s+of|\s+from|\s+in|\s+at|\s+make|\s+through|\?|\.|\;|\,|$)/i', $prompt, $pMatch)) {
+            if (preg_match('/(?:with|for|paid\s+to|payment\s+to|pay|have\s+with)\s+(?:mr\.?|ms\.?|mrs\.?|dr\.?)?\s*([a-z0-9\s]+?)(?:\s+of|\s+from|\s+in|\s+at|\s+make|\s+through|\?|\.|\;|\,|$)/i', $prompt, $pMatch)) {
                 $cand = trim($pMatch[1]);
                 if (!in_array(strtolower($cand), ['we', 'us', 'me', 'our', 'them', 'him', 'her', 'it'])) {
                     $party = $cand;
@@ -560,8 +627,8 @@ PROMPT;
                 $org = trim($oMatch[1]);
             }
 
-            // Auto-reassign corporate names to organization slot
-            if (empty($org) && !empty($party) && preg_match('/\b(ltd|limited|inc|corp|pvt|co|company|technologies|solutions|services)\b/i', $party)) {
+            // Auto-reassign corporate names or uppercase acronyms to organization slot
+            if (empty($org) && !empty($party) && (preg_match('/\b(ltd|limited|inc|corp|pvt|co|company|technologies|solutions|services)\b/i', $party) || ctype_upper($party))) {
                 $org = $party;
                 $party = '';
             }

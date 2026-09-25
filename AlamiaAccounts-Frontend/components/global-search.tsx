@@ -277,16 +277,16 @@ export default function GlobalSearch({ currentContext, onResultClick }: GlobalSe
                               e.stopPropagation()
                               handleAskTaliya(result)
                             }}
-                            className="px-2 py-1 rounded-md bg-primary/10 text-primary hover:bg-primary hover:text-primary-foreground transition-all flex items-center gap-1 text-[11px] font-medium opacity-0 group-hover:opacity-100 shadow-2xs cursor-pointer"
+                            className="px-2 py-1 rounded-md bg-amber-500/10 hover:bg-primary text-foreground hover:text-primary-foreground border border-amber-500/30 hover:border-primary transition-all flex items-center gap-1.5 text-[11px] font-medium shadow-2xs cursor-pointer"
                             title="Ask Taliya AI Copilot about this record"
                           >
-                            <Sparkles className="w-3 h-3 text-amber-500 group-hover:text-primary-foreground" />
+                            <Sparkles className="w-3.5 h-3.5 text-amber-500 group-hover:text-amber-300 shrink-0" />
                             <span>Ask Taliya</span>
                           </button>
                           <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-muted/60 text-muted-foreground capitalize">
                             {result.type}
                           </span>
-                          <CornerDownLeft className="w-3.5 h-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+                          <CornerDownLeft className="w-3.5 h-3.5 text-muted-foreground opacity-40 group-hover:opacity-100 transition-opacity" />
                         </div>
                       </div>
                     ))}
@@ -302,7 +302,7 @@ export default function GlobalSearch({ currentContext, onResultClick }: GlobalSe
                   >
                     <div className="flex items-center gap-2 truncate">
                       <div className="w-5 h-5 rounded-full bg-primary/15 text-primary flex items-center justify-center shrink-0">
-                        <Sparkles className="w-3 h-3 text-primary animate-pulse" />
+                        <Sparkles className="w-3.5 h-3.5 text-amber-500 animate-pulse" />
                       </div>
                       <span className="text-foreground truncate text-xs">
                         Ask Taliya AI about &ldquo;<strong className="text-primary font-semibold">{searchQuery}</strong>&rdquo;
@@ -371,17 +371,17 @@ export default function GlobalSearch({ currentContext, onResultClick }: GlobalSe
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-2 shrink-0">
+                      <div className="flex items-center gap-1.5 shrink-0">
                         <button
                           type="button"
                           onClick={(e) => {
                             e.stopPropagation()
                             handleAskTaliya(item)
                           }}
-                          className="px-2 py-1 rounded-md bg-primary/10 text-primary hover:bg-primary hover:text-primary-foreground transition-all flex items-center gap-1 text-[11px] font-medium opacity-0 group-hover:opacity-100 shadow-2xs cursor-pointer"
+                          className="px-2 py-1 rounded-md bg-amber-500/10 hover:bg-primary text-foreground hover:text-primary-foreground border border-amber-500/30 hover:border-primary transition-all flex items-center gap-1.5 text-[11px] font-medium shadow-2xs cursor-pointer"
                           title="Ask Taliya AI about this recent search"
                         >
-                          <Sparkles className="w-3 h-3 text-amber-500 group-hover:text-primary-foreground" />
+                          <Sparkles className="w-3.5 h-3.5 text-amber-500 group-hover:text-amber-300 shrink-0" />
                           <span>Ask Taliya</span>
                         </button>
                         <span className="text-[10px] text-muted-foreground hidden sm:inline-block">

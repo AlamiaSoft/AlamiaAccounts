@@ -69,7 +69,46 @@ class CopilotService
         $entity = $classification['entity'] ?? '';
         $reportType = $classification['report_type'] ?? null;
 
-        // 4. Financial Reports Query
+        // 4. Greetings & Conversational Welcome
+        if ($intent === 'GREETING') {
+            $userGreeting = trim(preg_replace('/^(hi|hello|hey|salam|assalam|good morning|good afternoon|good evening)\s*/i', '', $prompt), " !?,.");
+            $namePrefix = !empty($userGreeting) ? " {$userGreeting}" : "";
+
+            return [
+                'sender' => 'Taliya',
+                'intent' => 'greeting',
+                'message' => "Hello{$namePrefix}! 👋 I am **Taliya**, your Alamia Accounts AI Copilot.\n\nI can help you manage your books, look up accounts, prepare vouchers, and analyze financial reports. How can I assist you today?",
+                'data' => null,
+                'card_type' => 'greeting',
+                'actions' => [
+                    ['label' => '📄 View Daybook', 'action' => 'navigate_page', 'payload' => ['page' => 'daybook']],
+                    ['label' => '🏦 Chart of Accounts', 'action' => 'navigate_page', 'payload' => ['page' => 'coa']],
+                    ['label' => '📊 Trial Balance', 'action' => 'draft_prompt', 'payload' => ['prompt' => 'Show Trial Balance summary']],
+                ]
+            ];
+        }
+
+        // 5. Help & General Guidance
+        if ($intent === 'HELP') {
+            return [
+                'sender' => 'Taliya',
+                'intent' => 'general_guidance',
+                'message' => "I am **Taliya**, your AI Accounting Copilot backed by Alamia 360.\n\nHere are some of the things you can ask me:\n" .
+                    "• **Inquire Vouchers**: *\"Tell me about voucher OB-2026-001\"*\n" .
+                    "• **Account Balances**: *\"What is the balance of Meezan Bank?\"* or *\"Account 1130\"*\n" .
+                    "• **Drafting Vouchers**: *\"Paid Rs. 25,000 for office rent via Meezan Bank\"*\n" .
+                    "• **Financial Statements**: *\"Show Trial Balance\"*, *\"View Profit & Loss\"*\n" .
+                    "• **Audit & Alerts**: *\"Check situations\"* or *\"Any ledger alerts?\"*",
+                'data' => null,
+                'card_type' => 'help',
+                'actions' => [
+                    ['label' => '📊 Trial Balance', 'action' => 'draft_prompt', 'payload' => ['prompt' => 'Show Trial Balance summary']],
+                    ['label' => '🏦 Meezan Bank Balance', 'action' => 'draft_prompt', 'payload' => ['prompt' => 'What is the balance of Meezan Bank?']],
+                ]
+            ];
+        }
+
+        // 6. Financial Reports Query
         if ($intent === 'INQUIRE_REPORT' || str_contains($promptLower, 'trial balance') || str_contains($promptLower, 'tb') || str_contains($promptLower, 'profit') || str_contains($promptLower, 'balance sheet')) {
             $effectiveReportType = $reportType ?: (
                 (str_contains($promptLower, 'profit') || str_contains($promptLower, 'loss') || str_contains($promptLower, 'p&l')) ? 'profit-loss' :
@@ -257,12 +296,17 @@ class CopilotService
                 return [
                     'sender' => 'Taliya',
                     'intent' => 'entity_not_found',
-                    'message' => "I couldn't find any vouchers or accounts matching '**{$cleanQuery}**'.\n\n" .
+                    'message' => "I couldn't find any vouchers, accounts, or contacts matching '**{$cleanQuery}**'.\n\n" .
                         "• Try searching by exact account code (e.g., `1110`, `1130`, `5100`)\n" .
                         "• Or voucher reference (e.g., `OB-2026-001`, `JV-2026-001`)\n" .
-                        "• Or ask: *\"Show Chart of Accounts\"* or *\"Show Trial Balance\"*",
+                        "• Or explore accounts and ledger statements below:",
                     'data' => ['query' => $cleanQuery],
                     'card_type' => 'not_found',
+                    'actions' => [
+                        ['label' => '📖 Chart of Accounts', 'action' => 'navigate_page', 'payload' => ['page' => 'coa']],
+                        ['label' => '📄 Open Daybook', 'action' => 'navigate_page', 'payload' => ['page' => 'daybook']],
+                        ['label' => '📊 Trial Balance', 'action' => 'draft_prompt', 'payload' => ['prompt' => 'Show Trial Balance summary']],
+                    ]
                 ];
             }
 
@@ -270,7 +314,7 @@ class CopilotService
         return [
             'sender' => 'Taliya',
             'intent' => 'general_guidance',
-            'message' => "Hello! I am Taliya, your Alamia Accounts Copilot. I can assist you with:\n" .
+            'message' => "Hello! I am **Taliya**, your Alamia Accounts AI Copilot. How can I help you with your double-entry accounting today?\n\n" .
                 "• **Entity Inquiries**: e.g., *\"Tell me about voucher OB-2026-001\"* or *\"What is the balance of Meezan Bank?\"*\n" .
                 "• **Voucher Drafting**: e.g., *\"Paid Rs. 25,000 for office rent via Meezan Bank\"*\n" .
                 "• **Account Lookups**: e.g., *\"Find bank accounts\"* or *\"Lookup utility expenses\"*\n" .
@@ -278,6 +322,11 @@ class CopilotService
                 "• **Operational Situations**: e.g., *\"Check situations\"* or *\"Any alerts?\"*",
             'data' => null,
             'card_type' => 'help',
+            'actions' => [
+                ['label' => '📄 View Daybook', 'action' => 'navigate_page', 'payload' => ['page' => 'daybook']],
+                ['label' => '🏦 Chart of Accounts', 'action' => 'navigate_page', 'payload' => ['page' => 'coa']],
+                ['label' => '📊 Trial Balance', 'action' => 'draft_prompt', 'payload' => ['prompt' => 'Show Trial Balance summary']],
+            ]
         ];
     }
 

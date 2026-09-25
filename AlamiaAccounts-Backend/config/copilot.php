@@ -14,11 +14,11 @@ return [
 
     'enabled' => (bool) env('AI_ENABLED', true),
 
-    'endpoint' => env('AI_ENDPOINT', 'http://localhost:11434'),
+    'endpoint' => env('AI_ENDPOINT', 'http://host.docker.internal:11434'),
 
     'model' => env('AI_MODEL', 'qwen3.5:4b'),
 
     'api_key' => env('AI_API_KEY', null),
 
-    'timeout' => (int) env('AI_TIMEOUT', 5),
+    'timeout' => (int) env('AI_TIMEOUT', 12),
 ];

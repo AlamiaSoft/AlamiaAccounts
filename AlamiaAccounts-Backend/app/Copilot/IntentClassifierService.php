@@ -30,13 +30,15 @@ class IntentClassifierService
 You are an intent classification engine for Alamia Accounts double-entry ERP.
 Analyze the user query and return JSON ONLY matching this schema:
 {
-  "intent": "INQUIRE_VOUCHER" | "INQUIRE_ACCOUNT" | "INQUIRE_REPORT" | "DRAFT_VOUCHER" | "LIST_SITUATIONS" | "GENERAL_SEARCH" | "UNKNOWN",
+  "intent": "GREETING" | "HELP" | "INQUIRE_VOUCHER" | "INQUIRE_ACCOUNT" | "INQUIRE_REPORT" | "DRAFT_VOUCHER" | "LIST_SITUATIONS" | "GENERAL_SEARCH" | "UNKNOWN",
   "entity": "extracted account name, code, contact name, or voucher reference, or empty string",
   "report_type": "trial-balance" | "profit-loss" | "balance-sheet" | "cash-flow" | null,
   "confidence": float between 0.0 and 1.0
 }
 
 Intents:
+- GREETING: User saying hello/hi/greetings (e.g. "hello", "hi", "hey", "hello Ali Raza", "good morning", "salam")
+- HELP: User asking what you can do, guidance, or who you are (e.g. "who are you", "help", "what can you do", "?")
 - INQUIRE_VOUCHER: User asking for voucher details or reference (e.g. "Tell me about voucher OB-2026-001", "JV-102", "Show voucher details")
 - INQUIRE_ACCOUNT: User asking for account balance, details, or ledger (e.g. "What is the balance of Meezan Bank?", "Account 1130", "Cash account")
 - INQUIRE_REPORT: User asking for financial statements (e.g. "Show Trial Balance", "Profit and loss summary", "Balance sheet")
@@ -97,9 +99,34 @@ PROMPT;
      */
     protected function heuristicFallback(string $prompt): array
     {
-        $promptLower = strtolower(trim($prompt));
+        $promptTrimmed = trim($prompt);
+        $promptLower = strtolower($promptTrimmed);
 
-        // 1. Voucher Reference Match (e.g. OB-2026-001, JV-1002)
+        // 1. Greetings (e.g. "hello", "hi", "hey", "hello Ali Raza", "salam")
+        if (preg_match('/^(hi|hello|hey|greetings|good morning|good afternoon|good evening|salam|assalam)([\s!,.].*)?$/i', $promptTrimmed)) {
+            return [
+                'success' => true,
+                'source' => 'heuristic',
+                'intent' => 'GREETING',
+                'entity' => '',
+                'report_type' => null,
+                'confidence' => 0.99,
+            ];
+        }
+
+        // 2. Help & Guidance (e.g. "help", "who are you", "what can you do", "?")
+        if (preg_match('/^(help|who are you|what can you do|how to use|commands|features|\?)$/i', $promptTrimmed)) {
+            return [
+                'success' => true,
+                'source' => 'heuristic',
+                'intent' => 'HELP',
+                'entity' => '',
+                'report_type' => null,
+                'confidence' => 0.99,
+            ];
+        }
+
+        // 3. Voucher Reference Match (e.g. OB-2026-001, JV-1002)
         if (preg_match('/\b(ob|jv|pv|rv|cv|sv|rev)-[0-9a-z-]+\b/i', $prompt, $matches)) {
             return [
                 'success' => true,

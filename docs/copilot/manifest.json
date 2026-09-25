@@ -58,6 +58,13 @@
         "GET /api/reports/balance-sheet",
         "GET /api/reports/ledger"
       ]
+    },
+    {
+      "intent": "entity_search_and_inquiry",
+      "keywords": ["tell me about voucher", "search account", "voucher details", "balance of account", "who is", "what is"],
+      "doc_reference": "docs/copilot/copilot-architecture-and-context.md",
+      "api_endpoint": "POST /api/copilot/chat",
+      "summary": "Natural language inquiry and search across vouchers, accounts, and contacts with automatic double-entry briefing, card formatting, and multi-match disambiguation."
     }
   ],
   "database_entities": {

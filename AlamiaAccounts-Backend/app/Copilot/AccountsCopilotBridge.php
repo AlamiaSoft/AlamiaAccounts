@@ -343,6 +343,24 @@ class AccountsCopilotBridge
                 }
                 return ['situations' => $output, 'count' => count($output)];
             });
+            // 6. search_entities
+        Alamia360::capability('search_entities')
+            ->describe('Global domain-scoped search across vouchers, accounts, ledgers, and users')
+            ->input([
+                'query' => ['type' => 'string', 'required' => true],
+            ])
+            ->output([
+                'vouchers' => ['type' => 'array'],
+                'accounts' => ['type' => 'array'],
+                'ledger_entries' => ['type' => 'array'],
+            ])
+            ->withSideEffect('read')
+            ->allowedFor(['human', 'ai', 'system'])
+            ->handleUsing(function (array $input, $actor) {
+                $query = $input['query'] ?? '';
+                $searchService = app(\AlamiaSoft\AlamiaAccounts\Services\SearchService::class);
+                return $searchService->globalSearch($query);
+            });
     }
 
     protected static function registerActors(): void
@@ -354,6 +372,7 @@ class AccountsCopilotBridge
                 'post_voucher',
                 'get_financial_report',
                 'list_situations',
+                'search_entities',
             ])
             ->authorizeUsing(fn ($actor, $cap, $subject) => true);
 

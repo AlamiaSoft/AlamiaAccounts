@@ -300,6 +300,38 @@ function HomeContent() {
     }
   }
 
+  useEffect(() => {
+    const handleCopilotNav = (e: Event) => {
+      const detail = (e as CustomEvent).detail
+      if (!detail) return
+      if (detail.page === "voucher-view" && (detail.rawItem || detail.voucher)) {
+        handleSearchResultClick({
+          id: detail.id || detail.voucher?.reference || "voucher",
+          type: "voucher",
+          title: `Voucher ${detail.id || detail.voucher?.reference || ""}`,
+          rawItem: detail.rawItem || detail.voucher,
+        })
+      } else if (detail.page === "ledger-detail-view" && detail.code) {
+        setSelectedLedgerAccount({
+          name: detail.name || `Account ${detail.code}`,
+          code: detail.code,
+        })
+        setCurrentPage("ledger-detail-view")
+      } else if (detail.page === "account-view" && (detail.rawItem || detail.account)) {
+        handleSearchResultClick({
+          id: detail.id || detail.code || "account",
+          type: "account",
+          title: detail.name || detail.id || "Account",
+          rawItem: detail.rawItem || detail.account,
+        })
+      } else if (detail.page) {
+        setCurrentPage(detail.page)
+      }
+    }
+    window.addEventListener("copilot:navigate", handleCopilotNav)
+    return () => window.removeEventListener("copilot:navigate", handleCopilotNav)
+  }, [currentCompany?.id])
+
   const handleAddCompanySubmit = (company: Omit<Company, "id">) => {
     // API expects code, name, industry. Ensure code is present.
     // The form might not provide code if it was designed for mock data with auto-id.

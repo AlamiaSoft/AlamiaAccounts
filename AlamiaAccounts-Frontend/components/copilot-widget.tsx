@@ -17,6 +17,14 @@ import {
   Minimize2,
   ChevronRight,
   ShieldCheck,
+  Wallet,
+  BookOpen,
+  User,
+  ExternalLink,
+  Printer,
+  RotateCcw,
+  Building2,
+  Layers,
 } from "lucide-react"
 
 interface Message {
@@ -43,7 +51,7 @@ export default function CopilotWidget({ companyCode }: { companyCode?: string })
     {
       id: "welcome",
       sender: "taliya",
-      text: "Hello! I am **Taliya**, your Alamia Accounts Copilot backed by Alamia 360.\n\nI can help you query reports, look up Chart of Accounts, and draft balanced double-entry vouchers with validated posting accounts.",
+      text: "Hello! I am **Taliya**, your Alamia Accounts Copilot backed by Alamia 360.\n\nI can help you query reports, look up vouchers & accounts (e.g. *\"Tell me about voucher OB-2026-001\"* or *\"What is the balance of Meezan Bank?\"*), and draft balanced double-entry vouchers.",
       timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
     },
   ])
@@ -112,14 +120,42 @@ export default function CopilotWidget({ companyCode }: { companyCode?: string })
   const handleActionClick = (actionItem: any) => {
     if (actionItem.action === "post_voucher") {
       sendMessage("", { action: "post_voucher", voucher: actionItem.payload })
+    } else if (actionItem.action === "navigate_page") {
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(
+          new CustomEvent("copilot:navigate", {
+            detail: actionItem.payload,
+          })
+        )
+      }
+    } else if (actionItem.action === "draft_prompt") {
+      if (actionItem.payload?.prompt) {
+        sendMessage(actionItem.payload.prompt)
+      }
+    } else if (actionItem.action === "print_voucher") {
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(
+          new CustomEvent("copilot:navigate", {
+            detail: { page: "voucher-view", type: "voucher", id: actionItem.payload?.voucher?.reference, rawItem: actionItem.payload?.voucher, print: true },
+          })
+        )
+      }
+    } else if (actionItem.action === "reverse_voucher") {
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(
+          new CustomEvent("copilot:navigate", {
+            detail: { page: "daybook", action: "reverse", reference: actionItem.payload?.reference },
+          })
+        )
+      }
     }
   }
 
   const quickPrompts = [
+    { label: "📄 Voucher OB-2026-001", text: "Tell me about voucher OB-2026-001" },
+    { label: "🏦 Meezan Bank Balance", text: "What is the balance of Meezan Bank?" },
     { label: "📊 Trial Balance", text: "Show Trial Balance summary" },
     { label: "📝 Draft Voucher", text: "Paid Rs. 25,000 for office supplies via Meezan Bank" },
-    { label: "🔍 Bank Accounts", text: "Find bank accounts" },
-    { label: "⚠️ Situations & Alerts", text: "Check situations" },
   ]
 
   return (
@@ -220,7 +256,130 @@ export default function CopilotWidget({ companyCode }: { companyCode?: string })
                 >
                   <p className="whitespace-pre-line">{m.text}</p>
 
-                  {/* Voucher Draft Card */}
+                  {/* 1. Voucher Brief Card */}
+                  {m.cardType === "voucher_brief" && m.data && (
+                    <div className="mt-3 p-3 bg-background border border-border rounded-xl text-foreground text-xs space-y-2.5 shadow-xs">
+                      <div className="flex items-center justify-between font-semibold border-b border-border pb-1.5">
+                        <div className="flex items-center gap-1.5">
+                          <FileText className="w-4 h-4 text-primary" />
+                          <span className="text-primary font-mono text-xs">{m.data.reference}</span>
+                          <span className="text-[10px] px-1.5 py-0.2 rounded bg-primary/10 text-primary uppercase font-bold">
+                            {m.data.voucher_type}
+                          </span>
+                        </div>
+                        <span className="text-[11px] text-muted-foreground">{m.data.date}</span>
+                      </div>
+
+                      {m.data.description && (
+                        <p className="text-[11px] text-muted-foreground italic">
+                          &ldquo;{m.data.description}&rdquo;
+                        </p>
+                      )}
+
+                      {/* Line Items Preview */}
+                      {m.data.line_items && m.data.line_items.length > 0 && (
+                        <div className="divide-y divide-border/60 border border-border/60 rounded-md overflow-hidden bg-muted/20">
+                          {m.data.line_items.slice(0, 4).map((line: any, lIdx: number) => (
+                            <div key={lIdx} className="px-2.5 py-1.5 flex justify-between items-center text-[11px]">
+                              <div className="truncate max-w-[65%]">
+                                <span className="font-mono font-semibold">[{line.account_code}]</span>{" "}
+                                <span className="text-muted-foreground">{line.account_name}</span>
+                              </div>
+                              <div className="font-mono font-medium shrink-0">
+                                {line.debit > 0 ? (
+                                  <span className="text-emerald-600 dark:text-emerald-400 font-semibold">Dr Rs. {line.debit.toLocaleString()}</span>
+                                ) : (
+                                  <span className="text-blue-600 dark:text-blue-400 font-semibold">Cr Rs. {line.credit.toLocaleString()}</span>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                          {m.data.line_items.length > 4 && (
+                            <div className="px-2.5 py-1 text-[10px] text-center text-muted-foreground bg-muted/40 italic">
+                              +{m.data.line_items.length - 4} more posting legs
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      <div className="flex items-center justify-between pt-1 border-t border-border/50 text-[11px]">
+                        <span className="text-muted-foreground">Total Posting:</span>
+                        <span className="font-mono font-bold text-foreground">
+                          Rs. {(m.data.total_debit || 0).toLocaleString()}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 2. Account Brief Card */}
+                  {m.cardType === "account_brief" && m.data && (
+                    <div className="mt-3 p-3 bg-background border border-border rounded-xl text-foreground text-xs space-y-2 shadow-xs">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5">
+                          <Wallet className="w-4 h-4 text-primary" />
+                          <span className="font-mono font-bold text-xs">[{m.data.code}]</span>
+                          <span className="font-semibold text-foreground truncate max-w-[180px]">{m.data.name}</span>
+                        </div>
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-primary/10 text-primary uppercase">
+                          {m.data.account_type}
+                        </span>
+                      </div>
+
+                      <div className="p-2.5 rounded-lg bg-muted/40 border border-border/50 flex justify-between items-center">
+                        <div>
+                          <p className="text-[10px] uppercase font-medium text-muted-foreground">Current Ledger Balance</p>
+                          <p className="text-base font-bold font-mono text-emerald-600 dark:text-emerald-400 mt-0.5">
+                            {m.data.currency} {Number(m.data.balance || 0).toLocaleString()}
+                          </p>
+                        </div>
+                        <div className="text-right text-[10px] text-muted-foreground">
+                          <span className="px-1.5 py-0.5 rounded bg-muted font-medium">
+                            {m.data.category ? "Folder Category" : "Posting Leaf"}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 3. Disambiguation Options Card */}
+                  {m.cardType === "disambiguation" && m.data?.options && (
+                    <div className="mt-3 space-y-1.5">
+                      <p className="text-[11px] font-semibold text-muted-foreground uppercase px-1">
+                        Select a record to view details:
+                      </p>
+                      <div className="space-y-1">
+                        {m.data.options.map((opt: any, optIdx: number) => (
+                          <button
+                            key={optIdx}
+                            type="button"
+                            onClick={() => sendMessage(opt.prompt, { action: "view_entity", entity_type: opt.type, voucher: opt.type === "voucher" ? opt.raw : undefined, account: opt.type === "account" ? opt.raw : undefined })}
+                            className="w-full p-2 text-left bg-background hover:bg-accent border border-border hover:border-primary/50 rounded-lg text-xs transition-all flex items-center justify-between group cursor-pointer shadow-2xs"
+                          >
+                            <div className="flex items-center gap-2 min-w-0 flex-1">
+                              <div className="p-1 rounded bg-muted text-muted-foreground group-hover:text-primary group-hover:bg-primary/10 transition-colors shrink-0">
+                                {opt.type === "voucher" && <FileText className="w-3.5 h-3.5" />}
+                                {opt.type === "account" && <Wallet className="w-3.5 h-3.5" />}
+                                {opt.type === "user" && <User className="w-3.5 h-3.5" />}
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <p className="font-semibold text-foreground truncate group-hover:text-primary transition-colors text-[11px]">
+                                  {opt.label}
+                                </p>
+                                {opt.subtitle && (
+                                  <p className="text-[10px] text-muted-foreground truncate">
+                                    {opt.subtitle}
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                            <ChevronRight className="w-3.5 h-3.5 text-muted-foreground group-hover:text-primary shrink-0 transition-transform group-hover:translate-x-0.5" />
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 4. Voucher Draft Card */}
                   {m.cardType === "voucher_draft" && m.data?.voucher && (
                     <div className="mt-3 p-3 bg-background border border-border rounded-xl text-foreground text-xs space-y-2.5">
                       <div className="flex items-center justify-between font-semibold border-b border-border pb-1.5">
@@ -256,7 +415,7 @@ export default function CopilotWidget({ companyCode }: { companyCode?: string })
                     </div>
                   )}
 
-                  {/* Voucher Success Card */}
+                  {/* 5. Voucher Success Card */}
                   {m.cardType === "voucher_success" && m.data && (
                     <div className="mt-3 p-3 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/40 rounded-xl text-xs space-y-1.5">
                       <div className="flex items-center gap-1.5 font-semibold text-emerald-700 dark:text-emerald-300">
@@ -276,7 +435,7 @@ export default function CopilotWidget({ companyCode }: { companyCode?: string })
                     </div>
                   )}
 
-                  {/* Financial Report Summary Card */}
+                  {/* 6. Financial Report Summary Card */}
                   {m.cardType === "financial_report" && m.data && (
                     <div className="mt-2.5 p-3 bg-background border border-border rounded-xl text-foreground text-xs space-y-2">
                       <div className="flex justify-between items-center font-semibold text-[11px] text-muted-foreground uppercase">
@@ -302,7 +461,7 @@ export default function CopilotWidget({ companyCode }: { companyCode?: string })
                     </div>
                   )}
 
-                  {/* Account List Card */}
+                  {/* 7. Account List Card */}
                   {m.cardType === "account_list" && m.data?.accounts && (
                     <div className="mt-2.5 p-2 bg-background border border-border rounded-xl text-foreground text-xs space-y-1 max-h-48 overflow-y-auto">
                       {m.data.accounts.map((acc: any, aIdx: number) => (
@@ -337,7 +496,11 @@ export default function CopilotWidget({ companyCode }: { companyCode?: string })
                           key={actIdx}
                           onClick={() => handleActionClick(act)}
                           disabled={loading}
-                          className="px-3 py-1.5 bg-primary text-primary-foreground font-semibold rounded-lg text-xs hover:opacity-95 shadow-sm transition-all flex items-center gap-1.5 cursor-pointer"
+                          className={`px-3 py-1.5 font-semibold rounded-lg text-xs transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs ${
+                            act.variant === "outline"
+                              ? "bg-background hover:bg-muted border border-border text-foreground hover:text-primary"
+                              : "bg-primary text-primary-foreground hover:opacity-95"
+                          }`}
                         >
                           <span>{act.label}</span>
                           <ChevronRight className="w-3.5 h-3.5" />
@@ -353,7 +516,7 @@ export default function CopilotWidget({ companyCode }: { companyCode?: string })
             {loading && (
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
                 <Loader2 className="w-4 h-4 animate-spin text-primary" />
-                <span>Taliya is verifying accounting rules & capabilities...</span>
+                <span>Taliya is searching ledger & compiling brief...</span>
               </div>
             )}
           </div>
@@ -371,7 +534,7 @@ export default function CopilotWidget({ companyCode }: { companyCode?: string })
                 type="text"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                placeholder="Ask Taliya (e.g. 'Show Trial Balance', 'Paid Rs. 15,000 for rent')..."
+                placeholder="Ask Taliya (e.g. 'Tell me about voucher OB-2026-001', 'Meezan Bank')..."
                 className="flex-1 text-xs px-3.5 py-2.5 bg-muted/60 border border-border rounded-xl focus:outline-none focus:ring-1 focus:ring-primary focus:bg-background transition-all"
                 disabled={loading}
               />

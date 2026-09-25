@@ -67,28 +67,95 @@ class CopilotService
         $classifier = app(IntentClassifierService::class);
         $classification = $classifier->classify($prompt, $context);
         $intent = $classification['intent'] ?? 'UNKNOWN';
-        $entity = $classification['entity'] ?? '';
+        $entity = $classification['entity_value'] ?? ($classification['entity'] ?? '');
         $party = $classification['party'] ?? '';
         $org = $classification['organization'] ?? '';
         $targetObject = $classification['target_object'] ?? null;
+        $direction = $classification['direction'] ?? null;
+        $dateFilter = $classification['date_filter'] ?? null;
         $reportType = $classification['report_type'] ?? null;
 
-        // 3.5 Accounting Invariants & Safety Interceptors (GAAP / IFRS Ledger Immutability)
-        if (preg_match('/\b(delete|remove|purge|erase|drop)\s+(?:the\s+)?voucher\s+([a-z0-9-]+)/i', $promptTrimmed, $delMatch)) {
-            $targetRef = strtoupper($delMatch[2]);
+        // 3.5 Accounting Invariants & Safety Guardrails (Destructive Actions, Narration Immutability & Reversals)
+        $action = $classification['action'] ?? null;
+        $isNarrationAction = (
+            $action === 'edit_narration' ||
+            $action === 'delete_narration' ||
+            preg_match('/\b(delete|remove|change|modify|correct|clear|erase)\s+(?:the\s+)?(?:wrong\s+)?(?:narration|description|memo|note)\b/i', $promptTrimmed)
+        );
+        $isReversalAction = (
+            $action === 'reverse_voucher' ||
+            preg_match('/\b(reverse|void|cancel)\s+(?:the\s+)?(?:voucher\s+)?([a-z0-9-]+)\b/i', $promptTrimmed)
+        );
+        $isMutationRequest = (
+            $action === 'modify_amount' ||
+            preg_match('/\b(change|modify|update|edit|alter)\s+(?:the\s+)?(?:voucher\s+)?(?:amount|total|lines?)\b/i', $promptTrimmed)
+        );
+        $isDeleteAccountRequest = (
+            $action === 'delete_account' ||
+            preg_match('/\b(delete|remove|purge|erase|drop|wipe|destroy)\s+(?:all\s+)?(accounts?|chart\s+of\s+accounts?)\b/i', $promptTrimmed) ||
+            preg_match('/\b(delete|remove|purge|erase|drop)\s+(?:the\s+)?account\s+(\d{4}|[a-z0-9\s]+)/i', $promptTrimmed) ||
+            ($intent === 'RESTRICTED_ACTION' && ($targetObject === 'account' || str_contains($promptLower, 'account') || str_contains($promptLower, 'chart')))
+        );
+        $isDeleteVoucherRequest = (
+            $action === 'delete_voucher' ||
+            preg_match('/\b(delete|remove|purge|erase|drop|wipe|destroy)\s+(?:all\s+)?(ledger|vouchers?|database|company|entries|data)\b/i', $promptTrimmed, $destructMatch) ||
+            preg_match('/\b(delete|remove|purge|erase|drop)\s+(?:the\s+)?voucher\s+([a-z0-9-]+)/i', $promptTrimmed, $delMatch) ||
+            ($intent === 'RESTRICTED_ACTION' && !$isMutationRequest && !$isDeleteAccountRequest && !$isNarrationAction)
+        );
+
+        if ($isNarrationAction) {
+            $targetRef = $classification['reference'] ?? '';
+            if (empty($targetRef) && preg_match('/\b(ob|jv|pv|rv|cv|sv|rev)-[0-9a-z-]+\b/i', $prompt, $rm)) {
+                $targetRef = strtoupper($rm[0]);
+            }
+            $refDisplay = !empty($targetRef) ? "Voucher **{$targetRef}**" : "A posted voucher";
+
             return [
                 'sender' => 'Taliya',
                 'intent' => 'safety_policy_rejection',
-                'message' => "🔒 **Accounting Invariant (GAAP/IFRS)**: Posted vouchers cannot be deleted or purged from the general ledger to preserve permanent double-entry audit history.\n\n" .
-                    "If voucher **{$targetRef}** was posted in error, you can create a compensating **Reversal Voucher** (`REV-`) with documented audit reasons.",
+                'message' => "🔒 **Accounting Invariant (Narration Immutability)**: {$refDisplay} is a posted accounting record. Its narration/description cannot be silently deleted or modified in place to preserve complete double-entry audit history.\n\n" .
+                    "If the narration was entered incorrectly, I can help you follow the voucher correction/reversal workflow (`REV-`) or review the voucher in Daybook.",
                 'data' => [
                     'reference' => $targetRef,
-                    'policy' => 'HISTORICAL_LEDGER_IMMUTABILITY',
+                    'action' => 'edit_narration',
+                    'policy' => 'VOUCHER_DESCRIPTION_IMMUTABILITY',
                 ],
                 'card_type' => 'safety_policy',
                 'actions' => [
                     [
-                        'label' => "Reverse Voucher {$targetRef}",
+                        'label' => 'Reverse in Daybook',
+                        'action' => 'navigate_page',
+                        'payload' => ['page' => 'daybook'],
+                        'variant' => 'default',
+                    ],
+                    [
+                        'label' => 'View Voucher Details',
+                        'action' => 'navigate_page',
+                        'payload' => ['page' => 'voucher-view', 'type' => 'voucher', 'id' => $targetRef],
+                        'variant' => 'outline',
+                    ],
+                ]
+            ];
+        }
+
+        if ($isReversalAction) {
+            $targetRef = $classification['reference'] ?? '';
+            if (empty($targetRef) && preg_match('/\b(ob|jv|pv|rv|cv|sv|rev)-[0-9a-z-]+\b/i', $prompt, $rm)) {
+                $targetRef = strtoupper($rm[0]);
+            }
+
+            return [
+                'sender' => 'Taliya',
+                'intent' => 'voucher_reversal_confirmation',
+                'message' => "Would you like to post a compensating reversal (`REV-`) for Voucher **{$targetRef}**?\n\nThis will record an offset journal entry and document the audit reason in the permanent ledger history.",
+                'data' => [
+                    'reference' => $targetRef,
+                    'action' => 'reverse_voucher',
+                ],
+                'card_type' => 'voucher_action',
+                'actions' => [
+                    [
+                        'label' => "Confirm Reversal for {$targetRef}",
                         'action' => 'reverse_voucher',
                         'payload' => ['reference' => $targetRef],
                         'variant' => 'default',
@@ -103,7 +170,7 @@ class CopilotService
             ];
         }
 
-        if (preg_match('/\b(change|modify|update|edit|alter)\s+(?:the\s+)?(?:voucher\s+)?(?:amount|total|lines?)\b/i', $promptTrimmed)) {
+        if ($isMutationRequest) {
             return [
                 'sender' => 'Taliya',
                 'intent' => 'safety_policy_rejection',
@@ -118,6 +185,57 @@ class CopilotService
                         'label' => '📄 Open Daybook to Reverse',
                         'action' => 'navigate_page',
                         'payload' => ['page' => 'daybook'],
+                        'variant' => 'outline',
+                    ],
+                ]
+            ];
+        }
+
+        if ($isDeleteAccountRequest) {
+            return [
+                'sender' => 'Taliya',
+                'intent' => 'safety_policy_rejection',
+                'message' => "🔒 **Accounting Guardrail (Prohibited Action)**: Chart of Accounts and general ledger accounts cannot be deleted or purged via AI Copilot.\n\n" .
+                    "• Double-entry accounting rules protect accounts with posted history permanently.\n" .
+                    "• Unused accounts can be safely archived or managed from the Chart of Accounts interface.",
+                'data' => [
+                    'policy' => 'CHART_OF_ACCOUNTS_PROTECTION',
+                ],
+                'card_type' => 'safety_policy',
+                'actions' => [
+                    [
+                        'label' => '📖 Open Chart of Accounts',
+                        'action' => 'navigate_page',
+                        'payload' => ['page' => 'coa'],
+                        'variant' => 'default',
+                    ],
+                ]
+            ];
+        }
+
+        if ($isDeleteVoucherRequest) {
+            $targetRef = !empty($delMatch[2]) ? strtoupper($delMatch[2]) : ($classification['reference'] ?? 'posted vouchers');
+            return [
+                'sender' => 'Taliya',
+                'intent' => 'safety_policy_rejection',
+                'message' => "🔒 **Accounting Invariant (GAAP/IFRS)**: Posted vouchers and ledger records cannot be deleted or purged to preserve permanent double-entry audit history.\n\n" .
+                    "If a voucher was posted in error, you can create a compensating **Reversal Voucher** (`REV-`) with documented audit reasons.",
+                'data' => [
+                    'reference' => $targetRef,
+                    'policy' => 'HISTORICAL_LEDGER_IMMUTABILITY',
+                ],
+                'card_type' => 'safety_policy',
+                'actions' => [
+                    [
+                        'label' => "Reverse in Daybook",
+                        'action' => 'navigate_page',
+                        'payload' => ['page' => 'daybook'],
+                        'variant' => 'default',
+                    ],
+                    [
+                        'label' => '📖 Chart of Accounts',
+                        'action' => 'navigate_page',
+                        'payload' => ['page' => 'coa'],
                         'variant' => 'outline',
                     ],
                 ]
@@ -250,11 +368,13 @@ class CopilotService
         }
 
         // 8. Find Transaction / Voucher by Party, Contact, or Organization
-        if ($intent === 'FIND_TRANSACTION' || (!empty($party) && ($targetObject === 'voucher' || str_contains($promptLower, 'transaction') || str_contains($promptLower, 'voucher')))) {
+        if ($intent === 'FIND_TRANSACTION' || (!empty($party) && ($targetObject === 'transaction' || $targetObject === 'voucher' || str_contains($promptLower, 'transaction') || str_contains($promptLower, 'voucher')))) {
             $searchService = app(SearchService::class);
             $vouchers = $searchService->searchTransactionsByParty([
                 'party' => $party,
                 'organization' => $org,
+                'direction' => $direction,
+                'date_filter' => $dateFilter,
             ]);
 
             $partyDisplay = !empty($party) ? trim($party) : (!empty($org) ? $org : $prompt);

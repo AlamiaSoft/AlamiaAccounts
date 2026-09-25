@@ -57,13 +57,15 @@ class SearchService
     }
 
     /**
-     * Normalize person contact names by stripping honorifics and cleaning whitespace
+     * Normalize person contact names by stripping honorifics, pronouns, and cleaning whitespace
      */
     public static function normalizePersonName(string $name): string
     {
-        $cleaned = preg_replace('/^(mr\.?|mrs\.?|ms\.?|dr\.?|prof\.?|eng\.?|shk\.?|sheikh|janab|sb\.?|sahib)\s+/i', '', trim($name));
+        $cleaned = preg_replace('/^(we|i|you|they|he|she|us|our|my|mr\.?|mrs\.?|ms\.?|dr\.?|prof\.?|eng\.?|shk\.?|sheikh|janab|sb\.?|sahib)\s+/i', '', trim($name));
+        $cleaned = preg_replace('/\b(we|i|you|they|he|she|us|our|my)\b/i', ' ', $cleaned);
         $cleaned = preg_replace('/[^\p{L}\p{N}\s]/u', ' ', $cleaned);
-        return trim(preg_replace('/\s+/', ' ', $cleaned));
+        $result = trim(preg_replace('/\s+/', ' ', $cleaned));
+        return (strlen($result) <= 2 && in_array(strtolower($result), ['we', 'us', 'me', 'my', 'he', 'to', 'in', 'on', 'at', 'by'])) ? '' : $result;
     }
 
     /**
@@ -88,6 +90,9 @@ class SearchService
         $allVouchers = $this->voucherService->getJournalEntries();
         $rawParty = trim($filters['party'] ?? '');
         $rawOrg = trim($filters['organization'] ?? '');
+        $direction = strtolower(trim($filters['direction'] ?? ''));
+        $dateFrom = $filters['date_from'] ?? ($filters['date_filter']['from'] ?? null);
+        $dateTo = $filters['date_to'] ?? ($filters['date_filter']['to'] ?? null);
 
         $partyClean = strtolower(self::normalizePersonName($rawParty));
         $orgClean = strtolower(self::normalizeOrganizationName($rawOrg));
@@ -102,10 +107,19 @@ class SearchService
         $scoredVouchers = [];
 
         foreach ($allVouchers as $v) {
+            $vDate = $v['date'] ?? '';
+            if (!empty($dateFrom) && !empty($vDate) && $vDate < $dateFrom) {
+                continue;
+            }
+            if (!empty($dateTo) && !empty($vDate) && $vDate > $dateTo) {
+                continue;
+            }
+
             $score = 0;
             $matchReasons = [];
             $desc = strtolower($v['description'] ?? '');
             $ref = strtolower($v['reference'] ?? '');
+            $vType = strtolower($v['type'] ?? $v['voucher_type'] ?? '');
 
             $partyMatched = false;
             $orgMatched = false;
@@ -192,6 +206,20 @@ class SearchService
             if (!empty($partyClean) && !empty($orgClean) && $partyMatched && $orgMatched) {
                 $score += 60; // Strong relationship bonus
                 $matchReasons[] = "Matched both party and organization relationship";
+            }
+
+            // 6. Direction Alignment
+            if ($score > 0 && !empty($direction)) {
+                $isOutgoing = str_starts_with($ref, 'pv') || $vType === 'payment' || str_contains($desc, 'paid') || str_contains($desc, 'payment');
+                $isIncoming = str_starts_with($ref, 'rv') || str_starts_with($ref, 'sv') || $vType === 'receipt' || $vType === 'sales' || str_contains($desc, 'received') || str_contains($desc, 'receipt') || str_contains($desc, 'sale');
+
+                if ($direction === 'outgoing' && $isOutgoing) {
+                    $score += 30;
+                    $matchReasons[] = "Matched outgoing transaction direction";
+                } elseif ($direction === 'incoming' && $isIncoming) {
+                    $score += 30;
+                    $matchReasons[] = "Matched incoming transaction direction";
+                }
             }
 
             if ($score > 0) {

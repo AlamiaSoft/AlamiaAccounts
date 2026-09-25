@@ -116,17 +116,21 @@ The Alamia Accounts AI Copilot (**Taliya**) operates on a bounded **Semantic Cap
 
 ---
 
-## 6. Next Session Roadmap & Advanced References (`feedback0.1.11.md`)
+## 6. Next Session Roadmap: Production-Grade Framework Integration (`feedback0.1.11.md`)
 
-For subsequent architectural iterations, evaluate and incorporate structural patterns from the following state-of-the-art multi-turn agent frameworks:
+> [!IMPORTANT]
+> **Direct Integration Directive**: Rather than reinventing custom ad-hoc routing and memory algorithms from scratch, the system will evaluate and directly integrate a proven, production-grade conversational routing and context resolution framework into the Alamia Accounts architecture.
 
-| Framework / Reference | Focus Area | Application to Alamia Accounts |
+### Candidate Frameworks for Direct Integration:
+
+| Framework / Solution | Core Strengths | Target Role in Alamia Accounts |
 | :--- | :--- | :--- |
-| **`LLMRouter` / `Router-R1`** (`ulab-uiuc/LLMRouter`) | Multi-round conversational routing | Optimizes multi-turn dialogue routing with trained round-aware representations rather than single-turn static classify-and-forget loops. |
-| **`ai-assistant-framework`** | Memory + entity resolution + contextual retrieval | Explicit short-term conversation memory, entity alias registries, query rewriting, and contextual graph expansion (`she`, `that payment`, `Izoc Ltd`, `Ali Raza`). |
+| **`LLMRouter` / `Router-R1`** (`ulab-uiuc/LLMRouter`) | Multi-round conversational routing, trained round-aware representations | Multi-turn capability dispatcher and dialogue round manager. |
+| **`ai-assistant-framework`** | Explicit short-term memory, alias registries, query rewriting, contextual graph expansion | Contextual reference resolver (`she`, `that payment`, `IZOC Pvt Ltd` $\leftrightarrow$ `Ali Raza`). |
 
-### Key Focus Tasks for Next Session:
-1. **Contextual Query Rewriting**: Expand the `ConversationContextService` with a pre-classification rewrite pass that substitutes resolved entities into anaphoric user queries before intent parsing.
-2. **Entity Alias Index**: Provide persistent and dynamic alias graphs (e.g., `"IZOC" <-> "IZOC Ltd" <-> "IZOC Pvt Ltd"`) linked with sub-ledger account codes and external contact records.
-3. **Multi-Round Turn Memory Lifecycles**: Implement scoped TTL and decay on conversation slots (`active_voucher`, `active_party`, `active_account`) across long sessions.
+### Next Session Action Plan:
+1. **Benchmark & Feasibility Evaluation**: Run direct feasibility evaluations on candidate repositories (`LLMRouter` and `ai-assistant-framework`) against Alamia's domain capability schema and 42-test safety contract.
+2. **Direct Integration Architecture**: Deploy the chosen solution as a containerized routing/memory service or native service adapter integrated with [`CopilotService.php`](file:///e:/Alamia/AlamiaAccounts/AlamiaAccounts-Backend/app/Copilot/CopilotService.php).
+3. **End-to-End Safety & Invariant Verification**: Wire all resolved intents and entity contexts directly into the double-entry accounting layer while maintaining 100% test pass rate across the contract suite.
+
 

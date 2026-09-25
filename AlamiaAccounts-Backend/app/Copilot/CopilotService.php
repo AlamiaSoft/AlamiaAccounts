@@ -629,34 +629,41 @@ class CopilotService
         $creditCode = null;
         $debitCode = null;
 
-        if (stripos($prompt, 'meezan') !== false) {
-            $creditCode = '1130'; // Meezan Bank
-        } elseif (stripos($prompt, 'alfalah') !== false) {
-            $creditCode = '1135'; // Bank Alfalah
-        } elseif (stripos($prompt, 'bank') !== false) {
-            $creditCode = '1130';
-        } elseif (stripos($prompt, 'cash') !== false) {
-            $creditCode = '1110'; // Cash in Hand
-        }
+        if (stripos($prompt, 'transfer') !== false && preg_match('/from\s+([a-z0-9\s]+?)\s+to\s+([a-z0-9\s]+)/i', $prompt, $tMatch)) {
+            $fromStr = strtolower(trim($tMatch[1]));
+            $toStr = strtolower(trim($tMatch[2]));
+            $creditCode = str_contains($fromStr, 'cash') || $fromStr === '1110' ? '1110' : (str_contains($fromStr, 'alfalah') || $fromStr === '1135' ? '1135' : '1130');
+            $debitCode = str_contains($toStr, 'cash') || $toStr === '1110' ? '1110' : (str_contains($toStr, 'alfalah') || $toStr === '1135' ? '1135' : '1130');
+        } else {
+            if (stripos($prompt, 'meezan') !== false) {
+                $creditCode = '1130'; // Meezan Bank
+            } elseif (stripos($prompt, 'alfalah') !== false) {
+                $creditCode = '1135'; // Bank Alfalah
+            } elseif (stripos($prompt, 'bank') !== false) {
+                $creditCode = '1130';
+            } elseif (stripos($prompt, 'cash') !== false) {
+                $creditCode = '1110'; // Cash in Hand
+            }
 
-        if (stripos($prompt, 'office') !== false || stripos($prompt, 'supplies') !== false || stripos($prompt, 'stationery') !== false) {
-            $debitCode = '4600'; // Office Supplies
-        } elseif (stripos($prompt, 'rent') !== false) {
-            $debitCode = '4400'; // Rent Expense
-        } elseif (stripos($prompt, 'utilit') !== false || stripos($prompt, 'electric') !== false || stripos($prompt, 'bill') !== false) {
-            $debitCode = '4500'; // Utilities Expense
-        } elseif (stripos($prompt, 'salar') !== false || stripos($prompt, 'wage') !== false) {
-            $debitCode = '4300'; // Salaries & Wages
-        } elseif (stripos($prompt, 'sales') !== false || stripos($prompt, 'revenue') !== false) {
-            $creditCode = '3100'; // Sales Revenue
-            $debitCode = $debitCode ?? '1130';
-        }
+            if (stripos($prompt, 'office') !== false || stripos($prompt, 'supplies') !== false || stripos($prompt, 'stationery') !== false) {
+                $debitCode = '4600'; // Office Supplies
+            } elseif (stripos($prompt, 'rent') !== false) {
+                $debitCode = '4400'; // Rent Expense
+            } elseif (stripos($prompt, 'utilit') !== false || stripos($prompt, 'electric') !== false || stripos($prompt, 'bill') !== false) {
+                $debitCode = '4500'; // Utilities Expense
+            } elseif (stripos($prompt, 'salar') !== false || stripos($prompt, 'wage') !== false) {
+                $debitCode = '4300'; // Salaries & Wages
+            } elseif (stripos($prompt, 'sales') !== false || stripos($prompt, 'revenue') !== false) {
+                $creditCode = '3100'; // Sales Revenue
+                $debitCode = $debitCode ?? '1130';
+            }
 
-        // If received funds, flip default
-        if (stripos($prompt, 'received') !== false || stripos($prompt, 'customer') !== false) {
-            $temp = $debitCode;
-            $debitCode = $creditCode ?? '1130';
-            $creditCode = $temp ?? '3100';
+            // If received funds, flip default
+            if (stripos($prompt, 'received') !== false || stripos($prompt, 'customer') !== false) {
+                $temp = $debitCode;
+                $debitCode = $creditCode ?? '1130';
+                $creditCode = $temp ?? '3100';
+            }
         }
 
         // Fallback safe leaf accounts

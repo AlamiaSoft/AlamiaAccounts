@@ -310,21 +310,29 @@ PROMPT;
 
         // 7. Find Transaction / Voucher for Party or Organization
         if (
-            str_contains($promptLower, 'transaction with') ||
+            str_contains($promptLower, 'transaction') ||
+            str_contains($promptLower, 'transactions') ||
             str_contains($promptLower, 'see its voucher') ||
             str_contains($promptLower, 'show voucher for') ||
             str_contains($promptLower, 'voucher with') ||
+            str_contains($promptLower, 'voucher for') ||
             str_contains($promptLower, 'payment to') ||
             str_contains($promptLower, 'receipt from') ||
             ($isCorrection && (str_contains($promptLower, 'transaction') || str_contains($promptLower, 'voucher') || str_contains($promptLower, 'mr.') || str_contains($promptLower, 'ltd')))
         ) {
             $party = '';
             $org = '';
-            if (preg_match('/(?:with|for|to|from)\s+(?:mr\.?|ms\.?|mrs\.?|dr\.?)?\s*([a-z\s]+?)(?:\s+of|\s+from|\s+in|\s+at|\.|\;|\,|$)/i', $prompt, $pMatch)) {
+            if (preg_match('/(?:with|for|to|from)\s+(?:mr\.?|ms\.?|mrs\.?|dr\.?)?\s*([a-z0-9\s]+?)(?:\s+of|\s+from|\s+in|\s+at|\.|\;|\,|$)/i', $prompt, $pMatch)) {
                 $party = trim($pMatch[1]);
             }
             if (preg_match('/(?:of|from|at|in|company)\s+([a-z0-9\s]+?(?:ltd|limited|inc|corp|pvt|co)?)(?:\.|\;|\,|$|\s+i\s+need)/i', $prompt, $oMatch)) {
                 $org = trim($oMatch[1]);
+            }
+
+            // Auto-reassign corporate names to organization slot
+            if (empty($org) && !empty($party) && preg_match('/\b(ltd|limited|inc|corp|pvt|co|company|technologies|solutions|services)\b/i', $party)) {
+                $org = $party;
+                $party = '';
             }
 
             return [

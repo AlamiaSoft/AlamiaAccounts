@@ -18,7 +18,7 @@ class CopilotService
     }
 
     /**
-     * Process a chat prompt from the user.
+     * Process a chat prompt from the user through the capability architecture.
      */
     public function handleChat(string $prompt, ?string $companyCode = null, ?array $context = []): array
     {
@@ -31,18 +31,56 @@ class CopilotService
                 'lookup_account', 'draft_voucher', 'post_voucher', 'get_financial_report', 'list_situations', 'search_entities'
             ]);
 
-        $promptTrimmed = trim($prompt);
-        $promptLower = strtolower($promptTrimmed);
+        // 1. Direct Actions (Voucher confirmation / Disambiguation item clicks)
+        if (!empty($context['action'])) {
+            return $this->handleDirectAction($context, $copilotActor);
+        }
 
-        // 1. Direct Action: Post Confirmed Voucher
-        if (!empty($context['action']) && $context['action'] === 'post_voucher' && !empty($context['voucher'])) {
+        // 2. Extract structured conversational state from recent turns
+        $contextService = app(ConversationContextService::class);
+        $contextState = $contextService->extractState($context['history'] ?? []);
+
+        // 3. Classify natural language into a small semantic capability request
+        $classifier = app(IntentClassifierService::class);
+        $semantic = $classifier->classify($prompt, $context ?? []);
+
+        // 4. Resolve conversational references (pronouns, deictic follow-ups) using active state
+        $semantic = $contextService->resolveReferences($semantic, $contextState, $prompt);
+
+        // 5. Institutional Accounting Safety Policies & Guardrails
+        if (!empty($semantic['safety_flag'])) {
+            return $this->handleSafetyPolicy($semantic['safety_flag'], $semantic, $prompt);
+        }
+
+        // 6. Capability Dispatcher
+        return match ($semantic['capability']) {
+            'general.greeting' => $this->handleGreeting($semantic, $prompt),
+            'general.help' => $this->handleHelp($semantic),
+            'alerts.list' => $this->handleAlertsList($copilotActor),
+            'report.trial_balance', 'report.profit_loss', 'report.balance_sheet' => $this->handleFinancialReport($semantic['capability'], $copilotActor),
+            'voucher.draft' => $this->handleVoucherDraft($semantic, $prompt, $copilotActor),
+            'voucher.reverse' => $this->handleVoucherReverse($semantic),
+            'voucher.lookup' => $this->handleVoucherLookup($semantic, $prompt),
+            'account.balance', 'account.lookup', 'account.ledger' => $this->handleAccountQuery($semantic, $prompt),
+            'party.lookup' => $this->handlePartyLookup($semantic, $context ?? []),
+            'party.transactions', 'transaction.search' => $this->handleTransactionSearch($semantic, $prompt),
+            default => $this->handleFallbackSearch($semantic, $prompt),
+        };
+    }
+
+    /**
+     * Handle direct interactive actions triggered from cards.
+     */
+    protected function handleDirectAction(array $context, $actor): array
+    {
+        if ($context['action'] === 'post_voucher' && !empty($context['voucher'])) {
             $voucher = $context['voucher'];
             $result = Alamia360::capabilities()->execute('post_voucher', [
                 'reference' => $voucher['reference'] ?? null,
                 'description' => $voucher['description'] ?? 'Posted via Taliya Copilot',
                 'details' => $voucher['details'] ?? [],
                 'date' => $voucher['date'] ?? null,
-            ], $copilotActor);
+            ], $actor);
 
             return [
                 'sender' => 'Taliya',
@@ -53,8 +91,7 @@ class CopilotService
             ];
         }
 
-        // 2. Direct Action: View Specific Entity from Disambiguation Selection
-        if (!empty($context['action']) && $context['action'] === 'view_entity') {
+        if ($context['action'] === 'view_entity') {
             if (!empty($context['voucher'])) {
                 return $this->formatVoucherBrief($context['voucher']);
             }
@@ -63,69 +100,31 @@ class CopilotService
             }
         }
 
-        // 3. Classify Prompt Intent via LLM (Ollama qwen3.5:4b) with graceful fallback
-        $classifier = app(IntentClassifierService::class);
-        $classification = $classifier->classify($prompt, $context);
-        $intent = $classification['intent'] ?? 'UNKNOWN';
-        $entity = $classification['entity_value'] ?? ($classification['entity'] ?? '');
-        $party = $classification['party'] ?? '';
-        $org = $classification['organization'] ?? '';
-        $targetObject = $classification['target_object'] ?? null;
-        $direction = $classification['direction'] ?? null;
-        $dateFilter = $classification['date_filter'] ?? null;
-        $reportType = $classification['report_type'] ?? null;
+        return $this->handleHelp([]);
+    }
 
-        // 3.5 Accounting Invariants & Safety Guardrails (Destructive Actions, Narration Immutability & Reversals)
-        $action = $classification['action'] ?? null;
-        $isNarrationAction = (
-            $action === 'edit_narration' ||
-            $action === 'delete_narration' ||
-            preg_match('/\b(delete|remove|change|modify|correct|clear|erase)\s+(?:the\s+)?(?:wrong\s+)?(?:narration|description|memo|note)\b/i', $promptTrimmed)
-        );
-        $isReversalAction = (
-            $action === 'reverse_voucher' ||
-            preg_match('/\b(reverse|void|cancel)\s+(?:the\s+)?(?:voucher\s+)?([a-z0-9-]+)\b/i', $promptTrimmed)
-        );
-        $isMutationRequest = (
-            $action === 'modify_amount' ||
-            preg_match('/\b(change|modify|update|edit|alter)\s+(?:the\s+)?(?:voucher\s+)?(?:amount|total|lines?)\b/i', $promptTrimmed)
-        );
-        $isDeleteAccountRequest = (
-            $action === 'delete_account' ||
-            preg_match('/\b(delete|remove|purge|erase|drop|wipe|destroy)\s+(?:all\s+)?(accounts?|chart\s+of\s+accounts?)\b/i', $promptTrimmed) ||
-            preg_match('/\b(delete|remove|purge|erase|drop)\s+(?:the\s+)?account\s+(\d{4}|[a-z0-9\s]+)/i', $promptTrimmed) ||
-            ($intent === 'RESTRICTED_ACTION' && ($targetObject === 'account' || str_contains($promptLower, 'account') || str_contains($promptLower, 'chart')))
-        );
-        $isDeleteVoucherRequest = (
-            $action === 'delete_voucher' ||
-            preg_match('/\b(delete|remove|purge|erase|drop|wipe|destroy)\s+(?:all\s+)?(ledger|vouchers?|database|company|entries|data)\b/i', $promptTrimmed, $destructMatch) ||
-            preg_match('/\b(delete|remove|purge|erase|drop)\s+(?:the\s+)?voucher\s+([a-z0-9-]+)/i', $promptTrimmed, $delMatch) ||
-            ($intent === 'RESTRICTED_ACTION' && !$isMutationRequest && !$isDeleteAccountRequest && !$isNarrationAction)
-        );
+    /**
+     * Enforce institutional accounting invariants and safety policies.
+     */
+    protected function handleSafetyPolicy(string $policy, array $semantic, string $prompt): array
+    {
+        $ref = $semantic['reference'] ?? '';
+        if (empty($ref) && preg_match('/\b(ob|jv|pv|rv|cv|sv|rev)-[0-9a-z-]+\b/i', $prompt, $rm)) {
+            $ref = strtoupper($rm[0]);
+        }
 
-        if ($isNarrationAction) {
-            $targetRef = $classification['reference'] ?? '';
-            if (empty($targetRef) && preg_match('/\b(ob|jv|pv|rv|cv|sv|rev)-[0-9a-z-]+\b/i', $prompt, $rm)) {
-                $targetRef = strtoupper($rm[0]);
-            }
-            $refDisplay = !empty($targetRef) ? "Voucher **{$targetRef}**" : "A posted voucher";
+        $searchService = app(SearchService::class);
+        $targetVoucher = !empty($ref) ? collect($searchService->searchVouchers($ref))->first() : null;
 
-            $targetVoucher = null;
-            if (!empty($targetRef)) {
-                $searchService = app(SearchService::class);
-                $found = $searchService->searchVouchers($targetRef);
-                if (!empty($found)) {
-                    $targetVoucher = $found[0];
-                }
-            }
-
+        if ($policy === 'mutate_narration') {
+            $refDisplay = !empty($ref) ? "Voucher **{$ref}**" : "A posted voucher";
             return [
                 'sender' => 'Taliya',
                 'intent' => 'safety_policy_rejection',
                 'message' => "🔒 **Accounting Invariant (Narration Immutability)**: {$refDisplay} is a posted accounting record. Its narration/description cannot be silently deleted or modified in place to preserve complete double-entry audit history.\n\n" .
                     "If the narration was entered incorrectly, I can help you follow the voucher correction/reversal workflow (`REV-`) or review the voucher in Daybook.",
                 'data' => [
-                    'reference' => $targetRef,
+                    'reference' => $ref,
                     'action' => 'edit_narration',
                     'policy' => 'VOUCHER_DESCRIPTION_IMMUTABILITY',
                     'voucher' => $targetVoucher,
@@ -135,74 +134,27 @@ class CopilotService
                     [
                         'label' => 'Reverse in Daybook',
                         'action' => 'navigate_page',
-                        'payload' => ['page' => 'daybook', 'reference' => $targetRef],
+                        'payload' => ['page' => 'daybook', 'reference' => $ref],
                         'variant' => 'default',
                     ],
                     [
                         'label' => 'View Voucher Details',
                         'action' => 'navigate_page',
-                        'payload' => ['page' => 'voucher-view', 'type' => 'voucher', 'id' => $targetRef, 'rawItem' => $targetVoucher],
+                        'payload' => ['page' => 'voucher-view', 'type' => 'voucher', 'id' => $ref, 'rawItem' => $targetVoucher],
                         'variant' => 'outline',
                     ],
                 ]
             ];
         }
 
-        if ($isReversalAction) {
-            $targetRef = $classification['reference'] ?? '';
-            if (empty($targetRef) && preg_match('/\b(ob|jv|pv|rv|cv|sv|rev)-[0-9a-z-]+\b/i', $prompt, $rm)) {
-                $targetRef = strtoupper($rm[0]);
-            }
-
-            $targetVoucher = null;
-            if (!empty($targetRef)) {
-                $searchService = app(SearchService::class);
-                $found = $searchService->searchVouchers($targetRef);
-                if (!empty($found)) {
-                    $targetVoucher = $found[0];
-                }
-            }
-
-            return [
-                'sender' => 'Taliya',
-                'intent' => 'voucher_reversal_confirmation',
-                'message' => "Would you like to post a compensating reversal (`REV-`) for Voucher **{$targetRef}**?\n\nThis will record an offset journal entry and document the audit reason in the permanent ledger history.",
-                'data' => [
-                    'reference' => $targetRef,
-                    'action' => 'reverse_voucher',
-                    'voucher' => $targetVoucher,
-                ],
-                'card_type' => 'voucher_action',
-                'actions' => [
-                    [
-                        'label' => "Confirm Reversal for {$targetRef}",
-                        'action' => 'reverse_voucher',
-                        'payload' => ['reference' => $targetRef],
-                        'variant' => 'default',
-                    ],
-                    [
-                        'label' => 'View in Daybook',
-                        'action' => 'navigate_page',
-                        'payload' => ['page' => 'daybook', 'reference' => $targetRef],
-                        'variant' => 'outline',
-                    ],
-                ]
-            ];
-        }
-
-        if ($isMutationRequest) {
-            $targetRef = $classification['reference'] ?? '';
-            if (empty($targetRef) && preg_match('/\b(ob|jv|pv|rv|cv|sv|rev)-[0-9a-z-]+\b/i', $prompt, $rm)) {
-                $targetRef = strtoupper($rm[0]);
-            }
-
+        if ($policy === 'mutate_ledger') {
             return [
                 'sender' => 'Taliya',
                 'intent' => 'safety_policy_rejection',
                 'message' => "🔒 **Accounting Invariant (Ledger Immutability)**: Posted accounting entries are immutable and cannot be directly overwritten or mutated.\n\n" .
                     "To adjust balances, please post a new adjusting journal voucher (`JV-`) or reverse and re-issue the transaction.",
                 'data' => [
-                    'reference' => $targetRef,
+                    'reference' => $ref,
                     'policy' => 'LEDGER_ENTRY_IMMUTABILITY',
                 ],
                 'card_type' => 'safety_policy',
@@ -210,14 +162,14 @@ class CopilotService
                     [
                         'label' => '📄 Open Daybook to Reverse',
                         'action' => 'navigate_page',
-                        'payload' => ['page' => 'daybook', 'reference' => $targetRef],
+                        'payload' => ['page' => 'daybook', 'reference' => $ref],
                         'variant' => 'outline',
                     ],
                 ]
             ];
         }
 
-        if ($isDeleteAccountRequest) {
+        if ($policy === 'destructive_account') {
             return [
                 'sender' => 'Taliya',
                 'intent' => 'safety_policy_rejection',
@@ -239,341 +191,448 @@ class CopilotService
             ];
         }
 
-        if ($isDeleteVoucherRequest) {
-            $targetRef = !empty($delMatch[2]) ? strtoupper($delMatch[2]) : ($classification['reference'] ?? 'posted vouchers');
-            $targetVoucher = null;
-            if (!empty($targetRef) && $targetRef !== 'POSTED VOUCHERS') {
-                $searchService = app(SearchService::class);
-                $found = $searchService->searchVouchers($targetRef);
-                if (!empty($found)) {
-                    $targetVoucher = $found[0];
-                }
-            }
-
-            return [
-                'sender' => 'Taliya',
-                'intent' => 'safety_policy_rejection',
-                'message' => "🔒 **Accounting Invariant (GAAP/IFRS)**: Posted vouchers and ledger records cannot be deleted or purged to preserve permanent double-entry audit history.\n\n" .
-                    "If a voucher was posted in error, you can create a compensating **Reversal Voucher** (`REV-`) with documented audit reasons.",
-                'data' => [
-                    'reference' => $targetRef,
-                    'policy' => 'HISTORICAL_LEDGER_IMMUTABILITY',
-                    'voucher' => $targetVoucher,
+        // destructive_voucher
+        $targetRef = !empty($ref) ? $ref : 'POSTED VOUCHERS';
+        return [
+            'sender' => 'Taliya',
+            'intent' => 'safety_policy_rejection',
+            'message' => "🔒 **Accounting Invariant (GAAP/IFRS)**: Posted vouchers and ledger records cannot be deleted or purged to preserve permanent double-entry audit history.\n\n" .
+                "If a voucher was posted in error, you can create a compensating **Reversal Voucher** (`REV-`) with documented audit reasons.",
+            'data' => [
+                'reference' => $targetRef,
+                'policy' => 'HISTORICAL_LEDGER_IMMUTABILITY',
+                'voucher' => $targetVoucher,
+            ],
+            'card_type' => 'safety_policy',
+            'actions' => [
+                [
+                    'label' => "Reverse in Daybook",
+                    'action' => 'navigate_page',
+                    'payload' => ['page' => 'daybook', 'reference' => $targetRef],
+                    'variant' => 'default',
                 ],
-                'card_type' => 'safety_policy',
-                'actions' => [
-                    [
-                        'label' => "Reverse in Daybook",
-                        'action' => 'navigate_page',
-                        'payload' => ['page' => 'daybook', 'reference' => $targetRef],
-                        'variant' => 'default',
-                    ],
-                    [
-                        'label' => '📖 Chart of Accounts',
-                        'action' => 'navigate_page',
-                        'payload' => ['page' => 'coa'],
-                        'variant' => 'outline',
-                    ],
-                ]
-            ];
-        }
+                [
+                    'label' => '📖 Chart of Accounts',
+                    'action' => 'navigate_page',
+                    'payload' => ['page' => 'coa'],
+                    'variant' => 'outline',
+                ],
+            ]
+        ];
+    }
 
-        // 4. Greetings & Conversational Welcome
-        if ($intent === 'GREETING') {
-            $userGreeting = trim(preg_replace('/^(hi|hello|hey|salam|assalam|good morning|good afternoon|good evening)\s*/i', '', $prompt), " !?,.");
-            $namePrefix = !empty($userGreeting) ? " {$userGreeting}" : "";
+    /**
+     * Capability: general.greeting
+     */
+    protected function handleGreeting(array $semantic, string $prompt): array
+    {
+        $userGreeting = trim(preg_replace('/^(hi|hello|hey|salam|assalam|good morning|good afternoon|good evening)\s*/i', '', $prompt), " !?,.");
+        $namePrefix = !empty($userGreeting) ? " {$userGreeting}" : "";
 
-            return [
-                'sender' => 'Taliya',
-                'intent' => 'greeting',
-                'message' => "Hello{$namePrefix}! 👋 I am **Taliya**, your Alamia Accounts AI Copilot.\n\nI can help you manage your books, look up accounts, prepare vouchers, and analyze financial reports. How can I assist you today?",
-                'data' => null,
-                'card_type' => 'greeting',
-                'actions' => [
-                    ['label' => '📄 View Daybook', 'action' => 'navigate_page', 'payload' => ['page' => 'daybook']],
-                    ['label' => '🏦 Chart of Accounts', 'action' => 'navigate_page', 'payload' => ['page' => 'coa']],
-                    ['label' => '📊 Trial Balance', 'action' => 'draft_prompt', 'payload' => ['prompt' => 'Show Trial Balance summary']],
-                ]
-            ];
-        }
+        return [
+            'sender' => 'Taliya',
+            'intent' => 'greeting',
+            'message' => "Hello{$namePrefix}! 👋 I am **Taliya**, your Alamia Accounts AI Copilot.\n\nI can help you manage your books, look up accounts, prepare vouchers, and analyze financial reports. How can I assist you today?",
+            'data' => null,
+            'card_type' => 'greeting',
+            'actions' => [
+                ['label' => '📄 View Daybook', 'action' => 'navigate_page', 'payload' => ['page' => 'daybook']],
+                ['label' => '🏦 Chart of Accounts', 'action' => 'navigate_page', 'payload' => ['page' => 'coa']],
+                ['label' => '📊 Trial Balance', 'action' => 'draft_prompt', 'payload' => ['prompt' => 'Show Trial Balance summary']],
+            ]
+        ];
+    }
 
-        // 5. Help & General Guidance
-        if ($intent === 'HELP') {
-            return [
-                'sender' => 'Taliya',
-                'intent' => 'general_guidance',
-                'message' => "I am **Taliya**, your AI Accounting Copilot backed by Alamia 360.\n\nHere are some of the things you can ask me:\n" .
-                    "• **Find Transactions**: *\"Transaction with Mr. Ali Raza of Izoc Ltd\"*\n" .
-                    "• **Inquire Vouchers**: *\"Tell me about voucher OB-2026-001\"*\n" .
-                    "• **Account Balances**: *\"What is the balance of Meezan Bank?\"* or *\"Account 1130\"*\n" .
-                    "• **Drafting Vouchers**: *\"Paid Rs. 25,000 for office rent via Meezan Bank\"*\n" .
-                    "• **Financial Statements**: *\"Show Trial Balance\"*, *\"View Profit & Loss\"*\n" .
-                    "• **Audit & Alerts**: *\"Check situations\"* or *\"Any ledger alerts?\"*",
-                'data' => null,
-                'card_type' => 'help',
-                'actions' => [
-                    ['label' => '📊 Trial Balance', 'action' => 'draft_prompt', 'payload' => ['prompt' => 'Show Trial Balance summary']],
-                    ['label' => '🏦 Meezan Bank Balance', 'action' => 'draft_prompt', 'payload' => ['prompt' => 'What is the balance of Meezan Bank?']],
-                ]
-            ];
-        }
+    /**
+     * Capability: general.help
+     */
+    protected function handleHelp(array $semantic): array
+    {
+        return [
+            'sender' => 'Taliya',
+            'intent' => 'general_guidance',
+            'message' => "I am **Taliya**, your AI Accounting Copilot backed by Alamia 360.\n\nHere are some of the things you can ask me:\n" .
+                "• **Find Transactions**: *\"Transaction with Mr. Ali Raza of Izoc Ltd\"*\n" .
+                "• **Inquire Vouchers**: *\"Tell me about voucher OB-2026-001\"*\n" .
+                "• **Account Balances**: *\"What is the balance of Meezan Bank?\"* or *\"Account 1130\"*\n" .
+                "• **Drafting Vouchers**: *\"Paid Rs. 25,000 for office rent via Meezan Bank\"*\n" .
+                "• **Financial Statements**: *\"Show Trial Balance\"*, *\"View Profit & Loss\"*\n" .
+                "• **Audit & Alerts**: *\"Check situations\"* or *\"Any ledger alerts?\"*",
+            'data' => null,
+            'card_type' => 'help',
+            'actions' => [
+                ['label' => '📊 Trial Balance', 'action' => 'draft_prompt', 'payload' => ['prompt' => 'Show Trial Balance summary']],
+                ['label' => '🏦 Meezan Bank Balance', 'action' => 'draft_prompt', 'payload' => ['prompt' => 'What is the balance of Meezan Bank?']],
+            ]
+        ];
+    }
 
-        // 6. Financial Reports Query
-        if ($intent === 'INQUIRE_REPORT' || str_contains($promptLower, 'trial balance') || str_contains($promptLower, 'tb') || str_contains($promptLower, 'profit') || str_contains($promptLower, 'balance sheet')) {
-            $effectiveReportType = $reportType ?: (
-                (str_contains($promptLower, 'profit') || str_contains($promptLower, 'loss') || str_contains($promptLower, 'p&l')) ? 'profit-loss' :
-                (str_contains($promptLower, 'balance sheet') ? 'balance-sheet' : 'trial-balance')
-            );
+    /**
+     * Capability: alerts.list
+     */
+    protected function handleAlertsList($actor): array
+    {
+        $result = Alamia360::capabilities()->execute('list_situations', [], $actor);
+        $count = $result['count'] ?? 0;
 
-            if ($effectiveReportType === 'trial-balance') {
-                $result = Alamia360::capabilities()->execute('get_financial_report', [
-                    'report_type' => 'trial-balance',
-                ], $copilotActor);
+        return [
+            'sender' => 'Taliya',
+            'intent' => 'list_situations',
+            'message' => $count > 0 
+                ? "Found {$count} operational situation(s) requiring attention." 
+                : "All clear! There are currently no unresolved operational situations.",
+            'data' => $result,
+            'card_type' => 'situations_list',
+        ];
+    }
 
-                $data = $result['data'] ?? [];
-                $totalDebit = $data['total_debit'] ?? $data['totals']['debit'] ?? 0;
-                $totalCredit = $data['total_credit'] ?? $data['totals']['credit'] ?? 0;
-                $isBalanced = ($totalDebit == $totalCredit) && ($totalDebit > 0);
+    /**
+     * Capability: report.trial_balance | report.profit_loss | report.balance_sheet
+     */
+    protected function handleFinancialReport(string $capability, $actor): array
+    {
+        $reportType = match ($capability) {
+            'report.profit_loss' => 'profit-loss',
+            'report.balance_sheet' => 'balance-sheet',
+            default => 'trial-balance',
+        };
 
-                return [
-                    'sender' => 'Taliya',
-                    'intent' => 'report_trial_balance',
-                    'message' => "Here is the Trial Balance summary as of today. " . 
-                        ($isBalanced ? "The books are in balance with total debits matching credits." : "Review total balances below."),
-                    'data' => [
-                        'type' => 'trial-balance',
-                        'total_debit' => $totalDebit,
-                        'total_credit' => $totalCredit,
-                        'is_balanced' => $isBalanced,
-                        'accounts_count' => count($data['accounts'] ?? $data['rows'] ?? []),
-                        'raw' => $data,
-                    ],
-                    'card_type' => 'financial_report',
-                ];
-            }
+        if ($reportType === 'trial-balance') {
+            $result = Alamia360::capabilities()->execute('get_financial_report', [
+                'report_type' => 'trial-balance',
+            ], $actor);
 
-            if ($effectiveReportType === 'profit-loss') {
-                $result = Alamia360::capabilities()->execute('get_financial_report', [
-                    'report_type' => 'profit-loss',
-                ], $copilotActor);
-
-                return [
-                    'sender' => 'Taliya',
-                    'intent' => 'report_profit_loss',
-                    'message' => "Here is the Profit & Loss statement for the current period.",
-                    'data' => [
-                        'type' => 'profit-loss',
-                        'raw' => $result['data'] ?? [],
-                    ],
-                    'card_type' => 'financial_report',
-                ];
-            }
-
-            if ($effectiveReportType === 'balance-sheet') {
-                $result = Alamia360::capabilities()->execute('get_financial_report', [
-                    'report_type' => 'balance-sheet',
-                ], $copilotActor);
-
-                return [
-                    'sender' => 'Taliya',
-                    'intent' => 'report_balance_sheet',
-                    'message' => "Here is the Balance Sheet as of today.",
-                    'data' => [
-                        'type' => 'balance-sheet',
-                        'raw' => $result['data'] ?? [],
-                    ],
-                    'card_type' => 'financial_report',
-                ];
-            }
-        }
-
-        // 7. Situations / Alerts Query
-        if ($intent === 'LIST_SITUATIONS' || str_contains($promptLower, 'situation') || str_contains($promptLower, 'alert') || str_contains($promptLower, 'warning') || str_contains($promptLower, 'anomal')) {
-            $result = Alamia360::capabilities()->execute('list_situations', [], $copilotActor);
-            $count = $result['count'] ?? 0;
+            $data = $result['data'] ?? [];
+            $totalDebit = $data['total_debit'] ?? $data['totals']['debit'] ?? 0;
+            $totalCredit = $data['total_credit'] ?? $data['totals']['credit'] ?? 0;
+            $isBalanced = ($totalDebit == $totalCredit) && ($totalDebit > 0);
 
             return [
                 'sender' => 'Taliya',
-                'intent' => 'list_situations',
-                'message' => $count > 0 
-                    ? "Found {$count} operational situation(s) requiring attention." 
-                    : "All clear! There are currently no unresolved operational situations.",
-                'data' => $result,
-                'card_type' => 'situations_list',
+                'intent' => 'report_trial_balance',
+                'message' => "Here is the Trial Balance summary as of today. " . 
+                    ($isBalanced ? "The books are in balance with total debits matching credits." : "Review total balances below."),
+                'data' => [
+                    'type' => 'trial-balance',
+                    'total_debit' => $totalDebit,
+                    'total_credit' => $totalCredit,
+                    'is_balanced' => $isBalanced,
+                    'accounts_count' => count($data['accounts'] ?? $data['rows'] ?? []),
+                    'raw' => $data,
+                ],
+                'card_type' => 'financial_report',
             ];
         }
 
-        // 7.5 Inquire Entity (Person / Contact / Organization / Party Discovery)
-        if ($intent === 'INQUIRE_ENTITY' || ($targetObject === 'contact' && (!empty($party) || !empty($org)))) {
-            $searchService = app(SearchService::class);
+        if ($reportType === 'profit-loss') {
+            $result = Alamia360::capabilities()->execute('get_financial_report', [
+                'report_type' => 'profit-loss',
+            ], $actor);
 
-            $targetName = !empty($party) ? $party : (!empty($org) ? $org : $entity);
-            $targetNameClean = trim(preg_replace('/^(this|that|the|a|an)\s+/i', '', $targetName), " ?!.#\"'");
+            return [
+                'sender' => 'Taliya',
+                'intent' => 'report_profit_loss',
+                'message' => "Here is the Profit & Loss statement for the current period.",
+                'data' => [
+                    'type' => 'profit-loss',
+                    'raw' => $result['data'] ?? [],
+                ],
+                'card_type' => 'financial_report',
+            ];
+        }
 
-            // Deictic pronoun resolution from conversation history
-            if (empty($targetNameClean) || in_array(strtolower($targetNameClean), ['he', 'she', 'him', 'her', 'it', 'them', 'this', 'that', 'this company', 'that company', 'this person'])) {
-                if (!empty($context['history'])) {
-                    foreach (array_reverse($context['history']) as $h) {
-                        $htext = $h['text'] ?? '';
-                        if (preg_match('/(?:mr\.?|ms\.?|mrs\.?|dr\.?)?\s*([a-z0-9\s]+(?:ltd|pvt|inc|corp|company|ali raza|izoc))/i', $htext, $histMatch)) {
-                            $targetNameClean = trim($histMatch[0]);
-                            break;
-                        }
+        $result = Alamia360::capabilities()->execute('get_financial_report', [
+            'report_type' => 'balance-sheet',
+        ], $actor);
+
+        return [
+            'sender' => 'Taliya',
+            'intent' => 'report_balance_sheet',
+            'message' => "Here is the Balance Sheet as of today.",
+            'data' => [
+                'type' => 'balance-sheet',
+                'raw' => $result['data'] ?? [],
+            ],
+            'card_type' => 'financial_report',
+        ];
+    }
+
+    /**
+     * Capability: voucher.draft
+     */
+    protected function handleVoucherDraft(array $semantic, string $prompt, $actor): array
+    {
+        $amount = (float) ($semantic['amount'] ?? 0);
+        if ($amount <= 0 && preg_match('/(?:rs\.?|pkr|\$)?\s*([0-9]+(?:,[0-9]{3})*(?:\.[0-9]{1,2})?)/i', $prompt, $amountMatch)) {
+            $amount = (float) str_replace(',', '', $amountMatch[1]);
+        }
+
+        $creditCode = null;
+        $debitCode = null;
+
+        if (stripos($prompt, 'transfer') !== false && preg_match('/from\s+([a-z0-9\s]+?)\s+to\s+([a-z0-9\s]+)/i', $prompt, $tMatch)) {
+            $fromStr = strtolower(trim($tMatch[1]));
+            $toStr = strtolower(trim($tMatch[2]));
+            $creditCode = str_contains($fromStr, 'cash') || $fromStr === '1110' ? '1110' : (str_contains($fromStr, 'alfalah') || $fromStr === '1135' ? '1135' : '1130');
+            $debitCode = str_contains($toStr, 'cash') || $toStr === '1110' ? '1110' : (str_contains($toStr, 'alfalah') || $toStr === '1135' ? '1135' : '1130');
+        } else {
+            if (stripos($prompt, 'meezan') !== false) {
+                $creditCode = '1130';
+            } elseif (stripos($prompt, 'alfalah') !== false) {
+                $creditCode = '1135';
+            } elseif (stripos($prompt, 'bank') !== false) {
+                $creditCode = '1130';
+            } elseif (stripos($prompt, 'cash') !== false) {
+                $creditCode = '1110';
+            }
+
+            if (stripos($prompt, 'office') !== false || stripos($prompt, 'supplies') !== false || stripos($prompt, 'stationery') !== false) {
+                $debitCode = '4600';
+            } elseif (stripos($prompt, 'rent') !== false) {
+                $debitCode = '4400';
+            } elseif (stripos($prompt, 'utilit') !== false || stripos($prompt, 'electric') !== false || stripos($prompt, 'bill') !== false) {
+                $debitCode = '4500';
+            } elseif (stripos($prompt, 'salar') !== false || stripos($prompt, 'wage') !== false) {
+                $debitCode = '4300';
+            } elseif (stripos($prompt, 'sales') !== false || stripos($prompt, 'revenue') !== false) {
+                $creditCode = '3100';
+                $debitCode = $debitCode ?? '1130';
+            }
+
+            if (stripos($prompt, 'received') !== false || stripos($prompt, 'customer') !== false) {
+                $temp = $debitCode;
+                $debitCode = $creditCode ?? '1130';
+                $creditCode = $temp ?? '3100';
+            }
+        }
+
+        $creditCode = $creditCode ?? '1130';
+        $debitCode = $debitCode ?? '4600';
+
+        $draft = Alamia360::capabilities()->execute('draft_voucher', [
+            'type' => 'journal',
+            'description' => $prompt,
+            'details' => [
+                [
+                    'account_code' => $debitCode,
+                    'debit' => $amount,
+                    'credit' => 0,
+                    'memo' => $prompt,
+                ],
+                [
+                    'account_code' => $creditCode,
+                    'debit' => 0,
+                    'credit' => $amount,
+                    'memo' => $prompt,
+                ],
+            ],
+        ], $actor);
+
+        return [
+            'sender' => 'Taliya',
+            'intent' => 'draft_voucher',
+            'message' => "I have prepared a draft journal voucher based on your request. Please review the details below before posting:",
+            'data' => $draft,
+            'card_type' => 'voucher_draft',
+        ];
+    }
+
+    /**
+     * Capability: voucher.reverse
+     */
+    protected function handleVoucherReverse(array $semantic): array
+    {
+        $ref = $semantic['reference'] ?? '';
+        $searchService = app(SearchService::class);
+        $targetVoucher = !empty($ref) ? collect($searchService->searchVouchers($ref))->first() : null;
+
+        return [
+            'sender' => 'Taliya',
+            'intent' => 'voucher_reversal_confirmation',
+            'message' => "Would you like to post a compensating reversal (`REV-`) for Voucher **{$ref}**?\n\nThis will record an offset journal entry and document the audit reason in the permanent ledger history.",
+            'data' => [
+                'reference' => $ref,
+                'action' => 'reverse_voucher',
+                'voucher' => $targetVoucher,
+            ],
+            'card_type' => 'voucher_action',
+            'actions' => [
+                [
+                    'label' => "Confirm Reversal for {$ref}",
+                    'action' => 'reverse_voucher',
+                    'payload' => ['reference' => $ref],
+                    'variant' => 'default',
+                ],
+                [
+                    'label' => 'View in Daybook',
+                    'action' => 'navigate_page',
+                    'payload' => ['page' => 'daybook', 'reference' => $ref],
+                    'variant' => 'outline',
+                ],
+            ]
+        ];
+    }
+
+    /**
+     * Capability: voucher.lookup
+     */
+    protected function handleVoucherLookup(array $semantic, string $prompt): array
+    {
+        $searchService = app(SearchService::class);
+        $ref = $semantic['reference'] ?? '';
+        if (empty($ref) && preg_match('/\b(ob|jv|pv|rv|cv|sv|rev)-[0-9a-z-]+\b/i', $prompt, $rm)) {
+            $ref = strtoupper($rm[0]);
+        }
+
+        $vouchers = $searchService->searchVouchers($ref);
+        if (!empty($vouchers)) {
+            if (count($vouchers) === 1) {
+                return $this->formatVoucherBrief($vouchers[0]);
+            }
+            return $this->formatDisambiguation($ref, $vouchers, []);
+        }
+
+        return [
+            'sender' => 'Taliya',
+            'intent' => 'voucher_not_found',
+            'message' => "I couldn't find any voucher matching reference '**{$ref}**'.",
+            'data' => ['reference' => $ref],
+            'card_type' => 'not_found',
+            'actions' => [
+                ['label' => '📄 Open Daybook', 'action' => 'navigate_page', 'payload' => ['page' => 'daybook']],
+            ]
+        ];
+    }
+
+    /**
+     * Capability: account.balance | account.lookup | account.ledger
+     */
+    protected function handleAccountQuery(array $semantic, string $prompt): array
+    {
+        $searchService = app(SearchService::class);
+        $accQuery = $semantic['account'] ?? '';
+        if (empty($accQuery)) {
+            $accQuery = trim(preg_replace('/^(what is the balance of|what is the balance in|what is the balance for|what is the balance|what is in|how much is in|how much in|balance of|balance in|balance for|balance|tell me about account|tell me about|show me account|show me|details of account|details of|account)\s+(the\s+|account\s+)?/i', '', $prompt), " ?.'\"");
+        }
+
+        $accounts = $searchService->searchAccounts($accQuery);
+
+        // Exact 4-digit code match
+        if (preg_match('/\b(\d{4})\b/', $accQuery, $cm)) {
+            $exactAcc = collect($accounts)->firstWhere('code', $cm[1]);
+            if ($exactAcc) {
+                return $this->formatAccountBrief($exactAcc);
+            }
+        }
+
+        // Exact name match
+        $exactName = collect($accounts)->first(function ($a) use ($accQuery) {
+            return strcasecmp($a['name'] ?? '', $accQuery) === 0;
+        });
+        if ($exactName) {
+            return $this->formatAccountBrief($exactName);
+        }
+
+        if (count($accounts) === 1) {
+            return $this->formatAccountBrief($accounts[0]);
+        }
+
+        if (count($accounts) > 1) {
+            return $this->formatDisambiguation($accQuery, [], $accounts);
+        }
+
+        $activeCompany = DomainContext::get() ?: 'Active Company';
+        return [
+            'sender' => 'Taliya',
+            'intent' => 'account_not_found',
+            'message' => "I couldn't find any ledger account matching '**{$accQuery}**' in company [{$activeCompany}].\n\n" .
+                "• Try searching by exact 4-digit code (e.g., `1110`, `1130`, `5100`)\n" .
+                "• Or open the Chart of Accounts to view all available accounts:",
+            'data' => ['query' => $accQuery],
+            'card_type' => 'not_found',
+            'actions' => [
+                ['label' => '📖 Chart of Accounts', 'action' => 'navigate_page', 'payload' => ['page' => 'coa']],
+                ['label' => '📊 Trial Balance', 'action' => 'draft_prompt', 'payload' => ['prompt' => 'Show Trial Balance summary']],
+            ]
+        ];
+    }
+
+    /**
+     * Capability: party.lookup
+     */
+    protected function handlePartyLookup(array $semantic, array $context): array
+    {
+        $searchService = app(SearchService::class);
+        $party = $semantic['party'] ?? '';
+        $org = $semantic['organization'] ?? '';
+        $targetName = !empty($party) ? $party : (!empty($org) ? $org : ($semantic['entity_value'] ?? ''));
+        $targetNameClean = trim(preg_replace('/^(this|that|the|a|an)\s+/i', '', $targetName), " ?!.#\"'");
+
+        // Deictic pronoun resolution from conversation history
+        if (empty($targetNameClean) || in_array(strtolower($targetNameClean), ['he', 'she', 'him', 'her', 'it', 'them', 'this', 'that', 'this company', 'that company', 'this person'])) {
+            if (!empty($context['history'])) {
+                foreach (array_reverse($context['history']) as $h) {
+                    $htext = $h['text'] ?? '';
+                    if (preg_match('/(?:mr\.?|ms\.?|mrs\.?|dr\.?)?\s*([a-z0-9\s]+(?:ltd|pvt|inc|corp|company|ali raza|izoc))/i', $htext, $histMatch)) {
+                        $targetNameClean = trim($histMatch[0]);
+                        break;
                     }
                 }
             }
+        }
 
-            $isOrg = ($classification['entity_type'] ?? '') === 'organization' ||
-                preg_match('/\b(ltd|limited|inc|corp|pvt|co|company|technologies|solutions|services|group|holdings|enterprises)\b/i', $targetNameClean) ||
-                (ctype_upper($targetNameClean) && strlen($targetNameClean) <= 6);
+        $isOrg = ($semantic['entity_type'] ?? '') === 'organization' ||
+            preg_match('/\b(ltd|limited|inc|corp|pvt|co|company|technologies|solutions|services|group|holdings|enterprises)\b/i', $targetNameClean) ||
+            (ctype_upper($targetNameClean) && strlen($targetNameClean) <= 6);
 
-            $effectiveParty = $isOrg ? '' : $targetNameClean;
-            $effectiveOrg = $isOrg ? $targetNameClean : '';
+        $effectiveParty = $isOrg ? '' : $targetNameClean;
+        $effectiveOrg = $isOrg ? $targetNameClean : '';
 
-            // Layer 1: Check users / contacts
-            $users = \DB::table('users')
-                ->where(function ($q) use ($targetNameClean) {
-                    $q->where('name', 'like', "%{$targetNameClean}%")
-                      ->orWhere('email', 'like', "%{$targetNameClean}%");
-                })
-                ->get()
-                ->toArray();
+        // Layer 1: Check users
+        $users = \DB::table('users')
+            ->where(function ($q) use ($targetNameClean) {
+                $q->where('name', 'like', "%{$targetNameClean}%")
+                  ->orWhere('email', 'like', "%{$targetNameClean}%");
+            })
+            ->get()
+            ->toArray();
 
-            // Layer 2: Search accounting transaction footprint
-            $vouchers = $searchService->searchTransactionsByParty([
-                'party' => $effectiveParty,
-                'organization' => $effectiveOrg,
-            ]);
+        // Layer 2: Search accounting transaction footprint
+        $vouchers = $searchService->searchTransactionsByParty([
+            'party' => $effectiveParty,
+            'organization' => $effectiveOrg,
+        ]);
 
-            $activeCompany = DomainContext::get() ?: 'Active Company';
+        $activeCompany = DomainContext::get() ?: 'Active Company';
 
-            if (!empty($users) && empty($vouchers)) {
-                $u = (array) $users[0];
-                $uName = $u['name'] ?? $targetNameClean;
-                $uEmail = $u['email'] ?? '';
-                $uRole = $u['role'] ?? 'System User / Contact';
+        if (!empty($users) && empty($vouchers)) {
+            $u = (array) $users[0];
+            $uName = $u['name'] ?? $targetNameClean;
+            $uEmail = $u['email'] ?? '';
+            $uRole = $u['role'] ?? 'System User / Contact';
 
-                return [
-                    'sender' => 'Taliya',
-                    'intent' => 'entity_party_brief',
-                    'message' => "Here is the contact profile for **{$uName}**:\n" .
-                        "• **Type**: Person / Contact\n" .
-                        "• **Role**: {$uRole}\n" .
-                        (!empty($uEmail) ? "• **Email**: `{$uEmail}`\n" : "") .
-                        "• **Accounting Footprint**: No direct accounting transactions recorded yet.",
-                    'data' => [
-                        'type' => 'contact',
-                        'entity_type' => 'person',
-                        'name' => $uName,
-                        'email' => $uEmail,
-                        'role' => $uRole,
-                        'transactions_count' => 0,
-                    ],
-                    'card_type' => 'entity_brief',
-                    'actions' => [
-                        [
-                            'label' => "📝 Draft Payment to {$uName}",
-                            'action' => 'draft_prompt',
-                            'payload' => ['prompt' => "Paid Rs. 10,000 to {$uName}"],
-                            'variant' => 'default',
-                        ],
-                        [
-                            'label' => '📄 View Daybook',
-                            'action' => 'navigate_page',
-                            'payload' => ['page' => 'daybook'],
-                            'variant' => 'outline',
-                        ],
-                    ]
-                ];
-            }
-
-            if (!empty($vouchers)) {
-                $vCount = count($vouchers);
-                $totalVol = 0.0;
-                foreach ($vouchers as $v) {
-                    $rawLines = $v['lineItems'] ?? $v['line_items'] ?? $v['details'] ?? [];
-                    $vDr = 0.0;
-                    foreach ($rawLines as $l) {
-                        $vDr += (float)($l['debit'] ?? 0);
-                    }
-                    $totalVol += $vDr > 0 ? $vDr : (float)($v['amount'] ?? 0);
-                }
-
-                $latestV = $vouchers[0];
-                $latestRef = $latestV['reference'] ?? $latestV['number'] ?? '';
-                $latestDesc = $latestV['description'] ?? '';
-                $latestDate = $latestV['date'] ?? '';
-
-                $typeLabel = $isOrg ? "Organization / Client" : "Person / Contact";
-                $displayName = $targetNameClean;
-                if ($isOrg && preg_match('/\b(' . preg_quote($targetNameClean, '/') . '(?:\s+pvt\s+ltd|\s+ltd|\s+limited|\s+inc)?)\b/i', $latestDesc, $canonicalMatch)) {
-                    $displayName = $canonicalMatch[1];
-                }
-
-                $userAffiliation = "";
-                if (!empty($users)) {
-                    $u = (array) $users[0];
-                    $userAffiliation = "• **Associated Contact**: {$u['name']} (" . ($u['email'] ?? 'User') . ")\n";
-                }
-
-                return [
-                    'sender' => 'Taliya',
-                    'intent' => 'entity_party_brief',
-                    'message' => "**{$displayName}** appears in your accounting records as a **{$typeLabel}** involved in company [{$activeCompany}] transactions.\n\n" .
-                        "• **Accounting Footprint**: Found **{$vCount}** related transaction(s) totaling **Rs. " . number_format($totalVol, 2) . "**\n" .
-                        "• **Recent Voucher**: **{$latestRef}**" . ($latestDate ? " ({$latestDate})" : "") . (!empty($latestDesc) ? " — *\"{$latestDesc}\"*" : "") . "\n" .
-                        $userAffiliation .
-                        "\nWould you like to review related transactions or draft a new voucher?",
-                    'data' => [
-                        'type' => 'party',
-                        'entity_type' => $isOrg ? 'organization' : 'person',
-                        'name' => $displayName,
-                        'transactions_count' => $vCount,
-                        'total_volume' => $totalVol,
-                        'latest_voucher' => $latestV,
-                        'vouchers' => $vouchers,
-                    ],
-                    'card_type' => 'entity_brief',
-                    'actions' => [
-                        [
-                            'label' => "📄 View Voucher {$latestRef}",
-                            'action' => 'navigate_page',
-                            'payload' => ['page' => 'voucher-view', 'type' => 'voucher', 'id' => $latestRef, 'rawItem' => $latestV],
-                            'variant' => 'default',
-                        ],
-                        [
-                            'label' => "📝 Draft Voucher for {$displayName}",
-                            'action' => 'draft_prompt',
-                            'payload' => ['prompt' => "Paid Rs. 10,000 to {$displayName}"],
-                            'variant' => 'outline',
-                        ],
-                        [
-                            'label' => '📄 View Daybook',
-                            'action' => 'navigate_page',
-                            'payload' => ['page' => 'daybook'],
-                            'variant' => 'outline',
-                        ],
-                    ]
-                ];
-            }
-
-            // 0 matches found in users and vouchers
             return [
                 'sender' => 'Taliya',
-                'intent' => 'entity_not_found',
-                'message' => "I couldn't find any contact profile or accounting transaction footprint matching **{$targetNameClean}** in company [{$activeCompany}].\n\n" .
-                    "• You can draft a new transaction involving {$targetNameClean}\n" .
-                    "• Or search the Daybook and Chart of Accounts below:",
+                'intent' => 'entity_party_brief',
+                'message' => "Here is the contact profile for **{$uName}**:\n" .
+                    "• **Type**: Person / Contact\n" .
+                    "• **Role**: {$uRole}\n" .
+                    (!empty($uEmail) ? "• **Email**: `{$uEmail}`\n" : "") .
+                    "• **Accounting Footprint**: No direct accounting transactions recorded yet.",
                 'data' => [
-                    'entity' => $targetNameClean,
-                    'entity_type' => $isOrg ? 'organization' : 'person',
+                    'type' => 'contact',
+                    'entity_type' => 'person',
+                    'name' => $uName,
+                    'email' => $uEmail,
+                    'role' => $uRole,
+                    'transactions_count' => 0,
                 ],
-                'card_type' => 'not_found',
+                'card_type' => 'entity_brief',
                 'actions' => [
                     [
-                        'label' => "📝 Draft Voucher for {$targetNameClean}",
+                        'label' => "📝 Draft Payment to {$uName}",
                         'action' => 'draft_prompt',
-                        'payload' => ['prompt' => "Paid Rs. 10,000 to {$targetNameClean}"],
+                        'payload' => ['prompt' => "Paid Rs. 10,000 to {$uName}"],
                         'variant' => 'default',
                     ],
                     [
@@ -582,165 +641,195 @@ class CopilotService
                         'payload' => ['page' => 'daybook'],
                         'variant' => 'outline',
                     ],
+                ]
+            ];
+        }
+
+        if (!empty($vouchers)) {
+            $vCount = count($vouchers);
+            $totalVol = 0.0;
+            foreach ($vouchers as $v) {
+                $rawLines = $v['lineItems'] ?? $v['line_items'] ?? $v['details'] ?? [];
+                $vDr = 0.0;
+                foreach ($rawLines as $l) {
+                    $vDr += (float)($l['debit'] ?? 0);
+                }
+                $totalVol += $vDr > 0 ? $vDr : (float)($v['amount'] ?? 0);
+            }
+
+            $latestV = $vouchers[0];
+            $latestRef = $latestV['reference'] ?? $latestV['number'] ?? '';
+            $latestDesc = $latestV['description'] ?? '';
+            $latestDate = $latestV['date'] ?? '';
+
+            // Derive entity identity from database transaction evidence
+            $hasCorporateInRecords = (bool) preg_match('/\b(pvt|ltd|limited|inc|corp|co|company|technologies|solutions|services|project)\b/i', $latestDesc);
+            $isOrg = empty($users) ? ($hasCorporateInRecords || ($semantic['entity_type'] ?? '') === 'organization') : false;
+
+            $typeLabel = $isOrg ? "Organization / Client" : "Person / Contact";
+            $displayName = $targetNameClean;
+            if ($isOrg && preg_match('/\b(' . preg_quote($targetNameClean, '/') . '(?:\s+pvt\s+ltd|\s+ltd|\s+limited|\s+inc)?)\b/i', $latestDesc, $canonicalMatch)) {
+                $displayName = $canonicalMatch[1];
+            }
+
+            $userAffiliation = "";
+            if (!empty($users)) {
+                $u = (array) $users[0];
+                $userAffiliation = "• **Associated Contact**: {$u['name']} (" . ($u['email'] ?? 'User') . ")\n";
+            }
+
+            return [
+                'sender' => 'Taliya',
+                'intent' => 'entity_party_brief',
+                'message' => "**{$displayName}** appears in your accounting records as a **{$typeLabel}** involved in company [{$activeCompany}] transactions.\n\n" .
+                    "• **Accounting Footprint**: Found **{$vCount}** related transaction(s) totaling **Rs. " . number_format($totalVol, 2) . "**\n" .
+                    "• **Recent Voucher**: **{$latestRef}**" . ($latestDate ? " ({$latestDate})" : "") . (!empty($latestDesc) ? " — *\"{$latestDesc}\"*" : "") . "\n" .
+                    $userAffiliation .
+                    "\nWould you like to review related transactions or draft a new voucher?",
+                'data' => [
+                    'type' => 'party',
+                    'entity_type' => $isOrg ? 'organization' : 'person',
+                    'name' => $displayName,
+                    'transactions_count' => $vCount,
+                    'total_volume' => $totalVol,
+                    'latest_voucher' => $latestV,
+                    'vouchers' => $vouchers,
+                ],
+                'card_type' => 'entity_brief',
+                'actions' => [
                     [
-                        'label' => '📖 Chart of Accounts',
+                        'label' => "📄 View Voucher {$latestRef}",
                         'action' => 'navigate_page',
-                        'payload' => ['page' => 'coa'],
+                        'payload' => ['page' => 'voucher-view', 'type' => 'voucher', 'id' => $latestRef, 'rawItem' => $latestV],
+                        'variant' => 'default',
+                    ],
+                    [
+                        'label' => "📝 Draft Voucher for {$displayName}",
+                        'action' => 'draft_prompt',
+                        'payload' => ['prompt' => "Paid Rs. 10,000 to {$displayName}"],
+                        'variant' => 'outline',
+                    ],
+                    [
+                        'label' => '📄 View Daybook',
+                        'action' => 'navigate_page',
+                        'payload' => ['page' => 'daybook'],
                         'variant' => 'outline',
                     ],
                 ]
             ];
         }
 
-        // 8. Find Transaction / Voucher by Party, Contact, or Organization
-        if ($intent === 'FIND_TRANSACTION' || (!empty($party) && ($targetObject === 'transaction' || $targetObject === 'voucher' || str_contains($promptLower, 'transaction') || str_contains($promptLower, 'voucher')))) {
-            $searchService = app(SearchService::class);
-            $vouchers = $searchService->searchTransactionsByParty([
+        return [
+            'sender' => 'Taliya',
+            'intent' => 'entity_not_found',
+            'message' => "I couldn't find any contact profile or accounting transaction footprint matching **{$targetNameClean}** in company [{$activeCompany}].\n\n" .
+                "• You can draft a new transaction involving {$targetNameClean}\n" .
+                "• Or search the Daybook and Chart of Accounts below:",
+            'data' => [
+                'entity' => $targetNameClean,
+                'entity_type' => $isOrg ? 'organization' : 'person',
+            ],
+            'card_type' => 'not_found',
+            'actions' => [
+                [
+                    'label' => "📝 Draft Voucher for {$targetNameClean}",
+                    'action' => 'draft_prompt',
+                    'payload' => ['prompt' => "Paid Rs. 10,000 to {$targetNameClean}"],
+                    'variant' => 'default',
+                ],
+                [
+                    'label' => '📄 View Daybook',
+                    'action' => 'navigate_page',
+                    'payload' => ['page' => 'daybook'],
+                    'variant' => 'outline',
+                ],
+                [
+                    'label' => '📖 Chart of Accounts',
+                    'action' => 'navigate_page',
+                    'payload' => ['page' => 'coa'],
+                    'variant' => 'outline',
+                ],
+            ]
+        ];
+    }
+
+    /**
+     * Capability: transaction.search | party.transactions
+     */
+    protected function handleTransactionSearch(array $semantic, string $prompt): array
+    {
+        $searchService = app(SearchService::class);
+        $party = $semantic['party'] ?? '';
+        $org = $semantic['organization'] ?? '';
+        $direction = $semantic['direction'] ?? null;
+        $dateFilter = $semantic['date_filter'] ?? null;
+        $requestedInfo = $semantic['requested_information'] ?? [];
+
+        $vouchers = $searchService->searchTransactionsByParty([
+            'party' => $party,
+            'organization' => $org,
+            'direction' => $direction,
+            'date_filter' => $dateFilter,
+        ]);
+
+        $partyDisplay = !empty($party) ? trim($party) : (!empty($org) ? $org : $prompt);
+        $orgSuffix = !empty($org) && stripos($partyDisplay, $org) === false ? " of **{$org}**" : "";
+
+        if (count($vouchers) === 1) {
+            $brief = $this->formatVoucherBrief($vouchers[0]);
+            // If user specifically asked for "reason" / "why"
+            if (in_array('reason', $requestedInfo) || stripos($prompt, 'why') !== false) {
+                $v = $vouchers[0];
+                $desc = $v['description'] ?? 'Standard transaction posting';
+                $ref = $v['reference'] ?? 'Voucher';
+                $brief['message'] = "Transaction reason for **{$ref}**: *\"{$desc}\"*.\n\n" . $brief['message'];
+            }
+            return $brief;
+        }
+
+        if (count($vouchers) > 1) {
+            return $this->formatDisambiguation("{$partyDisplay}{$orgSuffix}", $vouchers, []);
+        }
+
+        $activeCompany = DomainContext::get() ?: 'Active Company';
+        return [
+            'sender' => 'Taliya',
+            'intent' => 'transaction_not_found',
+            'message' => "I searched for transactions involving **{$partyDisplay}**{$orgSuffix} across vouchers, line item memos, and sub-ledgers, but found no matching records in company [{$activeCompany}].\n\n" .
+                "Would you like to draft a new transaction for {$partyDisplay} or search the Daybook?",
+            'data' => [
                 'party' => $party,
                 'organization' => $org,
-                'direction' => $direction,
-                'date_filter' => $dateFilter,
-            ]);
-
-            $partyDisplay = !empty($party) ? trim($party) : (!empty($org) ? $org : $prompt);
-            $orgSuffix = !empty($org) && stripos($partyDisplay, $org) === false ? " of **{$org}**" : "";
-
-            if (count($vouchers) === 1) {
-                return $this->formatVoucherBrief($vouchers[0]);
-            }
-
-            if (count($vouchers) > 1) {
-                return $this->formatDisambiguation("{$partyDisplay}{$orgSuffix}", $vouchers, []);
-            }
-
-            // Zero matching transactions found - DO NOT do blind fuzzy account lookup
-            $activeCompany = DomainContext::get() ?: 'Active Company';
-            return [
-                'sender' => 'Taliya',
-                'intent' => 'transaction_not_found',
-                'message' => "I searched for transactions involving **{$partyDisplay}**{$orgSuffix} across vouchers, line item memos, and sub-ledgers, but found no matching records in company [{$activeCompany}].\n\n" .
-                    "Would you like to draft a new transaction for {$partyDisplay} or search the Daybook?",
-                'data' => [
-                    'party' => $party,
-                    'organization' => $org,
+            ],
+            'card_type' => 'not_found',
+            'actions' => [
+                [
+                    'label' => "📝 Draft Voucher for " . ($party ?: $org ?: "Party"),
+                    'action' => 'draft_prompt',
+                    'payload' => [
+                        'prompt' => "Paid Rs. 10,000 to " . ($party ?: $org) . ($org && stripos($party, $org) === false ? " ({$org})" : "")
+                    ]
                 ],
-                'card_type' => 'not_found',
-                'actions' => [
-                    [
-                        'label' => "📝 Draft Voucher for " . ($party ?: $org ?: "Party"),
-                        'action' => 'draft_prompt',
-                        'payload' => [
-                            'prompt' => "Paid Rs. 10,000 to " . ($party ?: $org) . ($org && stripos($party, $org) === false ? " ({$org})" : "")
-                        ]
-                    ],
-                    [
-                        'label' => '📄 View Daybook',
-                        'action' => 'navigate_page',
-                        'payload' => ['page' => 'daybook']
-                    ],
-                    [
-                        'label' => '📖 Chart of Accounts',
-                        'action' => 'navigate_page',
-                        'payload' => ['page' => 'coa']
-                    ],
-                ]
-            ];
-        }
+                [
+                    'label' => '📄 View Daybook',
+                    'action' => 'navigate_page',
+                    'payload' => ['page' => 'daybook']
+                ],
+                [
+                    'label' => '📖 Chart of Accounts',
+                    'action' => 'navigate_page',
+                    'payload' => ['page' => 'coa']
+                ],
+            ]
+        ];
+    }
 
-        // 9. Explicit Voucher Inquiries with Reference Pattern (e.g. "OB-2026-001")
-        if ($intent === 'INQUIRE_VOUCHER' || preg_match('/\b(ob|jv|pv|rv|cv|sv|rev)-[0-9a-z-]+\b/i', $prompt, $refMatch)) {
-            $searchService = app(SearchService::class);
-            $searchKey = $classification['reference'] ?? ($refMatch[0] ?? $entity ?? $prompt);
-            $vouchers = $searchService->searchVouchers($searchKey);
-
-            if (!empty($vouchers)) {
-                if (count($vouchers) === 1) {
-                    return $this->formatVoucherBrief($vouchers[0]);
-                }
-                return $this->formatDisambiguation($searchKey, $vouchers, []);
-            }
-        }
-
-        // 10. Explicit Account Inquiries & Balances (e.g. "What is the balance of Meezan Bank?", "Account 1130", "Cash in Hand")
-        $accountCandidate = $classification['account'] ?? '';
-        if (
-            $intent === 'INQUIRE_ACCOUNT' ||
-            (!empty($accountCandidate) && ($targetObject === 'account' || str_contains($promptLower, 'balance') || str_contains($promptLower, 'account'))) ||
-            str_starts_with($promptLower, 'balance') ||
-            str_contains($promptLower, 'balance of') ||
-            str_contains($promptLower, 'balance in') ||
-            preg_match('/^account\s+\d{4}$/i', $promptTrimmed)
-        ) {
-            $searchService = app(SearchService::class);
-            $accQuery = !empty($accountCandidate) ? $accountCandidate : trim(preg_replace('/^(what is the balance of|what is the balance in|what is the balance for|what is the balance|what is in|how much is in|how much in|balance of|balance in|balance for|balance|tell me about account|tell me about|show me account|show me|details of account|details of|account)\s+(the\s+|account\s+)?/i', '', $prompt), " ?.'\"");
-
-            $accounts = $searchService->searchAccounts($accQuery);
-
-            // Check exact 4-digit code match
-            if (preg_match('/\b(\d{4})\b/', $accQuery, $cm)) {
-                $exactAcc = collect($accounts)->firstWhere('code', $cm[1]);
-                if ($exactAcc) {
-                    return $this->formatAccountBrief($exactAcc);
-                }
-            }
-
-            // Check exact account name match
-            $exactName = collect($accounts)->first(function ($a) use ($accQuery) {
-                return strcasecmp($a['name'] ?? '', $accQuery) === 0;
-            });
-            if ($exactName) {
-                return $this->formatAccountBrief($exactName);
-            }
-
-            if (count($accounts) === 1) {
-                return $this->formatAccountBrief($accounts[0]);
-            }
-
-            if (count($accounts) > 1) {
-                return $this->formatDisambiguation($accQuery, [], $accounts);
-            }
-
-            // 0 accounts found
-            $activeCompany = DomainContext::get() ?: 'Active Company';
-            return [
-                'sender' => 'Taliya',
-                'intent' => 'account_not_found',
-                'message' => "I couldn't find any ledger account matching '**{$accQuery}**' in company [{$activeCompany}].\n\n" .
-                    "• Try searching by exact 4-digit code (e.g., `1110`, `1130`, `5100`)\n" .
-                    "• Or open the Chart of Accounts to view all available accounts:",
-                'data' => ['query' => $accQuery],
-                'card_type' => 'not_found',
-                'actions' => [
-                    ['label' => '📖 Chart of Accounts', 'action' => 'navigate_page', 'payload' => ['page' => 'coa']],
-                    ['label' => '📊 Trial Balance', 'action' => 'draft_prompt', 'payload' => ['prompt' => 'Show Trial Balance summary']],
-                ]
-            ];
-        }
-
-        // 11. Conversational Voucher Drafting
-        $isQuestionInquiry = (bool) preg_match('/^(what was|what did|what is|how much was|did we|was there|show|find|lookup|tell me about|check)\b/i', $promptTrimmed);
-        $promptWithoutDates = preg_replace('/\b[0-9]{1,2}\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|january|february|march|april|may|june|july|august|september|october|november|december)\b/i', '', $promptTrimmed);
-
-        if (
-            !$isQuestionInquiry && (
-                $intent === 'DRAFT_VOUCHER' ||
-                ((str_contains($promptLower, 'paid') ||
-                  str_contains($promptLower, 'pay ') ||
-                  str_contains($promptLower, 'payment') ||
-                  str_contains($promptLower, 'received') ||
-                  str_contains($promptLower, 'receipt') ||
-                  str_contains($promptLower, 'spent') ||
-                  str_contains($promptLower, 'transfer') ||
-                  str_contains($promptLower, 'record') ||
-                  str_contains($promptLower, 'draft voucher')) &&
-                 preg_match('/(?:rs\.?|pkr|\$)?\s*([0-9]+(?:,[0-9]{3})*(?:\.[0-9]{1,2})?)/i', $promptWithoutDates))
-            )
-        ) {
-            return $this->parseAndDraftVoucher($prompt, $copilotActor);
-        }
-
-        // 12. General Entity Search fallback (Multi-entity disambiguation)
-        $cleanQuery = !empty($entity) ? $entity : preg_replace('/^(tell me about|what is|how much is in|how much in|who is|show me|find|lookup|search for|search|details of|details for|info about|information about)\s+(the\s+|account\s+|voucher\s+)?/i', '', $prompt);
+    /**
+     * Fallback multi-entity search and disambiguation.
+     */
+    protected function handleFallbackSearch(array $semantic, string $prompt): array
+    {
+        $cleanQuery = !empty($semantic['entity_value']) ? $semantic['entity_value'] : preg_replace('/^(tell me about|what is|how much is in|how much in|who is|show me|find|lookup|search for|search|details of|details for|info about|information about)\s+(the\s+|account\s+|voucher\s+)?/i', '', $prompt);
         $cleanQuery = trim($cleanQuery, " ?:.'\"");
 
         if (!empty($cleanQuery)) {
@@ -749,7 +838,6 @@ class CopilotService
             $vouchers = $searchResult['vouchers'] ?? [];
             $accounts = $searchResult['accounts'] ?? [];
 
-            // Search users
             $users = \DB::table('users')
                 ->where(function ($q) use ($cleanQuery) {
                     $q->where('name', 'like', "%{$cleanQuery}%")
@@ -760,17 +848,14 @@ class CopilotService
 
             $totalMatches = count($vouchers) + count($accounts) + count($users);
 
-            // Exactly 1 Voucher Match (and 0 accounts/users)
             if (count($vouchers) === 1 && count($accounts) === 0 && count($users) === 0) {
                 return $this->formatVoucherBrief($vouchers[0]);
             }
 
-            // Exactly 1 Account Match (and 0 vouchers/users)
             if (count($accounts) === 1 && count($vouchers) === 0 && count($users) === 0) {
                 return $this->formatAccountBrief($accounts[0]);
             }
 
-            // Multiple Matches (Disambiguation required)
             if ($totalMatches > 1) {
                 return $this->formatDisambiguation($cleanQuery, $vouchers, $accounts, $users);
             }
@@ -792,24 +877,7 @@ class CopilotService
             ];
         }
 
-        // Default Help & Guidance
-        return [
-            'sender' => 'Taliya',
-            'intent' => 'general_guidance',
-            'message' => "Hello! I am **Taliya**, your Alamia Accounts AI Copilot. How can I help you with your double-entry accounting today?\n\n" .
-                "• **Entity Inquiries**: e.g., *\"Tell me about voucher OB-2026-001\"* or *\"What is the balance of Meezan Bank?\"*\n" .
-                "• **Voucher Drafting**: e.g., *\"Paid Rs. 25,000 for office rent via Meezan Bank\"*\n" .
-                "• **Account Lookups**: e.g., *\"Find bank accounts\"* or *\"Lookup utility expenses\"*\n" .
-                "• **Financial Statements**: e.g., *\"Show Trial Balance\"*, *\"View Profit & Loss\"*\n" .
-                "• **Operational Situations**: e.g., *\"Check situations\"* or *\"Any alerts?\"*",
-            'data' => null,
-            'card_type' => 'help',
-            'actions' => [
-                ['label' => '📄 View Daybook', 'action' => 'navigate_page', 'payload' => ['page' => 'daybook']],
-                ['label' => '🏦 Chart of Accounts', 'action' => 'navigate_page', 'payload' => ['page' => 'coa']],
-                ['label' => '📊 Trial Balance', 'action' => 'draft_prompt', 'payload' => ['prompt' => 'Show Trial Balance summary']],
-            ]
-        ];
+        return $this->handleHelp($semantic);
     }
 
     /**
@@ -1016,91 +1084,6 @@ class CopilotService
                 'options' => $options,
             ],
             'card_type' => 'disambiguation',
-        ];
-    }
-
-    /**
-     * Parse conversational transaction request into balanced voucher draft.
-     */
-    protected function parseAndDraftVoucher(string $prompt, $actor): array
-    {
-        // Extract amount (e.g. Rs. 45000, 45,000, 45000)
-        preg_match('/(?:rs\.?|pkr|\$)?\s*([0-9]+(?:,[0-9]{3})*(?:\.[0-9]{1,2})?)/i', $prompt, $amountMatch);
-        $amount = 0.0;
-        if (!empty($amountMatch[1])) {
-            $amount = (float) str_replace(',', '', $amountMatch[1]);
-        }
-
-        // Match accounts
-        $creditCode = null;
-        $debitCode = null;
-
-        if (stripos($prompt, 'transfer') !== false && preg_match('/from\s+([a-z0-9\s]+?)\s+to\s+([a-z0-9\s]+)/i', $prompt, $tMatch)) {
-            $fromStr = strtolower(trim($tMatch[1]));
-            $toStr = strtolower(trim($tMatch[2]));
-            $creditCode = str_contains($fromStr, 'cash') || $fromStr === '1110' ? '1110' : (str_contains($fromStr, 'alfalah') || $fromStr === '1135' ? '1135' : '1130');
-            $debitCode = str_contains($toStr, 'cash') || $toStr === '1110' ? '1110' : (str_contains($toStr, 'alfalah') || $toStr === '1135' ? '1135' : '1130');
-        } else {
-            if (stripos($prompt, 'meezan') !== false) {
-                $creditCode = '1130'; // Meezan Bank
-            } elseif (stripos($prompt, 'alfalah') !== false) {
-                $creditCode = '1135'; // Bank Alfalah
-            } elseif (stripos($prompt, 'bank') !== false) {
-                $creditCode = '1130';
-            } elseif (stripos($prompt, 'cash') !== false) {
-                $creditCode = '1110'; // Cash in Hand
-            }
-
-            if (stripos($prompt, 'office') !== false || stripos($prompt, 'supplies') !== false || stripos($prompt, 'stationery') !== false) {
-                $debitCode = '4600'; // Office Supplies
-            } elseif (stripos($prompt, 'rent') !== false) {
-                $debitCode = '4400'; // Rent Expense
-            } elseif (stripos($prompt, 'utilit') !== false || stripos($prompt, 'electric') !== false || stripos($prompt, 'bill') !== false) {
-                $debitCode = '4500'; // Utilities Expense
-            } elseif (stripos($prompt, 'salar') !== false || stripos($prompt, 'wage') !== false) {
-                $debitCode = '4300'; // Salaries & Wages
-            } elseif (stripos($prompt, 'sales') !== false || stripos($prompt, 'revenue') !== false) {
-                $creditCode = '3100'; // Sales Revenue
-                $debitCode = $debitCode ?? '1130';
-            }
-
-            // If received funds, flip default
-            if (stripos($prompt, 'received') !== false || stripos($prompt, 'customer') !== false) {
-                $temp = $debitCode;
-                $debitCode = $creditCode ?? '1130';
-                $creditCode = $temp ?? '3100';
-            }
-        }
-
-        // Fallback safe leaf accounts
-        $creditCode = $creditCode ?? '1130';
-        $debitCode = $debitCode ?? '4600';
-
-        $draft = Alamia360::capabilities()->execute('draft_voucher', [
-            'type' => 'journal',
-            'description' => $prompt,
-            'details' => [
-                [
-                    'account_code' => $debitCode,
-                    'debit' => $amount,
-                    'credit' => 0,
-                    'memo' => $prompt,
-                ],
-                [
-                    'account_code' => $creditCode,
-                    'debit' => 0,
-                    'credit' => $amount,
-                    'memo' => $prompt,
-                ],
-            ],
-        ], $actor);
-
-        return [
-            'sender' => 'Taliya',
-            'intent' => 'draft_voucher',
-            'message' => "I have prepared a draft journal voucher based on your request. Please review the details below before posting:",
-            'data' => $draft,
-            'card_type' => 'voucher_draft',
         ];
     }
 }

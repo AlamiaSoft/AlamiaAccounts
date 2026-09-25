@@ -117,6 +117,21 @@ export default function CopilotWidget({ companyCode }: { companyCode?: string })
     }
   }
 
+  // External opener event listener (e.g. from GlobalSearch "Ask Taliya")
+  useEffect(() => {
+    const handleOpen = (e: Event) => {
+      const detail = (e as CustomEvent).detail
+      setIsOpen(true)
+      if (detail?.prompt) {
+        setTimeout(() => {
+          sendMessage(detail.prompt, detail.context)
+        }, 120)
+      }
+    }
+    window.addEventListener("copilot:open", handleOpen)
+    return () => window.removeEventListener("copilot:open", handleOpen)
+  }, [companyCode])
+
   const handleActionClick = (actionItem: any) => {
     if (actionItem.action === "post_voucher") {
       sendMessage("", { action: "post_voucher", voucher: actionItem.payload })

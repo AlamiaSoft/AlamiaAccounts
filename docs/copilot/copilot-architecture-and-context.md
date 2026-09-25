@@ -77,3 +77,17 @@ The **Alamia Accounts MCP Server** exposes the complete double-entry accounting 
 5. `get_financial_statements(report_type: 'trial-balance' | 'profit-loss' | 'balance-sheet', date_or_period, company_code?)`: Returns mathematical reports.
 6. `manage_companies(action: 'list' | 'create' | 'switch', data?)`: Creates new tenant environments and auto-initializes the Chart of Accounts template.
 
+---
+
+## 6. Copilot Intent Classification & Routing Roadmap (TODO / TO-FIX)
+
+### Current Architecture:
+- Prompt routing utilizes heuristic rule triggers and regex patterns (`preg_match` for voucher references like `OB-`, `JV-`, `PV-`, and keyword matching for accounts/reports).
+
+### Target Architecture:
+- **Dedicated Intent Classifier Pipeline**:
+  1. **Intent Categorization**: Natural language router classifies incoming prompts into structured enum intents (`INQUIRE_VOUCHER`, `INQUIRE_ACCOUNT`, `INQUIRE_REPORT`, `SEARCH_GLOBAL`, `DRAFT_VOUCHER`, `REVERSE_VOUCHER`).
+  2. **Named Entity Recognition (NER)**: Extracts structured entities (`reference_code`, `account_identifier`, `monetary_amount`, `currency`, `date_range`, `contact_name`).
+  3. **Disambiguation Matrix**: When NER extracts multiple ambiguous entities across domain tables, returns ranked options for user selection before downstream capability execution.
+
+

@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef } from "react"
-import { Search, FileText, Wallet, BookOpen, Users, X, History, Trash2, Clock, CornerDownLeft } from "lucide-react"
+import { Search, FileText, Wallet, BookOpen, Users, X, History, Trash2, Clock, CornerDownLeft, Sparkles } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
 import { useSearch } from "@/hooks/use-search"
@@ -147,6 +147,38 @@ export default function GlobalSearch({ currentContext, onResultClick }: GlobalSe
     setSearchQuery("")
   }
 
+  const handleAskTaliya = (itemOrQuery: string | SearchResult | RecentSearchItem) => {
+    setIsOpen(false)
+    let prompt = ""
+    let context: any = undefined
+
+    if (typeof itemOrQuery === "string") {
+      prompt = `Tell me about ${itemOrQuery}`
+    } else if (itemOrQuery.type === "voucher") {
+      prompt = `Tell me about voucher ${itemOrQuery.id}`
+      context = { type: "voucher", id: itemOrQuery.id, raw: itemOrQuery.rawItem }
+    } else if (itemOrQuery.type === "account") {
+      prompt = `What is the balance and ledger for account ${itemOrQuery.id}?`
+      context = { type: "account", code: itemOrQuery.id, raw: itemOrQuery.rawItem }
+    } else if (itemOrQuery.type === "ledger") {
+      prompt = `Show ledger activity for ${itemOrQuery.title} (${itemOrQuery.id})`
+      context = { type: "ledger", code: itemOrQuery.id, raw: itemOrQuery.rawItem }
+    } else if (itemOrQuery.type === "user") {
+      prompt = `Tell me about user ${itemOrQuery.title}`
+      context = { type: "user", id: itemOrQuery.id, raw: itemOrQuery.rawItem }
+    } else {
+      prompt = `Tell me about ${(itemOrQuery as any).title || searchQuery}`
+    }
+
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(
+        new CustomEvent("copilot:open", {
+          detail: { prompt, context },
+        })
+      )
+    }
+  }
+
   const getIcon = (type: string) => {
     switch (type) {
       case "voucher":
@@ -203,48 +235,84 @@ export default function GlobalSearch({ currentContext, onResultClick }: GlobalSe
                 <span className="w-3.5 h-3.5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
                 <span>Searching ledger...</span>
               </div>
-            ) : liveResults.length === 0 ? (
-              <div className="p-6 text-center text-sm text-muted-foreground">
-                <p>No results found for &ldquo;<span className="font-semibold text-foreground">{searchQuery}</span>&rdquo;</p>
-                <p className="text-xs text-muted-foreground/80 mt-1">Try searching by voucher reference, account code, or description.</p>
-              </div>
             ) : (
-              <div className="py-2 overflow-y-auto max-h-[24rem]">
-                <div className="px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  Matching Results ({liveResults.length})
-                </div>
-                {liveResults.map((result, index) => (
+              <div>
+                {liveResults.length === 0 ? (
+                  <div className="p-5 text-center text-sm text-muted-foreground">
+                    <p>No results found for &ldquo;<span className="font-semibold text-foreground">{searchQuery}</span>&rdquo;</p>
+                    <p className="text-xs text-muted-foreground/80 mt-1">Try searching by voucher reference, account code, or description.</p>
+                  </div>
+                ) : (
+                  <div className="py-2 overflow-y-auto max-h-[20rem]">
+                    <div className="px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      Matching Results ({liveResults.length})
+                    </div>
+                    {liveResults.map((result, index) => (
+                      <div
+                        key={`${result.type}-${result.id}-${index}`}
+                        onClick={() => handleResultClick(result)}
+                        onMouseEnter={() => setActiveIndex(index)}
+                        className={cn(
+                          "w-full px-3.5 py-2.5 text-left hover:bg-accent/80 transition-colors flex items-start gap-3 group border-b border-border/40 last:border-0 cursor-pointer",
+                          index === activeIndex && "bg-accent"
+                        )}
+                      >
+                        <div className="mt-0.5 p-1.5 rounded-md bg-muted text-muted-foreground group-hover:text-primary group-hover:bg-primary/10 transition-colors">
+                          {getIcon(result.type)}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-foreground truncate group-hover:text-primary transition-colors">
+                            {result.title}
+                          </p>
+                          {result.subtitle && (
+                            <p className="text-xs text-muted-foreground truncate mt-0.5">
+                              {result.subtitle}
+                            </p>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleAskTaliya(result)
+                            }}
+                            className="px-2 py-1 rounded-md bg-primary/10 text-primary hover:bg-primary hover:text-primary-foreground transition-all flex items-center gap-1 text-[11px] font-medium opacity-0 group-hover:opacity-100 shadow-2xs cursor-pointer"
+                            title="Ask Taliya AI Copilot about this record"
+                          >
+                            <Sparkles className="w-3 h-3 text-amber-500 group-hover:text-primary-foreground" />
+                            <span>Ask Taliya</span>
+                          </button>
+                          <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-muted/60 text-muted-foreground capitalize">
+                            {result.type}
+                          </span>
+                          <CornerDownLeft className="w-3.5 h-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Persistent Ask Taliya Footer Banner */}
+                <div className="p-2 bg-gradient-to-r from-primary/10 via-primary/5 to-transparent border-t border-border">
                   <button
-                    key={`${result.type}-${result.id}-${index}`}
                     type="button"
-                    onClick={() => handleResultClick(result)}
-                    onMouseEnter={() => setActiveIndex(index)}
-                    className={cn(
-                      "w-full px-3.5 py-2.5 text-left hover:bg-accent/80 transition-colors flex items-start gap-3 group border-b border-border/40 last:border-0",
-                      index === activeIndex && "bg-accent"
-                    )}
+                    onClick={() => handleAskTaliya(searchQuery)}
+                    className="w-full py-2 px-3 rounded-lg bg-background hover:bg-accent border border-primary/20 hover:border-primary/40 text-left flex items-center justify-between text-xs transition-all group shadow-2xs cursor-pointer"
                   >
-                    <div className="mt-0.5 p-1.5 rounded-md bg-muted text-muted-foreground group-hover:text-primary group-hover:bg-primary/10 transition-colors">
-                      {getIcon(result.type)}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-foreground truncate group-hover:text-primary transition-colors">
-                        {result.title}
-                      </p>
-                      {result.subtitle && (
-                        <p className="text-xs text-muted-foreground truncate mt-0.5">
-                          {result.subtitle}
-                        </p>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-muted/60 text-muted-foreground capitalize">
-                        {result.type}
+                    <div className="flex items-center gap-2 truncate">
+                      <div className="w-5 h-5 rounded-full bg-primary/15 text-primary flex items-center justify-center shrink-0">
+                        <Sparkles className="w-3 h-3 text-primary animate-pulse" />
+                      </div>
+                      <span className="text-foreground truncate text-xs">
+                        Ask Taliya AI about &ldquo;<strong className="text-primary font-semibold">{searchQuery}</strong>&rdquo;
                       </span>
-                      <CornerDownLeft className="w-3.5 h-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
                     </div>
+                    <span className="text-[10px] text-muted-foreground group-hover:text-primary font-medium shrink-0 ml-2">
+                      Ask Copilot →
+                    </span>
                   </button>
-                ))}
+                </div>
               </div>
             )
           ) : (
@@ -259,7 +327,7 @@ export default function GlobalSearch({ currentContext, onResultClick }: GlobalSe
                   <button
                     type="button"
                     onClick={clearHistory}
-                    className="text-[11px] font-medium text-muted-foreground hover:text-destructive flex items-center gap-1 px-2 py-0.5 rounded hover:bg-destructive/10 transition-colors"
+                    className="text-[11px] font-medium text-muted-foreground hover:text-destructive flex items-center gap-1 px-2 py-0.5 rounded hover:bg-destructive/10 transition-colors cursor-pointer"
                   >
                     <Trash2 className="w-3 h-3" />
                     <span>Clear all</span>
@@ -304,6 +372,18 @@ export default function GlobalSearch({ currentContext, onResultClick }: GlobalSe
                       </div>
 
                       <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handleAskTaliya(item)
+                          }}
+                          className="px-2 py-1 rounded-md bg-primary/10 text-primary hover:bg-primary hover:text-primary-foreground transition-all flex items-center gap-1 text-[11px] font-medium opacity-0 group-hover:opacity-100 shadow-2xs cursor-pointer"
+                          title="Ask Taliya AI about this recent search"
+                        >
+                          <Sparkles className="w-3 h-3 text-amber-500 group-hover:text-primary-foreground" />
+                          <span>Ask Taliya</span>
+                        </button>
                         <span className="text-[10px] text-muted-foreground hidden sm:inline-block">
                           {formatRelativeTime(item.timestamp)}
                         </span>
@@ -316,7 +396,7 @@ export default function GlobalSearch({ currentContext, onResultClick }: GlobalSe
                             e.stopPropagation()
                             removeSearchItem(item.id, item.type)
                           }}
-                          className="p-1 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors opacity-70 hover:opacity-100"
+                          className="p-1 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors opacity-70 hover:opacity-100 cursor-pointer"
                           title="Remove from history"
                         >
                           <X className="w-3.5 h-3.5" />

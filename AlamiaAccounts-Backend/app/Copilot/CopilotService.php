@@ -140,6 +140,16 @@ class CopilotService
             ];
         }
 
+        /**
+         * TODO / ROADMAP (Intent Identification & Classification):
+         * Currently, prompt routing uses heuristic rule matching and regex patterns (preg_match)
+         * to identify entity references, reports, and voucher drafting.
+         * In a future release, this should be replaced / augmented with a dedicated Intent Classifier
+         * (e.g. LLM-based Intent Router or NLP Classifier) that categorizes prompts into structured
+         * intents (e.g. `INQUIRE_VOUCHER`, `INQUIRE_ACCOUNT_BALANCE`, `SEARCH_CONTACT`, `DRAFT_TRANSACTION`)
+         * with extracted named entities before capability dispatch.
+         */
+
         // 5. Explicit Voucher Inquiries with Reference Pattern (e.g. "OB-2026-001", "JV-20260924-142714")
         if (preg_match('/\b(ob|jv|pv|rv|cv|sv|rev)-[0-9a-z-]+\b/i', $prompt, $refMatch)) {
             $searchService = app(SearchService::class);

@@ -78,10 +78,28 @@ Welcome to **Alamia Accounts**. All AI agents operating on this repository must 
 | `/api/reports/balance-sheet` | `GET` | Assets, Liabilities, Equity & retained earnings balance |
 | `/api/reports/trial-balance` | `GET` | Debit/Credit trial balance (`Dr === Cr`) |
 | `/api/reports/profit-loss` | `GET` | Revenue, Expenses, and Net Profit |
+| `/api/search` | `GET` | Domain-scoped global search across vouchers, accounts, ledgers |
+| `/api/search/vouchers` | `GET` | Domain-scoped search specifically for vouchers & reference numbers |
+| `/api/search/accounts` | `GET` | Domain-scoped search for chart of accounts & subledgers |
 
 ---
 
-## 4. Documentation & Knowledgebase Standards
+## 4. UI/UX & Search Conventions
+
+1. **Global Search (`⌘K` / `Ctrl+K`)**:
+   - Live multi-field search for vouchers (reference, description, lines), accounts (code, name), and ledger transactions.
+   - Clicking search results immediately transitions to corresponding detail views (`VoucherView`, `AccountView`, `LedgerDetailView`).
+   - Tenant-scoped recent search history (`alamia_recent_searches_{companyCode}`) with LIFO order, single item removal, and "Clear all" capability.
+2. **Account Combobox & Table Stacking**:
+   - In dynamic tables (e.g. `voucher-line-items.tsx`), rows apply descending z-index (`zIndex: (lineItems.length - index) * 10`) to prevent dropdown clipping.
+   - Combobox containers receive `z-50` when active, with menu overlays at `z-[100]`.
+3. **Dynamic Tenant Reporting**:
+   - Financial report headers pull dynamically from the active company profile and print settings.
+   - `useEffect` handlers in report views must use equality guards to prevent infinite state update loops.
+
+---
+
+## 5. Documentation & Knowledgebase Standards
 
 - All architectural changes and core accounting logic additions must be documented in markdown under [`docs/`](file:///e:/Alamia/AlamiaAccounts/docs).
 - Technical chapters belong in `docs/manual/` with YAML frontmatter.

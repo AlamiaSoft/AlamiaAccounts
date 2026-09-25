@@ -72,6 +72,16 @@
    - Table includes **Action** column with **Reverse** button.
    - Reversal dialog prompts for documented reason.
    - Displays real-time `Reversed` badge on original vouchers and `Reversal` badge on compensating `REV-` vouchers.
+4. **Domain-Scoped Global Search & Recent Search History** (`components/global-search.tsx`, `hooks/use-search-history.ts`, `SearchService.php`):
+   - Rewrote `SearchService` to query domain-scoped vouchers, accounts, and ledger entries using `VoucherService` and `AccountService`.
+   - Added live search payload parsing in `app/page.tsx` for immediate navigation to `VoucherView`, `AccountView`, or `LedgerDetailView`.
+   - Implemented tenant-scoped recent search history (`alamia_recent_searches_{companyCode}`) with 10-item LIFO deduplication, individual `✕` item delete, and `Clear all` options.
+5. **Financial Reports Dynamic Branding & React State Guarding** (`components/financial-reports.tsx`, `components/report-view.tsx`, `app/page.tsx`):
+   - Replaced hardcoded "Acme Corporation" headers with dynamic tenant company name, address, phone, email, currency, and footer notes.
+   - Added equality guards on `setPrintSettings` and `setSelectedReport` `useEffect`s to eliminate maximum update depth errors.
+   - Added clean empty states for Trial Balance, Balance Sheet, and P&L.
+6. **Voucher Entry Combobox Visibility** (`components/account-combobox.tsx`, `components/voucher-line-items.tsx`):
+   - Applied descending stacking context on table rows (`zIndex: (lineItems.length - index) * 10`) and dynamic `z-50` container elevation with `z-[100]` popovers.
 
 ---
 

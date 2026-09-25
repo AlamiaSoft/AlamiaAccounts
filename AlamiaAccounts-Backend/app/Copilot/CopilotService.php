@@ -31,7 +31,8 @@ class CopilotService
                 'lookup_account', 'draft_voucher', 'post_voucher', 'get_financial_report', 'list_situations', 'search_entities'
             ]);
 
-        $promptLower = strtolower(trim($prompt));
+        $promptTrimmed = trim($prompt);
+        $promptLower = strtolower($promptTrimmed);
 
         // 1. Direct Action: Post Confirmed Voucher
         if (!empty($context['action']) && $context['action'] === 'post_voucher' && !empty($context['voucher'])) {
@@ -264,7 +265,63 @@ class CopilotService
             }
         }
 
-        // 10. Conversational Voucher Drafting
+        // 10. Explicit Account Inquiries & Balances (e.g. "What is the balance of Meezan Bank?", "Account 1130", "Cash in Hand")
+        $accountCandidate = $classification['account'] ?? '';
+        if (
+            $intent === 'INQUIRE_ACCOUNT' ||
+            (!empty($accountCandidate) && ($targetObject === 'account' || str_contains($promptLower, 'balance') || str_contains($promptLower, 'account'))) ||
+            str_starts_with($promptLower, 'balance') ||
+            str_contains($promptLower, 'balance of') ||
+            str_contains($promptLower, 'balance in') ||
+            preg_match('/^account\s+\d{4}$/i', $promptTrimmed)
+        ) {
+            $searchService = app(SearchService::class);
+            $accQuery = !empty($accountCandidate) ? $accountCandidate : trim(preg_replace('/^(what is the balance of|what is the balance in|what is the balance for|what is the balance|what is in|how much is in|how much in|balance of|balance in|balance for|balance|tell me about account|tell me about|show me account|show me|details of account|details of|account)\s+(the\s+|account\s+)?/i', '', $prompt), " ?.'\"");
+
+            $accounts = $searchService->searchAccounts($accQuery);
+
+            // Check exact 4-digit code match
+            if (preg_match('/\b(\d{4})\b/', $accQuery, $cm)) {
+                $exactAcc = collect($accounts)->firstWhere('code', $cm[1]);
+                if ($exactAcc) {
+                    return $this->formatAccountBrief($exactAcc);
+                }
+            }
+
+            // Check exact account name match
+            $exactName = collect($accounts)->first(function ($a) use ($accQuery) {
+                return strcasecmp($a['name'] ?? '', $accQuery) === 0;
+            });
+            if ($exactName) {
+                return $this->formatAccountBrief($exactName);
+            }
+
+            if (count($accounts) === 1) {
+                return $this->formatAccountBrief($accounts[0]);
+            }
+
+            if (count($accounts) > 1) {
+                return $this->formatDisambiguation($accQuery, [], $accounts);
+            }
+
+            // 0 accounts found
+            $activeCompany = DomainContext::get() ?: 'Active Company';
+            return [
+                'sender' => 'Taliya',
+                'intent' => 'account_not_found',
+                'message' => "I couldn't find any ledger account matching '**{$accQuery}**' in company [{$activeCompany}].\n\n" .
+                    "• Try searching by exact 4-digit code (e.g., `1110`, `1130`, `5100`)\n" .
+                    "• Or open the Chart of Accounts to view all available accounts:",
+                'data' => ['query' => $accQuery],
+                'card_type' => 'not_found',
+                'actions' => [
+                    ['label' => '📖 Chart of Accounts', 'action' => 'navigate_page', 'payload' => ['page' => 'coa']],
+                    ['label' => '📊 Trial Balance', 'action' => 'draft_prompt', 'payload' => ['prompt' => 'Show Trial Balance summary']],
+                ]
+            ];
+        }
+
+        // 11. Conversational Voucher Drafting
         if (
             $intent === 'DRAFT_VOUCHER' ||
             ((str_contains($promptLower, 'paid') ||
@@ -276,8 +333,8 @@ class CopilotService
             return $this->parseAndDraftVoucher($prompt, $copilotActor);
         }
 
-        // 11. General Entity Search & Account/Voucher/Contact Inquiries
-        $cleanQuery = !empty($entity) ? $entity : preg_replace('/^(tell me about|what is the balance of|what is the balance in|what is the balance|what is|how much is in|how much in|balance of|who is|show me|find|lookup|search for|search|details of|details for|info about|information about)\s+(the\s+|account\s+|voucher\s+)?/i', '', $prompt);
+        // 12. General Entity Search fallback (Multi-entity disambiguation)
+        $cleanQuery = !empty($entity) ? $entity : preg_replace('/^(tell me about|what is|how much is in|how much in|who is|show me|find|lookup|search for|search|details of|details for|info about|information about)\s+(the\s+|account\s+|voucher\s+)?/i', '', $prompt);
         $cleanQuery = trim($cleanQuery, " ?:.'\"");
 
         if (!empty($cleanQuery)) {
@@ -296,31 +353,6 @@ class CopilotService
                 ->toArray();
 
             $totalMatches = count($vouchers) + count($accounts) + count($users);
-
-            // Prioritize Exact Account Code Match (e.g. "account 1130" or query is 4 digits)
-            if (preg_match('/\b(\d{4})\b/', $cleanQuery, $codeMatch) || preg_match('/\baccount\s+(\d{4})\b/i', $prompt, $codeMatch)) {
-                $exactAccount = collect($accounts)->firstWhere('code', $codeMatch[1]);
-                if ($exactAccount) {
-                    return $this->formatAccountBrief($exactAccount);
-                }
-            }
-
-            // Prioritize Exact Voucher Reference Match when user explicitly asks for voucher
-            if (($intent === 'INQUIRE_VOUCHER' || str_contains($promptLower, 'voucher')) && !empty($vouchers)) {
-                $exactVoucher = collect($vouchers)->first(function ($v) use ($cleanQuery) {
-                    return stripos($v['reference'] ?? '', $cleanQuery) !== false;
-                });
-                if ($exactVoucher) {
-                    return $this->formatVoucherBrief($exactVoucher);
-                }
-            }
-
-            // Prioritize Account Match when intent is INQUIRE_ACCOUNT
-            if ($intent === 'INQUIRE_ACCOUNT' && !empty($accounts)) {
-                if (count($accounts) === 1) {
-                    return $this->formatAccountBrief($accounts[0]);
-                }
-            }
 
             // Exactly 1 Voucher Match (and 0 accounts/users)
             if (count($vouchers) === 1 && count($accounts) === 0 && count($users) === 0) {
@@ -614,10 +646,22 @@ class CopilotService
         $debitCode = $debitCode ?? '4600';
 
         $draft = Alamia360::capabilities()->execute('draft_voucher', [
+            'type' => 'journal',
             'description' => $prompt,
-            'amount' => $amount,
-            'credit_account' => $creditCode,
-            'debit_account' => $debitCode,
+            'details' => [
+                [
+                    'account_code' => $debitCode,
+                    'debit' => $amount,
+                    'credit' => 0,
+                    'memo' => $prompt,
+                ],
+                [
+                    'account_code' => $creditCode,
+                    'debit' => 0,
+                    'credit' => $amount,
+                    'memo' => $prompt,
+                ],
+            ],
         ], $actor);
 
         return [

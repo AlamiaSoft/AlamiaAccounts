@@ -57,7 +57,27 @@ class SearchService
     }
 
     /**
-     * Search transactions/vouchers by party, contact, organization, or human relationships
+     * Normalize person contact names by stripping honorifics and cleaning whitespace
+     */
+    public static function normalizePersonName(string $name): string
+    {
+        $cleaned = preg_replace('/^(mr\.?|mrs\.?|ms\.?|dr\.?|prof\.?|eng\.?|shk\.?|sheikh|janab|sb\.?|sahib)\s+/i', '', trim($name));
+        $cleaned = preg_replace('/[^\p{L}\p{N}\s]/u', ' ', $cleaned);
+        return trim(preg_replace('/\s+/', ' ', $cleaned));
+    }
+
+    /**
+     * Normalize organization names by stripping corporate suffixes and legal identifiers
+     */
+    public static function normalizeOrganizationName(string $name): string
+    {
+        $cleaned = preg_replace('/\b(ltd\.?|limited|inc\.?|incorporated|corp\.?|corporation|pvt\.?|private|llc|plc|co\.?|company)\b/i', '', trim($name));
+        $cleaned = preg_replace('/[^\p{L}\p{N}\s]/u', ' ', $cleaned);
+        return trim(preg_replace('/\s+/', ' ', $cleaned));
+    }
+
+    /**
+     * Search transactions/vouchers by party, contact, organization, or human relationships with relevance scoring
      */
     public function searchTransactionsByParty(array $filters, ?string $domainCode = null): array
     {
@@ -66,10 +86,11 @@ class SearchService
         }
 
         $allVouchers = $this->voucherService->getJournalEntries();
-        $party = strtolower(trim($filters['party'] ?? ''));
-        $partyClean = trim(preg_replace('/^(mr\.?|mrs\.?|ms\.?|dr\.?)\s+/i', '', $party));
-        $org = strtolower(trim($filters['organization'] ?? ''));
-        $orgClean = trim(preg_replace('/\b(ltd\.?|limited|inc\.?|corp\.?|pvt\.?|private)\b/i', '', $org));
+        $rawParty = trim($filters['party'] ?? '');
+        $rawOrg = trim($filters['organization'] ?? '');
+
+        $partyClean = strtolower(self::normalizePersonName($rawParty));
+        $orgClean = strtolower(self::normalizeOrganizationName($rawOrg));
 
         $partyTokens = array_filter(explode(' ', $partyClean), fn($t) => strlen($t) >= 2);
         $orgTokens = array_filter(explode(' ', $orgClean), fn($t) => strlen($t) >= 2);
@@ -78,46 +99,112 @@ class SearchService
             return [];
         }
 
-        $filtered = $allVouchers->filter(function ($v) use ($partyClean, $orgClean, $partyTokens, $orgTokens) {
+        $scoredVouchers = [];
+
+        foreach ($allVouchers as $v) {
+            $score = 0;
+            $matchReasons = [];
             $desc = strtolower($v['description'] ?? '');
             $ref = strtolower($v['reference'] ?? '');
 
-            // Exact phrase match in description or reference
-            if (!empty($partyClean) && (str_contains($desc, $partyClean) || str_contains($ref, $partyClean))) return true;
-            if (!empty($orgClean) && (str_contains($desc, $orgClean) || str_contains($ref, $orgClean))) return true;
+            $partyMatched = false;
+            $orgMatched = false;
 
+            // 1. Exact Party Match in header or lines
+            if (!empty($partyClean)) {
+                if (str_contains($desc, $partyClean)) {
+                    $score += 50;
+                    $partyMatched = true;
+                    $matchReasons[] = "Party '{$rawParty}' in description";
+                }
+            }
+
+            // 2. Exact Org Match in header
+            if (!empty($orgClean)) {
+                if (str_contains($desc, $orgClean)) {
+                    $score += 50;
+                    $orgMatched = true;
+                    $matchReasons[] = "Organization '{$rawOrg}' in description";
+                }
+            }
+
+            // 3. Line Items / Memos / Subledger inspection
             $lines = $v['lineItems'] ?? $v['line_items'] ?? $v['details'] ?? [];
             foreach ($lines as $line) {
                 $memo = strtolower($line['memo'] ?? $line['description'] ?? '');
                 $accName = strtolower($line['account_name'] ?? $line['raw_name'] ?? '');
 
-                if (!empty($partyClean) && (str_contains($memo, $partyClean) || str_contains($accName, $partyClean))) return true;
-                if (!empty($orgClean) && (str_contains($memo, $orgClean) || str_contains($accName, $orgClean))) return true;
+                if (!empty($partyClean) && (str_contains($memo, $partyClean) || str_contains($accName, $partyClean))) {
+                    $score += 40;
+                    $partyMatched = true;
+                    $matchReasons[] = "Party '{$rawParty}' in line item memo";
+                }
+
+                if (!empty($orgClean) && (str_contains($memo, $orgClean) || str_contains($accName, $orgClean))) {
+                    $score += 40;
+                    $orgMatched = true;
+                    $matchReasons[] = "Organization '{$rawOrg}' in line item memo";
+                }
             }
 
-            // Party token matching
-            if (!empty($partyTokens)) {
-                $matched = 0;
+            // 4. Token Matching Fallback
+            if (!$partyMatched && !empty($partyTokens)) {
+                $tokHits = 0;
                 foreach ($partyTokens as $tok) {
-                    if (str_contains($desc, $tok)) { $matched++; continue; }
+                    if (str_contains($desc, $tok)) { $tokHits++; continue; }
                     foreach ($lines as $line) {
                         $memo = strtolower($line['memo'] ?? '');
                         $accName = strtolower($line['account_name'] ?? '');
                         if (str_contains($memo, $tok) || str_contains($accName, $tok)) {
-                            $matched++;
+                            $tokHits++;
                             break;
                         }
                     }
                 }
-                if ($matched === count($partyTokens)) {
-                    return true;
+                if ($tokHits === count($partyTokens)) {
+                    $score += 25;
+                    $partyMatched = true;
+                    $matchReasons[] = "Party tokens matched";
                 }
             }
 
-            return false;
-        });
+            if (!$orgMatched && !empty($orgTokens)) {
+                $tokHits = 0;
+                foreach ($orgTokens as $tok) {
+                    if (str_contains($desc, $tok)) { $tokHits++; continue; }
+                    foreach ($lines as $line) {
+                        $memo = strtolower($line['memo'] ?? '');
+                        $accName = strtolower($line['account_name'] ?? '');
+                        if (str_contains($memo, $tok) || str_contains($accName, $tok)) {
+                            $tokHits++;
+                            break;
+                        }
+                    }
+                }
+                if ($tokHits === count($orgTokens)) {
+                    $score += 25;
+                    $orgMatched = true;
+                    $matchReasons[] = "Organization tokens matched";
+                }
+            }
 
-        return $filtered->values()->take(50)->toArray();
+            // 5. Compound Relationship Bonus
+            if (!empty($partyClean) && !empty($orgClean) && $partyMatched && $orgMatched) {
+                $score += 60; // Strong relationship bonus
+                $matchReasons[] = "Matched both party and organization relationship";
+            }
+
+            if ($score > 0) {
+                $v['_score'] = $score;
+                $v['_match_reasons'] = array_unique($matchReasons);
+                $scoredVouchers[] = $v;
+            }
+        }
+
+        // Sort descending by score
+        usort($scoredVouchers, fn($a, $b) => ($b['_score'] ?? 0) <=> ($a['_score'] ?? 0));
+
+        return array_slice($scoredVouchers, 0, 50);
     }
 
     /**

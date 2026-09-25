@@ -48,26 +48,32 @@ You are an intent and entity classification engine for Alamia Accounts double-en
 Analyze the user query and return JSON ONLY matching this exact schema:
 {
   "intent": "FIND_TRANSACTION" | "INQUIRE_VOUCHER" | "INQUIRE_ACCOUNT" | "INQUIRE_REPORT" | "DRAFT_VOUCHER" | "LIST_SITUATIONS" | "GENERAL_SEARCH" | "GREETING" | "HELP" | "UNKNOWN",
-  "party": "extracted contact person / party name (e.g. 'Ali Raza', 'Mr. Ali Raza') or empty string",
-  "organization": "extracted company / organization / customer / vendor name (e.g. 'Izoc Ltd', 'Meezan Bank') or empty string",
+  "party": "extracted contact person / party name (e.g. 'Ali Raza') or empty string",
+  "organization": "extracted company / client / vendor name (e.g. 'Izoc Ltd') or empty string",
   "target_object": "voucher" | "account" | "report" | "contact" | null,
   "reference": "extracted voucher reference (e.g. 'OB-2026-001', 'JV-102') or empty string",
-  "account": "extracted account code or account name or empty string",
+  "account": "extracted account code or account name (e.g. 'Meezan Bank', '1130', 'Cash in Hand') or empty string",
   "report_type": "trial-balance" | "profit-loss" | "balance-sheet" | "cash-flow" | null,
   "is_correction": true or false,
   "confidence": float between 0.0 and 1.0
 }
 
-Intents:
-- FIND_TRANSACTION: User asking to find or see a transaction, voucher, invoice, payment, or receipt involving a specific person, party, contact, or organization (e.g. "transaction with Mr. Ali Raza of Izoc Ltd", "show voucher for Ali", "payment to supplier")
-- INQUIRE_VOUCHER: User asking for voucher details or specific reference (e.g. "Tell me about voucher OB-2026-001", "Show JV-102")
-- INQUIRE_ACCOUNT: User asking for account balance or ledger (e.g. "What is the balance of Meezan Bank?", "Account 1130", "Cash account")
-- INQUIRE_REPORT: User asking for financial statements (e.g. "Show Trial Balance", "Profit and loss summary", "Balance sheet")
-- DRAFT_VOUCHER: User wants to record/draft a financial entry (e.g. "Paid Rs. 25,000 for rent", "Received 50,000 from Ali")
-- LIST_SITUATIONS: User asking for pending approvals, alerts, or anomalies
-- GENERAL_SEARCH: User searching generally for contacts or keywords
-- GREETING: User saying hello/hi/greetings (e.g. "hello", "hi", "hey", "hello Ali Raza", "good morning", "salam")
-- HELP: User asking what you can do or guidance (e.g. "who are you", "help", "what can you do")
+Intents & Guidelines:
+- INQUIRE_ACCOUNT: Questions about account balances, ledgers, banks, cash, or chart of accounts (e.g. "What is the balance of Meezan Bank?", "Balance of Meezan Bank", "Account 1130", "Cash in hand balance", "Ledger for 1110")
+- INQUIRE_VOUCHER: Inquiries about a specific voucher reference or voucher details (e.g. "Tell me about voucher OB-2026-001", "Show JV-2026-001")
+- FIND_TRANSACTION: Searching for transactions/vouchers involving a person, contact, client, or organization (e.g. "Transaction with Mr. Ali Raza of Izoc Ltd", "Voucher with Ali", "Find payment to Izoc")
+- INQUIRE_REPORT: Financial reports (e.g. "Show Trial Balance", "Profit and Loss", "Balance Sheet")
+- DRAFT_VOUCHER: Recording or drafting a financial transaction with an amount (e.g. "Paid Rs. 25,000 for office supplies via Meezan Bank", "Received 50,000 from customer")
+- LIST_SITUATIONS: Unresolved alerts or approvals (e.g. "Show situations", "Any pending alerts?")
+- GREETING: "Hello", "Hi", "Salam", "Hey"
+- HELP: "Help", "What can you do?", "Who are you?"
+
+Examples:
+- "What is the balance of Meezan Bank?" -> {"intent": "INQUIRE_ACCOUNT", "party": "", "organization": "", "target_object": "account", "reference": "", "account": "Meezan Bank", "report_type": null, "is_correction": false, "confidence": 0.98}
+- "Account 1130" -> {"intent": "INQUIRE_ACCOUNT", "party": "", "organization": "", "target_object": "account", "reference": "", "account": "1130", "report_type": null, "is_correction": false, "confidence": 0.98}
+- "Tell me about voucher OB-2026-001" -> {"intent": "INQUIRE_VOUCHER", "party": "", "organization": "", "target_object": "voucher", "reference": "OB-2026-001", "account": "", "report_type": null, "is_correction": false, "confidence": 0.98}
+- "Transaction with Mr. Ali Raza of Izoc Ltd" -> {"intent": "FIND_TRANSACTION", "party": "Ali Raza", "organization": "Izoc Ltd", "target_object": "voucher", "reference": "", "account": "", "report_type": null, "is_correction": false, "confidence": 0.95}
+- "Paid Rs. 25,000 for office supplies via Meezan Bank" -> {"intent": "DRAFT_VOUCHER", "party": "", "organization": "", "target_object": "voucher", "reference": "", "account": "Meezan Bank", "report_type": null, "is_correction": false, "confidence": 0.95}
 
 {$contextSnippet}User query: "$prompt"
 PROMPT;
@@ -94,17 +100,25 @@ PROMPT;
                 if (is_string($rawOutput)) {
                     $parsed = json_decode($rawOutput, true);
                     if (is_array($parsed) && !empty($parsed['intent'])) {
+                        $party = trim($parsed['party'] ?? '');
+                        $org = trim($parsed['organization'] ?? '');
+                        $ref = trim($parsed['reference'] ?? '');
+                        $acc = trim($parsed['account'] ?? '');
+
+                        // Derive typed non-empty entity
+                        $entity = !empty($acc) ? $acc : (!empty($ref) ? $ref : (!empty($party) ? $party : $org));
+
                         return [
                             'success' => true,
                             'source' => 'llm',
                             'model' => $model,
                             'intent' => strtoupper(trim($parsed['intent'])),
-                            'party' => trim($parsed['party'] ?? ''),
-                            'organization' => trim($parsed['organization'] ?? ''),
+                            'party' => $party,
+                            'organization' => $org,
                             'target_object' => $parsed['target_object'] ?? null,
-                            'reference' => trim($parsed['reference'] ?? ''),
-                            'account' => trim($parsed['account'] ?? ''),
-                            'entity' => trim($parsed['party'] ?? $parsed['organization'] ?? $parsed['reference'] ?? $parsed['account'] ?? ''),
+                            'reference' => $ref,
+                            'account' => $acc,
+                            'entity' => $entity,
                             'report_type' => $parsed['report_type'] ?? null,
                             'is_correction' => (bool) ($parsed['is_correction'] ?? false),
                             'confidence' => (float) ($parsed['confidence'] ?? 0.95),
@@ -169,7 +183,132 @@ PROMPT;
             ];
         }
 
-        // 3. Find Transaction / Voucher for Party or Organization
+        // 3. Voucher Reference Match (e.g. OB-2026-001, JV-1002)
+        if (preg_match('/\b(ob|jv|pv|rv|cv|sv|rev)-[0-9a-z-]+\b/i', $prompt, $matches)) {
+            return [
+                'success' => true,
+                'source' => 'heuristic',
+                'intent' => 'INQUIRE_VOUCHER',
+                'party' => '',
+                'organization' => '',
+                'target_object' => 'voucher',
+                'reference' => $matches[0],
+                'account' => '',
+                'entity' => $matches[0],
+                'report_type' => null,
+                'is_correction' => false,
+                'confidence' => 0.95,
+            ];
+        }
+
+        // 4. Financial Reports
+        if (str_contains($promptLower, 'trial balance') || str_contains($promptLower, 'tb')) {
+            return [
+                'success' => true,
+                'source' => 'heuristic',
+                'intent' => 'INQUIRE_REPORT',
+                'party' => '',
+                'organization' => '',
+                'target_object' => 'report',
+                'reference' => '',
+                'account' => '',
+                'entity' => '',
+                'report_type' => 'trial-balance',
+                'is_correction' => false,
+                'confidence' => 0.95,
+            ];
+        }
+        if (str_contains($promptLower, 'profit') || str_contains($promptLower, 'loss') || str_contains($promptLower, 'p&l')) {
+            return [
+                'success' => true,
+                'source' => 'heuristic',
+                'intent' => 'INQUIRE_REPORT',
+                'party' => '',
+                'organization' => '',
+                'target_object' => 'report',
+                'reference' => '',
+                'account' => '',
+                'entity' => '',
+                'report_type' => 'profit-loss',
+                'is_correction' => false,
+                'confidence' => 0.95,
+            ];
+        }
+        if (str_contains($promptLower, 'balance sheet') || str_contains($promptLower, 'financial position')) {
+            return [
+                'success' => true,
+                'source' => 'heuristic',
+                'intent' => 'INQUIRE_REPORT',
+                'party' => '',
+                'organization' => '',
+                'target_object' => 'report',
+                'reference' => '',
+                'account' => '',
+                'entity' => '',
+                'report_type' => 'balance-sheet',
+                'is_correction' => false,
+                'confidence' => 0.95,
+            ];
+        }
+
+        // 5. Voucher Drafting with financial action AND amount (e.g. "Paid Rs. 25,000 for office supplies")
+        if (
+            (str_contains($promptLower, 'paid') ||
+             str_contains($promptLower, 'received') ||
+             str_contains($promptLower, 'spent') ||
+             str_contains($promptLower, 'transfer') ||
+             str_contains($promptLower, 'draft voucher')) &&
+            preg_match('/(?:rs\.?|pkr|\$)?\s*([0-9]+(?:,[0-9]{3})*(?:\.[0-9]{1,2})?)/i', $prompt)
+        ) {
+            return [
+                'success' => true,
+                'source' => 'heuristic',
+                'intent' => 'DRAFT_VOUCHER',
+                'party' => '',
+                'organization' => '',
+                'target_object' => 'voucher',
+                'reference' => '',
+                'account' => '',
+                'entity' => '',
+                'report_type' => null,
+                'is_correction' => false,
+                'confidence' => 0.90,
+            ];
+        }
+
+        // 6. Account Inquiries & Balances (e.g. "What is the balance of Meezan Bank?", "Balance of Meezan Bank", "Account 1130", "Cash in Hand")
+        $cleanedAccount = preg_replace('/^(what is the balance of|what is the balance in|what is the balance for|what is the balance|what is in|how much is in|how much in|balance of|balance in|balance for|balance|tell me about account|tell me about|show me account|show me|details of account|details of|account)\s+(the\s+|account\s+)?/i', '', $promptTrimmed);
+        $cleanedAccount = trim($cleanedAccount, " ?.\"'");
+
+        $isAccountIntent = (
+            preg_match('/^[0-9]{4}$/', $cleanedAccount) ||
+            str_starts_with($promptLower, 'balance') ||
+            str_contains($promptLower, 'balance of') ||
+            str_contains($promptLower, 'balance in') ||
+            str_starts_with($promptLower, 'account') ||
+            str_contains($promptLower, 'bank') ||
+            str_contains($promptLower, 'cash') ||
+            str_contains($promptLower, 'ledger')
+        ) && !str_contains($promptLower, 'transaction') && !str_contains($promptLower, 'voucher');
+
+        if ($isAccountIntent && !empty($cleanedAccount)) {
+            return [
+                'success' => true,
+                'source' => 'heuristic',
+                'intent' => 'INQUIRE_ACCOUNT',
+                'party' => '',
+                'organization' => '',
+                'target_object' => 'account',
+                'reference' => '',
+                'account' => $cleanedAccount,
+                'entity' => $cleanedAccount,
+                'report_type' => null,
+                'is_correction' => false,
+                'confidence' => 0.90,
+            ];
+        }
+
+        // 7. Find Transaction / Voucher for Party or Organization
         if (
             str_contains($promptLower, 'transaction with') ||
             str_contains($promptLower, 'see its voucher') ||
@@ -177,9 +316,8 @@ PROMPT;
             str_contains($promptLower, 'voucher with') ||
             str_contains($promptLower, 'payment to') ||
             str_contains($promptLower, 'receipt from') ||
-            $isCorrection
+            ($isCorrection && (str_contains($promptLower, 'transaction') || str_contains($promptLower, 'voucher') || str_contains($promptLower, 'mr.') || str_contains($promptLower, 'ltd')))
         ) {
-            // Extract party & org
             $party = '';
             $org = '';
             if (preg_match('/(?:with|for|to|from)\s+(?:mr\.?|ms\.?|mrs\.?|dr\.?)?\s*([a-z\s]+?)(?:\s+of|\s+from|\s+in|\s+at|\.|\;|\,|$)/i', $prompt, $pMatch)) {
@@ -205,99 +343,7 @@ PROMPT;
             ];
         }
 
-        // 4. Voucher Reference Match (e.g. OB-2026-001, JV-1002)
-        if (preg_match('/\b(ob|jv|pv|rv|cv|sv|rev)-[0-9a-z-]+\b/i', $prompt, $matches)) {
-            return [
-                'success' => true,
-                'source' => 'heuristic',
-                'intent' => 'INQUIRE_VOUCHER',
-                'party' => '',
-                'organization' => '',
-                'target_object' => 'voucher',
-                'reference' => $matches[0],
-                'account' => '',
-                'entity' => $matches[0],
-                'report_type' => null,
-                'is_correction' => false,
-                'confidence' => 0.90,
-            ];
-        }
-
-        // 5. Financial Reports
-        if (str_contains($promptLower, 'trial balance') || str_contains($promptLower, 'tb')) {
-            return [
-                'success' => true,
-                'source' => 'heuristic',
-                'intent' => 'INQUIRE_REPORT',
-                'party' => '',
-                'organization' => '',
-                'target_object' => 'report',
-                'reference' => '',
-                'account' => '',
-                'entity' => '',
-                'report_type' => 'trial-balance',
-                'is_correction' => false,
-                'confidence' => 0.90,
-            ];
-        }
-        if (str_contains($promptLower, 'profit') || str_contains($promptLower, 'loss') || str_contains($promptLower, 'p&l')) {
-            return [
-                'success' => true,
-                'source' => 'heuristic',
-                'intent' => 'INQUIRE_REPORT',
-                'party' => '',
-                'organization' => '',
-                'target_object' => 'report',
-                'reference' => '',
-                'account' => '',
-                'entity' => '',
-                'report_type' => 'profit-loss',
-                'is_correction' => false,
-                'confidence' => 0.90,
-            ];
-        }
-        if (str_contains($promptLower, 'balance sheet') || str_contains($promptLower, 'position')) {
-            return [
-                'success' => true,
-                'source' => 'heuristic',
-                'intent' => 'INQUIRE_REPORT',
-                'party' => '',
-                'organization' => '',
-                'target_object' => 'report',
-                'reference' => '',
-                'account' => '',
-                'entity' => '',
-                'report_type' => 'balance-sheet',
-                'is_correction' => false,
-                'confidence' => 0.90,
-            ];
-        }
-
-        // 6. Voucher Drafting
-        if (
-            (str_contains($promptLower, 'paid') ||
-             str_contains($promptLower, 'received') ||
-             str_contains($promptLower, 'transfer') ||
-             str_contains($promptLower, 'draft voucher')) &&
-            preg_match('/(?:rs\.?|pkr|\$)?\s*([0-9]+(?:,[0-9]{3})*(?:\.[0-9]{1,2})?)/i', $prompt)
-        ) {
-            return [
-                'success' => true,
-                'source' => 'heuristic',
-                'intent' => 'DRAFT_VOUCHER',
-                'party' => '',
-                'organization' => '',
-                'target_object' => 'voucher',
-                'reference' => '',
-                'account' => '',
-                'entity' => '',
-                'report_type' => null,
-                'is_correction' => false,
-                'confidence' => 0.85,
-            ];
-        }
-
-        // 7. Situations / Approvals
+        // 8. Situations / Approvals
         if (str_contains($promptLower, 'situation') || str_contains($promptLower, 'pending') || str_contains($promptLower, 'approval')) {
             return [
                 'success' => true,
@@ -315,26 +361,9 @@ PROMPT;
             ];
         }
 
-        // 8. Account or General Entity Search
-        $entity = preg_replace('/^(tell me about|what is the balance of|balance in|what is|how much in|search for|search|lookup)\s+/i', '', trim($prompt));
+        // 9. General Entity Search fallback
+        $entity = preg_replace('/^(tell me about|what is|how much in|search for|search|lookup|who is|show)\s+/i', '', $promptTrimmed);
         $entity = trim($entity, " ?.\"'");
-
-        if (preg_match('/^[0-9]{4}$/', $entity) || str_starts_with($promptLower, 'balance') || str_starts_with($promptLower, 'account')) {
-            return [
-                'success' => true,
-                'source' => 'heuristic',
-                'intent' => 'INQUIRE_ACCOUNT',
-                'party' => '',
-                'organization' => '',
-                'target_object' => 'account',
-                'reference' => '',
-                'account' => $entity,
-                'entity' => $entity,
-                'report_type' => null,
-                'is_correction' => false,
-                'confidence' => 0.80,
-            ];
-        }
 
         return [
             'success' => true,

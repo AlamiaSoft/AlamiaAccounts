@@ -493,6 +493,23 @@ class CopilotService
         $currency = $a['currency'] ?? 'PKR';
         $isCategory = (bool)($a['category'] ?? false);
 
+        $latestVoucherText = "";
+        try {
+            $searchService = app(SearchService::class);
+            $recentVouchers = $searchService->searchVouchers($code);
+            if (!empty($recentVouchers)) {
+                $latestV = $recentVouchers[0];
+                $latestRef = $latestV['reference'] ?? $latestV['number'] ?? '';
+                $latestDate = $latestV['date'] ?? '';
+                $latestDesc = $latestV['description'] ?? '';
+                if ($latestRef) {
+                    $latestVoucherText = "• **Recent Activity**: Posted via **{$latestRef}**" . ($latestDate ? " ({$latestDate})" : "") . (!empty($latestDesc) ? " — {$latestDesc}" : "") . "\n";
+                }
+            }
+        } catch (\Throwable $e) {
+            // Ignore optional activity lookup failure
+        }
+
         return [
             'sender' => 'Taliya',
             'intent' => 'entity_account_brief',
@@ -500,6 +517,7 @@ class CopilotService
                 "• **Classification**: {$type}" . ($isCategory ? " (Folder Category — Non-Posting)" : " (Leaf Posting Account)") . "\n" .
                 "• **Current Balance**: {$currency} " . number_format($balance, 2) . "\n" .
                 (!empty($a['parent_code']) ? "• **Parent Folder**: [{$a['parent_code']}]\n" : "") .
+                $latestVoucherText .
                 "\nHow would you like to proceed with this account?",
             'data' => [
                 'type' => 'account',

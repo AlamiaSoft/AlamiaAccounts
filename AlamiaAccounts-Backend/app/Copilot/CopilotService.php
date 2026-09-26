@@ -325,15 +325,46 @@ class CopilotService
         $guidanceService = app(GuidanceKnowledgeService::class);
         $guidance = $guidanceService->getGuidance($prompt, $context);
 
+        // Confidence Floor Check: If query did not match any indexed ERP guidance topic
+        if ($guidance === null) {
+            if (preg_match('/\b(help|feature|capabilities|menu|options|commands)\b/i', $prompt)) {
+                return $this->handleHelp($semantic);
+            }
+            return $this->handleChitChatRefusal($prompt);
+        }
+
         $activeRef = $context['state']['active_voucher']['reference'] ?? '';
         $actions = $guidance['actions'] ?? [];
 
-        // Contextual Bridge: If user asks how to fix a voucher and active voucher is in session, offer direct staging CTA
+        // Contextual Bridge: If user asks how to fix a voucher and active voucher is in session, validate amount before offering CTA
         if (!empty($activeRef) && (str_contains(strtolower($prompt), 'fix') || str_contains(strtolower($prompt), 'correct') || str_contains(strtolower($prompt), 'amount'))) {
+            $contextService = app(ConversationContextService::class);
+            $amtAnalysis = $contextService->extractValidatedAmount($prompt);
+            $valAmount = $amtAnalysis['amount'];
+            $isAmbiguous = $amtAnalysis['is_ambiguous'];
+
+            if ($valAmount !== null && !$isAmbiguous && $valAmount > 0) {
+                $amountFormatted = " (Rs. " . number_format($valAmount, 2) . ")";
+                $payloadPrompt = "Prepare correction draft for {$activeRef} amount {$valAmount}";
+                $payloadAmount = $valAmount;
+                $requiresPrompt = false;
+            } else {
+                $amountFormatted = "";
+                $payloadPrompt = "Prepare correction draft for {$activeRef}";
+                $payloadAmount = null;
+                $requiresPrompt = true;
+            }
+
             array_unshift($actions, [
-                'label' => "📝 Prepare Correction Draft for {$activeRef}",
+                'label' => "📝 Prepare Correction Draft{$amountFormatted}",
                 'action' => 'draft_prompt',
-                'payload' => ['prompt' => "Prepare correction draft for {$activeRef}"],
+                'payload' => [
+                    'prompt' => $payloadPrompt,
+                    'reference' => $activeRef,
+                    'amount' => $payloadAmount,
+                    'requires_amount_prompt' => $requiresPrompt,
+                    'is_ambiguous' => $isAmbiguous,
+                ],
                 'variant' => 'default',
             ]);
         }
@@ -354,6 +385,7 @@ class CopilotService
             'actions' => $actions,
         ];
     }
+
 
     /**
      * First-Class Refusal: Non-accounting chit-chat & general knowledge
@@ -664,6 +696,32 @@ class CopilotService
         $searchService = app(SearchService::class);
         $targetVoucher = !empty($ref) ? collect($searchService->searchVouchers($ref))->first() : null;
 
+        // Ambiguity Gating: If amount is ambiguous or unspecified, explicitly prompt for the corrected figure rather than guessing
+        if ($amount <= 0 || ($semantic['is_ambiguous_amount'] ?? false)) {
+            $refDisplay = !empty($ref) ? "**{$ref}**" : "the voucher";
+            return [
+                'sender' => 'Taliya',
+                'intent' => 'voucher_action',
+                'message' => "To prepare the correction draft for {$refDisplay}, what is the exact corrected amount?",
+                'data' => [
+                    'reference' => $ref,
+                    'action' => 'prompt_corrected_amount',
+                    'requires_amount_prompt' => true,
+                    'is_ambiguous_amount' => $semantic['is_ambiguous_amount'] ?? false,
+                    'original_voucher' => $targetVoucher,
+                ],
+                'card_type' => 'voucher_action',
+                'actions' => [
+                    [
+                        'label' => "View {$ref} in Daybook",
+                        'action' => 'navigate_page',
+                        'payload' => ['page' => 'daybook', 'reference' => $ref],
+                        'variant' => 'outline',
+                    ],
+                ]
+            ];
+        }
+
         $makerCheckerThreshold = (float) config('copilot.maker_checker_threshold', 100000.0);
         $origAmount = 0.0;
         $origLines = [];
@@ -712,7 +770,7 @@ class CopilotService
         $amountStr = "Rs. " . number_format($amount, 2);
 
         $makerCheckerNotice = $requiresDualConfirmation
-            ? "\n\n⚠️ **Maker-Checker Policy**: Amount ({$amountStr}) meets or exceeds the Rs. " . number_format($makerCheckerThreshold, 2) . " authorization threshold and requires dual approval before posting."
+            ? "\n\n⚠️ **Maker-Checker Security Policy**: Amount ({$amountStr}) meets or exceeds the Rs. " . number_format($makerCheckerThreshold, 2) . " authorization threshold. Final posting requires a documented business reason (min. 15 characters, 3 words) and manual re-entry of the confirmed amount figure."
             : "";
 
         $message = "To correct {$refDisplay}{$origStr} to **{$amountStr}**, we will execute the institutional guided correction workflow:\n\n" .
@@ -739,9 +797,19 @@ class CopilotService
                     'details' => $replacementDetails,
                     'requires_dual_confirmation' => $requiresDualConfirmation,
                     'maker_checker_threshold' => $makerCheckerThreshold,
+                    'requires_reason' => $requiresDualConfirmation,
+                    'min_reason_length' => $requiresDualConfirmation ? 15 : 0,
+                    'min_reason_words' => $requiresDualConfirmation ? 3 : 0,
+                    'requires_amount_reentry' => $requiresDualConfirmation,
+                    'reentry_target_amount' => $requiresDualConfirmation ? $amount : null,
                 ],
                 'requires_dual_confirmation' => $requiresDualConfirmation,
                 'maker_checker_threshold' => $makerCheckerThreshold,
+                'requires_reason' => $requiresDualConfirmation,
+                'min_reason_length' => $requiresDualConfirmation ? 15 : 0,
+                'min_reason_words' => $requiresDualConfirmation ? 3 : 0,
+                'requires_amount_reentry' => $requiresDualConfirmation,
+                'reentry_target_amount' => $requiresDualConfirmation ? $amount : null,
             ],
             'card_type' => 'voucher_action',
             'actions' => [
@@ -769,6 +837,45 @@ class CopilotService
             ]
         ];
     }
+
+    /**
+     * Institutional Maker-Checker Authorization Validator.
+     * Enforces anti-rubber-stamping rules:
+     * 1. Minimum 15-character / 3-word substantive business reason.
+     * 2. Rejection of trivial placeholder strings ('ok', 'test', 'done', etc.).
+     * 3. Mandatory manual numeric re-entry of the confirmed amount figure for >= Rs. 100,000.
+     */
+    public function validateMakerCheckerApproval(array $data): array
+    {
+        $reason = trim($data['reason'] ?? '');
+        $targetAmount = (float) ($data['amount'] ?? ($data['corrected_amount'] ?? 0));
+        $reenteredAmount = isset($data['reentered_amount']) ? (float) str_replace(',', '', (string) $data['reentered_amount']) : null;
+        $makerCheckerThreshold = (float) config('copilot.maker_checker_threshold', 100000.0);
+
+        // Check 1: Mandatory reason validation for high-risk actions
+        $words = array_values(array_filter(preg_split('/\s+/', $reason), fn($w) => strlen($w) > 1));
+        $isTrivial = in_array(strtolower($reason), ['ok', 'test', 'done', 'fixed', 'asdf', 'n/a', 'reason', 'correct', 'yes', 'none', 'approved']);
+
+        if (strlen($reason) < 15 || count($words) < 3 || $isTrivial) {
+            return [
+                'valid' => false,
+                'error' => 'A detailed business reason (minimum 15 characters and 3 words) is mandatory for institutional authorization.',
+            ];
+        }
+
+        // Check 2: Amount re-entry verification (critical friction against automation bias)
+        if ($targetAmount >= $makerCheckerThreshold) {
+            if ($reenteredAmount === null || abs($reenteredAmount - $targetAmount) > 0.01) {
+                return [
+                    'valid' => false,
+                    'error' => 'Amount confirmation mismatch: For high-risk transactions (>= Rs. ' . number_format($makerCheckerThreshold, 2) . '), you must re-enter the exact amount (Rs. ' . number_format($targetAmount, 2) . ') to verify authorization.',
+                ];
+            }
+        }
+
+        return ['valid' => true];
+    }
+
 
 
     /**

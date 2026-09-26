@@ -869,8 +869,114 @@ if (($resG3['card_type'] ?? '') === 'guidance_how_to' && stripos($resG3['message
 }
 echo "------------------------------------------------------------------------\n";
 
+// ------------------------------------------------------------------------
+// PART 9: HARDENED HITL GATES, CTA VALIDATION & GUIDANCE CONFIDENCE FLOOR
+// ------------------------------------------------------------------------
+
+// 1. Ambiguous Multi-Amount in Repair Prompt -> Staging CTA OMITTED or GENERIC (Requires explicit user input)
+echo "Test " . (count($tests) + 24) . " [CTA Amount Validation]: Ambiguous Multiple Numbers -> Prompt for Amount\n";
+$ambiguousPrompt = "correct amount is 50,000, but 40,000 is still receivable; how do i fix that?";
+$resAmb = $copilot->handleChat($ambiguousPrompt, 'ALAMIASOFT', ['history' => $historyWithPolicy]);
+$ambCard = $resAmb['card_type'] ?? '';
+$ambData = $resAmb['data'] ?? [];
+
+// In ambiguous multi-number case, system must prompt for exact amount rather than guessing 50k vs 40k
+$isAmbiguousHandled = ($ambCard === 'voucher_action') &&
+    (($ambData['requires_amount_prompt'] ?? false) === true || ($ambData['is_ambiguous_amount'] ?? false) === true || ($ambData['action'] ?? '') === 'prompt_corrected_amount');
+
+if ($isAmbiguousHandled) {
+    echo "  [PASS] Multi-number prompt detected as ambiguous: Prompted user for exact amount without guessing unvalidated figure\n";
+    $passed++;
+} else {
+    echo "  [FAIL] Expected ambiguous amount handling / prompt | Got Card: {$ambCard}\n";
+    echo "  Payload: " . json_encode($resAmb, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n";
+    $failed++;
+}
+echo "------------------------------------------------------------------------\n";
+
+// 2. Unambiguous Amount in Guidance Follow-up -> CTA carries validated figure
+echo "Test " . (count($tests) + 25) . " [CTA Amount Validation]: Unambiguous Single Number in Guidance -> Validated CTA\n";
+$unambPrompt = "How do I fix a wrong voucher amount?";
+$historyWithVoucherAndAmt = array_merge($historyAfterSearch, [
+    ['sender' => 'user', 'text' => 'correct amount is 50,000', 'cardType' => null],
+]);
+$resGuidanceCTA = $copilot->handleChat("How do I fix the amount on SV-2026-112 to 50,000?", 'ALAMIASOFT', ['history' => $historyWithVoucherAndAmt]);
+$ctaActions = $resGuidanceCTA['actions'] ?? [];
+$firstCta = $ctaActions[0] ?? [];
+
+$isCtaValidated = (str_contains($firstCta['label'] ?? '', '50,000') && ($firstCta['payload']['amount'] ?? 0) == 50000.0) ||
+    (($resGuidanceCTA['card_type'] ?? '') === 'voucher_action' && (($resGuidanceCTA['data']['corrected_amount'] ?? 0) == 50000.0));
+
+if ($isCtaValidated) {
+    echo "  [PASS] Unambiguous amount (50,000) strictly validated before rendering on CTA button\n";
+    $passed++;
+} else {
+    echo "  [FAIL] Expected validated 50,000 on CTA button | Got: " . json_encode($firstCta) . "\n";
+    $failed++;
+}
+echo "------------------------------------------------------------------------\n";
+
+// 3. Hardened HITL: Minimum Reason Length & Triviality Enforcement (>= Rs. 100,000)
+echo "Test " . (count($tests) + 26) . " [Hardened HITL]: Mandatory Substantive Reason Validation (>= Rs. 100,000)\n";
+$trivialCheck1 = $copilot->validateMakerCheckerApproval(['reason' => '', 'amount' => 150000, 'reentered_amount' => 150000]);
+$trivialCheck2 = $copilot->validateMakerCheckerApproval(['reason' => 'ok', 'amount' => 150000, 'reentered_amount' => 150000]);
+$trivialCheck3 = $copilot->validateMakerCheckerApproval(['reason' => 'fixed it', 'amount' => 150000, 'reentered_amount' => 150000]);
+$validReasonCheck = $copilot->validateMakerCheckerApproval(['reason' => 'Quarterly vendor audit balance adjustment with Izoc Ltd', 'amount' => 150000, 'reentered_amount' => 150000]);
+
+if ($trivialCheck1['valid'] === false && $trivialCheck2['valid'] === false && $trivialCheck3['valid'] === false && $validReasonCheck['valid'] === true) {
+    echo "  [PASS] Anti-rubber-stamping reason validation: Rejected empty, 'ok', and short reasons; accepted substantive reason\n";
+    $passed++;
+} else {
+    echo "  [FAIL] Reason validation failed: T1={$trivialCheck1['valid']}, T2={$trivialCheck2['valid']}, T3={$trivialCheck3['valid']}, Valid={$validReasonCheck['valid']}\n";
+    $failed++;
+}
+echo "------------------------------------------------------------------------\n";
+
+// 4. Hardened HITL: Amount Re-entry Verification (Critical Friction for >= Rs. 100,000)
+echo "Test " . (count($tests) + 27) . " [Hardened HITL]: Manual Numeric Re-entry Validation (>= Rs. 100,000)\n";
+$mismatchCheck = $copilot->validateMakerCheckerApproval([
+    'reason' => 'Quarterly vendor audit balance adjustment with Izoc Ltd',
+    'amount' => 150000,
+    'reentered_amount' => 50000, // Mismatched re-entry
+]);
+$nullReentryCheck = $copilot->validateMakerCheckerApproval([
+    'reason' => 'Quarterly vendor audit balance adjustment with Izoc Ltd',
+    'amount' => 150000,
+    // No re-entered amount
+]);
+$matchedReentryCheck = $copilot->validateMakerCheckerApproval([
+    'reason' => 'Quarterly vendor audit balance adjustment with Izoc Ltd',
+    'amount' => 150000,
+    'reentered_amount' => 150000, // Matched re-entry
+]);
+
+if ($mismatchCheck['valid'] === false && $nullReentryCheck['valid'] === false && $matchedReentryCheck['valid'] === true) {
+    echo "  [PASS] Manual amount re-entry: Rejected mismatched/missing amount; accepted exact confirmed figure (Rs. 150,000)\n";
+    $passed++;
+} else {
+    echo "  [FAIL] Amount re-entry check failed: Mismatch={$mismatchCheck['valid']}, Null={$nullReentryCheck['valid']}, Match={$matchedReentryCheck['valid']}\n";
+    $failed++;
+}
+echo "------------------------------------------------------------------------\n";
+
+// 5. Guidance Confidence Floor: Truly Out-of-Domain "How to" queries must NOT hallucinate guidance
+echo "Test " . (count($tests) + 28) . " [Guidance Confidence Floor]: Out-of-Domain \"How to\" -> Scoped Refusal (Never Guidance)\n";
+$resOutOfDomain = $copilot->handleChat("how to bake a chocolate cake?", 'ALAMIASOFT', []);
+$cardOutOfDomain = $resOutOfDomain['card_type'] ?? '';
+
+if ($cardOutOfDomain === 'out_of_scope' || $cardOutOfDomain === 'safety_policy') {
+    echo "  [PASS] 'how to bake a chocolate cake?' -> out_of_scope refusal (Confidence floor strictly enforced, zero false-guidance)\n";
+    $passed++;
+} else {
+    echo "  [FAIL] Expected out_of_scope refusal | Got Card: {$cardOutOfDomain}\n";
+    echo "  Payload: " . json_encode($resOutOfDomain, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n";
+    $failed++;
+}
+echo "------------------------------------------------------------------------\n";
+
 echo "========================================================================\n";
 echo " RESULTS: {$passed} PASSED, {$failed} FAILED (Total: " . ($passed + $failed) . " Tests)\n";
 echo "========================================================================\n\n";
 
 exit($failed === 0 ? 0 : 1);
+

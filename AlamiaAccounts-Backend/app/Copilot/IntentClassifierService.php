@@ -369,16 +369,15 @@ PROMPT;
         // 4. Operational Guidance & How-To (Tier 1 Guidance)
         if (
             preg_match('/^(?:how\s+(?:do\s+i|can\s+i|to|should\s+i)\s+(?:add|create|setup|fix|correct|reverse|close|lock|reopen|view|generate|post|reconcile|find|enter)|where\s+(?:can\s+i|do\s+i|is\s+the)|what\s+is\s+the\s+procedure\s+to|explain\s+how\s+to)\b/i', $promptTrimmed) ||
-            str_starts_with($promptLower, 'how to ') ||
-            str_starts_with($promptLower, 'how do i ') ||
-            str_starts_with($promptLower, 'where to ') ||
-            str_starts_with($promptLower, 'how can i ')
+            ((str_starts_with($promptLower, 'how to ') || str_starts_with($promptLower, 'how do i ') || str_starts_with($promptLower, 'where to ') || str_starts_with($promptLower, 'how can i ')) &&
+             preg_match('/\b(voucher|account|period|balance|daybook|ledger|reversal|chart|trial|report|entry|tax|invoice|bill|transaction|company|initial|bank|cash)\b/i', $promptLower))
         ) {
             return $this->normalizeSemanticOutput([
                 'capability' => 'guidance.how_to',
                 'confidence' => 0.95,
             ]);
         }
+
 
         // 5. Greetings & Help
         if (preg_match('/^(hi|hello|hey|greetings|good morning|good afternoon|good evening|salam|assalam)([\s!,.].*)?$/i', $promptTrimmed)) {

@@ -115,23 +115,33 @@ class GuidanceKnowledgeService
             ];
         }
 
-        // Default General ERP Guidance
-        return [
-            'topic' => 'general_erp_guidance',
-            'title' => 'Alamia Accounts Operational Guidance',
-            'summary' => "Alamia Accounts is an institutional double-entry ERP system:",
-            'steps' => [
-                "• **Daybook**: View, filter, and reverse chronological journal vouchers.",
-                "• **Chart of Accounts**: Manage assets, liabilities, equity, revenue, and expenses.",
-                "• **Financial Reports**: Generate Trial Balance, Profit & Loss, and Balance Sheet.",
-                "• **AI Copilot (Taliya)**: Inquire accounts, search transactions, and stage draft vouchers with human-in-the-loop review.",
-            ],
-            'note' => "Ask Taliya specific procedural questions anytime (e.g. *\"How do I reverse a voucher?\"* or *\"How to add a bank account?\"*).",
-            'actions' => [
-                ['label' => '📊 Trial Balance', 'action' => 'draft_prompt', 'payload' => ['prompt' => 'Show Trial Balance summary']],
-                ['label' => '📄 View Daybook', 'action' => 'navigate_page', 'payload' => ['page' => 'daybook']],
-                ['label' => '📖 Chart of Accounts', 'action' => 'navigate_page', 'payload' => ['page' => 'coa']],
-            ],
-        ];
+        // 5. Reports & Financial Statements
+        if (
+            str_contains($q, 'trial balance') ||
+            str_contains($q, 'balance sheet') ||
+            str_contains($q, 'profit and loss') ||
+            str_contains($q, 'profit & loss') ||
+            str_contains($q, 'p&l')
+        ) {
+            return [
+                'topic' => 'financial_reports',
+                'title' => 'Financial Reports & Statements',
+                'summary' => "Alamia Accounts generates real-time institutional financial reports:",
+                'steps' => [
+                    "1. **Trial Balance**: Verifies that total debits strictly equal total credits (`Dr === Cr`).",
+                    "2. **Profit & Loss (P&L)**: Summarizes operating revenue, cost of sales, and operating expenses.",
+                    "3. **Balance Sheet**: Displays assets, liabilities, and equity balances.",
+                ],
+                'note' => "All reports are calculated dynamically from posted ledger journals.",
+                'actions' => [
+                    ['label' => '📊 View Trial Balance', 'action' => 'draft_prompt', 'payload' => ['prompt' => 'Show Trial Balance summary'], 'variant' => 'default'],
+                    ['label' => '📄 View Daybook', 'action' => 'navigate_page', 'payload' => ['page' => 'daybook']],
+                ],
+            ];
+        }
+
+        // Confidence Floor: Return null if query is not a genuine ERP procedural topic
+        return null;
     }
 }
+

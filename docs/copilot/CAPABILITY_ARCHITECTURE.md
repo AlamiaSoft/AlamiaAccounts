@@ -118,8 +118,19 @@ The Alamia Accounts AI Copilot (**Taliya**) operates on a bounded **Semantic Cap
 
 ## 6. Next Session Roadmap: Production-Grade Framework Integration (`feedback0.1.11.md`)
 
-> [!IMPORTANT]
-> **Direct Integration Directive**: Rather than reinventing custom ad-hoc routing and memory algorithms from scratch, the system will evaluate and directly integrate a proven, production-grade conversational routing and context resolution framework into the Alamia Accounts architecture.
+### Problem Statement: Why Direct Integration of a Production-Grade Solution is Required
+
+1. **The Multi-Turn Dialogue Breakdown in Single-Turn Models**:
+   - Traditional intent classifiers evaluate each prompt in isolation. Real accounting conversations, however, form continuous dialogue chains involving:
+     - **Anaphoric & Deictic References**: Pronouns (*"he"*, *"she"*, *"they"*, *"it"*) and demonstratives (*"that payment"*, *"the last voucher"*, *"that client"*).
+     - **Conversational Corrections**: User repairs (*"no, not that one; there was another payment to Mr. Ali of IZOC"*).
+     - **Entity Aliasing**: Dispersed naming variants (*"IZOC"*, *"Izoc Ltd"*, *"IZOC Pvt Ltd"*, *"Ali Raza"*) across ledgers, memos, and contact records.
+2. **The "Whack-a-Mole" Complexity Trap of In-House Heuristics**:
+   - Attempting to handle multi-turn conversational nuance through custom regexes, substring filters, and ad-hoc history scanners creates an exponential edge-case space. Each new heuristic fix risks regressing previous conversational paths.
+3. **Separation of Dialogue Modeling from Accounting Invariants**:
+   - The Copilot must strictly uphold double-entry balance, ledger immutability, and tenant boundaries. Decoupling dialogue state modeling (handled by a dedicated framework) from domain capability execution (handled by Alamia's double-entry core) ensures robust conversational fluency without risking ledger safety.
+
+---
 
 ### Candidate Frameworks for Direct Integration:
 
@@ -128,9 +139,12 @@ The Alamia Accounts AI Copilot (**Taliya**) operates on a bounded **Semantic Cap
 | **`LLMRouter` / `Router-R1`** (`ulab-uiuc/LLMRouter`) | Multi-round conversational routing, trained round-aware representations | Multi-turn capability dispatcher and dialogue round manager. |
 | **`ai-assistant-framework`** | Explicit short-term memory, alias registries, query rewriting, contextual graph expansion | Contextual reference resolver (`she`, `that payment`, `IZOC Pvt Ltd` $\leftrightarrow$ `Ali Raza`). |
 
-### Next Session Action Plan:
-1. **Benchmark & Feasibility Evaluation**: Run direct feasibility evaluations on candidate repositories (`LLMRouter` and `ai-assistant-framework`) against Alamia's domain capability schema and 42-test safety contract.
+---
+
+### Integration Action Plan:
+1. **Direct Feasibility & Benchmark Evaluation**: Run direct feasibility evaluations on candidate repositories (`LLMRouter` and `ai-assistant-framework`) against Alamia's domain capability schema and 42-test safety contract.
 2. **Direct Integration Architecture**: Deploy the chosen solution as a containerized routing/memory service or native service adapter integrated with [`CopilotService.php`](file:///e:/Alamia/AlamiaAccounts/AlamiaAccounts-Backend/app/Copilot/CopilotService.php).
 3. **End-to-End Safety & Invariant Verification**: Wire all resolved intents and entity contexts directly into the double-entry accounting layer while maintaining 100% test pass rate across the contract suite.
+
 
 

@@ -1013,8 +1013,8 @@ if ($parityPassed) {
 }
 echo "------------------------------------------------------------------------\n";
 
-// 7. Context Decay Multi-Turn Regression: Voucher context must expire after >2 unrelated turns
-echo "Test " . (count($tests) + 30) . " [Stale Context Decay]: Active Voucher expires after 2+ turns without mention\n";
+// 7. Context Decay Multi-Turn Regression: Voucher context must expire after > 2 unrelated turns (Turn 3)
+echo "Test " . (count($tests) + 30) . " [Stale Context Decay]: Active Voucher expires after > 2 turns without mention (Turn 3)\n";
 $decayHistory = [
     ['sender' => 'user', 'text' => 'show voucher SV-2026-112', 'card_type' => 'voucher_brief', 'data' => ['reference' => 'SV-2026-112']],
     ['sender' => 'taliya', 'text' => 'Here is voucher SV-2026-112', 'card_type' => 'voucher_brief', 'data' => ['reference' => 'SV-2026-112']],
@@ -1035,6 +1035,127 @@ if ($cardDecay === 'guidance_how_to' && empty($refDecay)) {
 } else {
     echo "  [FAIL] Expected clean guidance_how_to without stale voucher | Got Card: {$cardDecay}, Ref: {$refDecay}\n";
     echo "  Payload: " . json_encode($resDecay, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n";
+    $failed++;
+}
+echo "------------------------------------------------------------------------\n";
+
+// 8. Ground-Truth Financial Reports & Discrepancy Scenarios
+echo "Test " . (count($tests) + 31) . " [Ground-Truth Report]: Profit & Loss Net Profit calculation (Revenue 100k - Expense 25k -> 75k Net Profit)\n";
+
+// Seed known test transactions if needed in current domain
+$domain = \Abivia\Ledger\Models\LedgerDomain::where('code', 'MAIN')->first();
+if ($domain) {
+    \AlamiaSoft\AlamiaAccounts\Services\DomainContext::set('MAIN');
+}
+$voucherService = app(\AlamiaSoft\AlamiaAccounts\Services\VoucherService::class);
+try {
+    $voucherService->createJournalEntry([
+        'date' => date('Y-m-d'),
+        'description' => 'GT Test Sales Revenue',
+        'currency' => 'PKR',
+        'reference' => 'GT-SALES-01',
+        'entries' => [
+            ['account_code' => '1110', 'amount' => 100000, 'type' => 'debit'],
+            ['account_code' => '3100', 'amount' => 100000, 'type' => 'credit'],
+        ],
+    ]);
+    $voucherService->createJournalEntry([
+        'date' => date('Y-m-d'),
+        'description' => 'GT Test Office Rent',
+        'currency' => 'PKR',
+        'reference' => 'GT-RENT-01',
+        'entries' => [
+            ['account_code' => '4400', 'amount' => 25000, 'type' => 'debit'],
+            ['account_code' => '1110', 'amount' => 25000, 'type' => 'credit'],
+        ],
+    ]);
+} catch (\Throwable $e) {
+    // Already seeded or ledger populated
+}
+
+$pnlRes = $copilot->handleChat("Show Profit and Loss for this year", 'MAIN', []);
+$pnlData = $pnlRes['data'] ?? [];
+$isPnlCorrect = ($pnlData['total_revenue'] >= 100000) && ($pnlData['total_expenses'] >= 25000) && ($pnlData['net_profit'] >= 75000) && !empty($pnlData['has_activity']);
+
+if ($isPnlCorrect && $pnlRes['card_type'] === 'financial_report') {
+    echo "  [PASS] Ground-truth P&L verified: Revenue PKR " . number_format($pnlData['total_revenue'], 2) . " | Expense PKR " . number_format($pnlData['total_expenses'], 2) . " | Net Profit PKR " . number_format($pnlData['net_profit'], 2) . "\n";
+    $passed++;
+} else {
+    echo "  [FAIL] Expected exact P&L figures | Got Revenue: " . ($pnlData['total_revenue'] ?? 0) . ", Net Profit: " . ($pnlData['net_profit'] ?? 0) . "\n";
+    echo "  Payload: " . json_encode($pnlRes, JSON_PRETTY_PRINT) . "\n";
+    $failed++;
+}
+echo "------------------------------------------------------------------------\n";
+
+// Test 76: Ground-Truth Balance Sheet
+echo "Test " . (count($tests) + 32) . " [Ground-Truth Report]: Balance Sheet Assets === Liabilities + Equity with non-zero balances\n";
+$bsRes = $copilot->handleChat("Show Balance Sheet", 'MAIN', []);
+$bsData = $bsRes['data'] ?? [];
+$isBsBalanced = !empty($bsData['is_balanced']) && ($bsData['total_assets'] >= 75000) && !empty($bsData['has_activity']);
+
+if ($isBsBalanced && $bsRes['card_type'] === 'financial_report') {
+    echo "  [PASS] Ground-truth Balance Sheet verified: Total Assets PKR " . number_format($bsData['total_assets'], 2) . " === Total Liab & Equity PKR " . number_format($bsData['total_liabilities_and_equity'], 2) . "\n";
+    $passed++;
+} else {
+    echo "  [FAIL] Expected balanced non-zero Balance Sheet | Assets: " . ($bsData['total_assets'] ?? 0) . ", Liab&Eq: " . ($bsData['total_liabilities_and_equity'] ?? 0) . "\n";
+    echo "  Payload: " . json_encode($bsRes, JSON_PRETTY_PRINT) . "\n";
+    $failed++;
+}
+echo "------------------------------------------------------------------------\n";
+
+// Test 77: Zero-Total Anomaly Guard
+echo "Test " . (count($tests) + 33) . " [Zero-Total Anomaly Guard]: Empty period report suppresses false 'Mathematically Valid' state\n";
+try {
+    $companyService = app(\AlamiaSoft\AlamiaAccounts\Services\CompanyService::class);
+    $emptyDomain = \Abivia\Ledger\Models\LedgerDomain::where('code', 'EMPTY_TEST_COMPANY')->first();
+    if (!$emptyDomain) {
+        $emptyDomain = $companyService->createCompany('EMPTY_TEST_COMPANY', 'Empty Test Company', ['currency' => 'PKR']);
+    }
+} catch (\Throwable $e) {}
+
+$emptyReport = $copilot->handleChat("Show Profit and Loss for this year", 'EMPTY_TEST_COMPANY', []);
+$emptyData = $emptyReport['data'] ?? [];
+
+if ($emptyData['has_activity'] === false && str_contains($emptyReport['message'], 'PKR 0.00')) {
+    echo "  [PASS] Zero-total anomaly guard verified: Empty ledger correctly flagged has_activity=false without false validity badge\n";
+    $passed++;
+} else {
+    echo "  [FAIL] Expected zero activity state for empty company | Got: " . json_encode($emptyReport) . "\n";
+    $failed++;
+}
+echo "------------------------------------------------------------------------\n";
+
+// Test 78: Executive Onboarding & Self-Introduction
+echo "Test " . (count($tests) + 34) . " [Executive Onboarding]: \"I'm Mashareq, owner of this company; how will you help me today?\"\n";
+$onboardRes = $copilot->handleChat("I'm Mashareq, owner of this company; how will you help me today?", 'MAIN', []);
+$onboardMsg = $onboardRes['message'] ?? '';
+
+if ($onboardRes['card_type'] === 'help' && str_contains($onboardMsg, 'Mashareq') && str_contains($onboardMsg, 'owner')) {
+    echo "  [PASS] Executive onboarding verified: Personalized welcome to owner Mashareq with executive briefing\n";
+    $passed++;
+} else {
+    echo "  [FAIL] Expected personalized executive help card | Got Message: {$onboardMsg}\n";
+    echo "  Payload: " . json_encode($onboardRes, JSON_PRETTY_PRINT) . "\n";
+    $failed++;
+}
+echo "------------------------------------------------------------------------\n";
+
+// Test 79: Discrepancy Pushback Handling
+echo "Test " . (count($tests) + 35) . " [Discrepancy Pushback]: \"No, our real P&L shows 75,000 profit; why 0?\"\n";
+$pushbackRes = $copilot->handleChat("No, our real P&L shows 75,000 profit; why 0?", 'MAIN', [
+    'history' => [
+        ['sender' => 'user', 'text' => 'Show Profit and Loss', 'card_type' => null],
+        ['sender' => 'taliya', 'text' => 'Here is the Profit & Loss statement', 'card_type' => 'financial_report'],
+    ]
+]);
+$pushbackMsg = $pushbackRes['message'] ?? '';
+
+if (str_contains($pushbackMsg, 'Report Re-check') || str_contains($pushbackMsg, 'Period Clarification') || str_contains($pushbackMsg, 'inspect the detailed P&L')) {
+    echo "  [PASS] Discrepancy pushback verified: Copilot acknowledged user contradiction and clarified date range filter\n";
+    $passed++;
+} else {
+    echo "  [FAIL] Expected discrepancy clarification | Got Message: {$pushbackMsg}\n";
+    echo "  Payload: " . json_encode($pushbackRes, JSON_PRETTY_PRINT) . "\n";
     $failed++;
 }
 echo "------------------------------------------------------------------------\n";

@@ -158,10 +158,12 @@ export default function GlobalSearch({ currentContext, onResultClick }: GlobalSe
       prompt = `Tell me about voucher ${itemOrQuery.id}`
       context = { type: "voucher", id: itemOrQuery.id, raw: itemOrQuery.rawItem }
     } else if (itemOrQuery.type === "account") {
-      prompt = `What is the balance and ledger for account ${itemOrQuery.id}?`
+      const cleanTitle = itemOrQuery.title.replace(/\s*\(\d+\)$/, "").trim()
+      prompt = `What is the balance of ${cleanTitle} (${itemOrQuery.id})?`
       context = { type: "account", code: itemOrQuery.id, raw: itemOrQuery.rawItem }
     } else if (itemOrQuery.type === "ledger") {
-      prompt = `Show ledger activity for ${itemOrQuery.title} (${itemOrQuery.id})`
+      const cleanTitle = itemOrQuery.title.replace(/\s*\(\d+\)$/, "").trim()
+      prompt = `Show ledger activity for ${cleanTitle} (${itemOrQuery.id})`
       context = { type: "ledger", code: itemOrQuery.id, raw: itemOrQuery.rawItem }
     } else if (itemOrQuery.type === "user") {
       prompt = `Tell me about user ${itemOrQuery.title}`

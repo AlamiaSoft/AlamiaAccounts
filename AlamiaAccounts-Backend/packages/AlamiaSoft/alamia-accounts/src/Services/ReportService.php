@@ -212,9 +212,9 @@ class ReportService
                     'amount' => round($amt, 2),
                 ];
             }
-            // Equity (51xx, 52xx, or 3xxx if equity)
-            elseif (str_starts_with($account->code, '51') || str_starts_with($account->code, '52') || str_starts_with($account->code, '53')) {
-                $amt = abs($balance);
+            // Equity (5xxx)
+            elseif (str_starts_with($account->code, '5')) {
+                $amt = -$balance;
                 $totalEquity += $amt;
                 $equity[] = [
                     'account_code' => $account->code,

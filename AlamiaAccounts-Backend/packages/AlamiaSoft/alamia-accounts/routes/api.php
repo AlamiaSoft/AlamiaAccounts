@@ -90,4 +90,29 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/copilot/situations', [CopilotController::class, 'situations']);
     Route::post('/copilot/capabilities/{capability}/execute', [CopilotController::class, 'executeCapability']);
     Route::post('/alamia-360/capabilities/{capability}/execute', [CopilotController::class, 'executeCapability']);
+
+    // Copilot Diagnostics & Developer Observability
+    Route::get('/copilot/diagnostics', [CopilotController::class, 'diagnostics']);
+    Route::get('/copilot/diagnostics/export', [CopilotController::class, 'exportDiagnostics']);
+    Route::get('/copilot/diagnostics/{id}', [CopilotController::class, 'diagnosticTrace']);
+    Route::patch('/copilot/diagnostics/{id}/feedback', [CopilotController::class, 'updateDiagnosticFeedback']);
+    Route::post('/copilot/diagnostics/{id}/promote-to-guidance', [CopilotController::class, 'promoteDiagnosticToKnowledge']);
+    Route::delete('/copilot/diagnostics', [CopilotController::class, 'pruneDiagnostics']);
+
+    // Copilot Knowledge Base (Self-Learning Guidance)
+    Route::get('/copilot/knowledge', [CopilotController::class, 'knowledgeList']);
+    Route::post('/copilot/knowledge', [CopilotController::class, 'knowledgeStore']);
+    Route::delete('/copilot/knowledge/{id}', [CopilotController::class, 'knowledgeDelete']);
 });
+
+// Public testing routes
+Route::get('/copilot/diagnostics-public', [CopilotController::class, 'diagnostics']);
+Route::get('/copilot/diagnostics-public/export', [CopilotController::class, 'exportDiagnostics']);
+Route::get('/copilot/diagnostics-public/{id}', [CopilotController::class, 'diagnosticTrace']);
+Route::patch('/copilot/diagnostics-public/{id}/feedback', [CopilotController::class, 'updateDiagnosticFeedback']);
+Route::post('/copilot/diagnostics-public/{id}/promote-to-guidance', [CopilotController::class, 'promoteDiagnosticToKnowledge']);
+Route::delete('/copilot/diagnostics-public', [CopilotController::class, 'pruneDiagnostics']);
+Route::get('/copilot/knowledge-public', [CopilotController::class, 'knowledgeList']);
+Route::post('/copilot/knowledge-public', [CopilotController::class, 'knowledgeStore']);
+Route::delete('/copilot/knowledge-public/{id}', [CopilotController::class, 'knowledgeDelete']);
+

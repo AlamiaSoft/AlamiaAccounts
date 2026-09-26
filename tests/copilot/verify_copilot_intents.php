@@ -1013,8 +1013,8 @@ if ($parityPassed) {
 }
 echo "------------------------------------------------------------------------\n";
 
-// 7. Context Decay Multi-Turn Regression: Voucher context must expire after >2 unrelated turns
-echo "Test " . (count($tests) + 30) . " [Stale Context Decay]: Active Voucher expires after 2+ turns without mention\n";
+// 7. Context Decay Multi-Turn Regression: Voucher context must expire after > 2 unrelated turns (Turn 3)
+echo "Test " . (count($tests) + 30) . " [Stale Context Decay]: Active Voucher expires after > 2 turns without mention (Turn 3)\n";
 $decayHistory = [
     ['sender' => 'user', 'text' => 'show voucher SV-2026-112', 'card_type' => 'voucher_brief', 'data' => ['reference' => 'SV-2026-112']],
     ['sender' => 'taliya', 'text' => 'Here is voucher SV-2026-112', 'card_type' => 'voucher_brief', 'data' => ['reference' => 'SV-2026-112']],

@@ -177,6 +177,8 @@ PROMPT;
         $dir = $args['direction'] ?? ($filters['direction'] ?? null);
         $dateExpr = $args['date_expression'] ?? ($filters['date_expression'] ?? '');
 
+        $roleTitle = trim($args['role_title'] ?? ($data['role_title'] ?? ''));
+
         // Clean deictic words from entity names
         $party = trim(preg_replace('/^(this|that|the|a|an)\s+/i', '', $party));
         $org = trim(preg_replace('/^(this|that|the|a|an)\s+/i', '', $org));
@@ -254,10 +256,12 @@ PROMPT;
                 'amount' => $amt,
                 'direction' => $dir,
                 'date_expression' => $dateExpr,
+                'role_title' => $roleTitle,
             ],
             'requested_information' => $requestedInfo,
             'party' => $party,
             'organization' => $org,
+            'role_title' => $roleTitle,
             'entity_type' => $entityType,
             'entity_value' => $entityValue,
             'entity' => $entityValue,
@@ -379,12 +383,33 @@ PROMPT;
         }
 
 
-        // 5. Greetings & Help
+        // 5. Greetings, Executive Onboarding & Help
         if (preg_match('/^(hi|hello|hey|greetings|good morning|good afternoon|good evening|salam|assalam)([\s!,.].*)?$/i', $promptTrimmed)) {
             return $this->normalizeSemanticOutput(['capability' => 'general.greeting', 'confidence' => 0.98]);
         }
-        if (preg_match('/^(help|who are you|who is taliya|who taliya|what is taliya|who made you|about taliya|about you|what can you do|how to use|commands|features|\?)[\s?!.]*$/i', $promptTrimmed) || preg_match('/\b(who is taliya|who taliya|what is taliya)\b/i', $promptTrimmed)) {
-            return $this->normalizeSemanticOutput(['capability' => 'general.help', 'confidence' => 0.98]);
+        if (
+            preg_match('/^(help|who are you|who is taliya|who taliya|what is taliya|who made you|about taliya|about you|what can you do|how to use|commands|features|\?)[\s?!.]*$/i', $promptTrimmed) ||
+            preg_match('/\b(who is taliya|who taliya|what is taliya)\b/i', $promptTrimmed) ||
+            preg_match('/\b(how\s+(?:will|can)\s+you\s+help\s+(?:me|us)|what\s+can\s+you\s+do\s+for\s+(?:me|us))\b/i', $promptLower) ||
+            preg_match('/\b(?:i\'?m|i\s+am|this\s+is)\s+([a-zA-Z\s]+),?\s+(?:the\s+)?(owner|founder|ceo|cfo|director|manager|accountant|auditor|partner|controller)\b/i', $promptTrimmed)
+        ) {
+            $name = '';
+            $roleTitle = '';
+            if (preg_match('/\b(?:i\'?m|i\s+am|this\s+is)\s+([a-zA-Z]+)[,\s]+(?:the\s+)?(owner|founder|ceo|cfo|director|manager|accountant|auditor|partner|controller)\b/i', $promptTrimmed, $mMatch)) {
+                $name = $mMatch[1] ?? '';
+                $roleTitle = strtolower($mMatch[2] ?? '');
+            } elseif (preg_match('/\b(?:i\'?m|i\s+am|this\s+is)\s+([a-zA-Z]+)\b/i', $promptTrimmed, $mMatch)) {
+                $name = $mMatch[1] ?? '';
+            }
+            return $this->normalizeSemanticOutput([
+                'capability' => 'general.help',
+                'confidence' => 0.98,
+                'party' => $name,
+                'arguments' => [
+                    'party' => $name,
+                    'role_title' => $roleTitle,
+                ]
+            ]);
         }
 
         // 5. Financial Statements & Reports
@@ -573,6 +598,33 @@ PROMPT;
                     'confidence' => 0.90,
                 ]);
             }
+        }
+
+        // Check for 4-digit code enclosed in parentheses e.g. (1110)
+        if (preg_match('/\(([1-5][0-9]{3})\)/', $promptTrimmed, $codeParenMatch)) {
+            return $this->normalizeSemanticOutput([
+                'capability' => 'account.balance',
+                'arguments' => ['account' => $codeParenMatch[1]],
+                'confidence' => 0.98,
+            ]);
+        }
+
+        if (
+            str_contains($promptLower, 'ledger activity') ||
+            str_contains($promptLower, 'ledger statement') ||
+            str_contains($promptLower, 'show ledger for') ||
+            str_contains($promptLower, 'show ledger activity')
+        ) {
+            $cand = preg_replace('/^(?:show\s+)?(?:me\s+)?ledger\s+(?:activity|statement|entries)?\s+(?:for|of|in)?\s*/i', '', $promptTrimmed);
+            $cand = trim(preg_replace('/\s*\(\d{4}\)/', '', $cand), " ?.'\"()");
+            if (preg_match('/\b([1-5][0-9]{3})\b/', $promptTrimmed, $cm4)) {
+                $cand = $cm4[1];
+            }
+            return $this->normalizeSemanticOutput([
+                'capability' => 'account.balance',
+                'arguments' => ['account' => $cand],
+                'confidence' => 0.95,
+            ]);
         }
 
         $cleanedAccount = preg_replace('/^(what is the balance of|what is the balance in|what is the balance for|what is the balance|what is in|how much is in|how much in|balance of|balance in|balance for|balance|tell me about account|tell me about|show me account|show me|details of account|details of|account)\s+(the\s+|account\s+)?/i', '', $promptTrimmed);

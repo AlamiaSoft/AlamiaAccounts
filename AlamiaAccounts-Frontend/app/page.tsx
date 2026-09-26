@@ -25,6 +25,7 @@ import CustomVoucherTypes from "@/components/custom-voucher-types"
 import VoucherBuilder from "@/components/voucher-builder"
 import PeriodManagement from "@/components/period-management"
 import CopilotWidget from "@/components/copilot-widget"
+import SystemDiagnostics from "@/components/system-diagnostics"
 import { useCompanies } from "@/hooks/use-companies"
 import { useVouchers } from "@/hooks/use-vouchers"
 import { Loader2 } from "lucide-react"
@@ -526,6 +527,9 @@ function HomeContent() {
         )
       case "print-templates":
         return <PrintTemplateSettings onSave={setPrintSettings} initialSettings={printSettings} />
+      case "diagnostics":
+      case "system-diagnostics":
+        return <SystemDiagnostics />
       default:
         return <Dashboard />
     }

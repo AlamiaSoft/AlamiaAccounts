@@ -22,8 +22,24 @@ class CopilotService
      */
     public function handleChat(string $prompt, ?string $companyCode = null, ?array $context = []): array
     {
+        $startTime = microtime(true);
+        $sessionId = $context['session_id'] ?? ($companyCode ?? 'default_session');
+        $contextBefore = $context['state'] ?? null;
+        $classifierMode = 'heuristic';
+        $classifierIntent = null;
+        $classifierConfidence = null;
+        $classifierOutput = null;
+        $safetyEvaluations = null;
+        $dispatchedAction = null;
+
         if ($companyCode) {
             DomainContext::set($companyCode);
+        }
+
+        // Detect pre-resolved entry points from UI deep links (GlobalSearch Ask Copilot, card buttons)
+        $entryPoint = null;
+        if (!empty($context['type']) && in_array($context['type'], ['voucher', 'account', 'ledger', 'user'], true)) {
+            $entryPoint = 'deep_link';
         }
 
         $copilotActor = Alamia360::actors()->find('taliya_copilot')
@@ -33,37 +49,59 @@ class CopilotService
 
         // 1. Direct Actions (Voucher confirmation / Disambiguation item clicks)
         if (!empty($context['action'])) {
-            return $this->handleDirectAction($context, $copilotActor);
+            $classifierMode = 'direct_action';
+            $dispatchedAction = 'direct_action:' . $context['action'];
+            $classifierIntent = 'DIRECT_ACTION';
+            $response = $this->handleDirectAction($context, $copilotActor);
+            $this->logDiagnosticTrace($sessionId, $companyCode, $prompt, $classifierMode, $classifierIntent, 1.0, null, $contextBefore, $context['state'] ?? null, null, $dispatchedAction, $response, $startTime, 'deep_link');
+            return $response;
         }
 
         // 2. Delegate to Parlant dialogue engine if sidecar is available
         $parlantClient = app(ParlantClient::class);
-        $sessionId = $context['session_id'] ?? ($companyCode ?? 'default_session');
         $parlantResponse = $parlantClient->sendMessage($sessionId, $prompt, $companyCode ?? 'MAIN', $context);
         if ($parlantResponse !== null) {
+            $classifierMode = 'parlant';
+            $dispatchedAction = 'parlant_dialogue_engine';
+            $classifierIntent = 'PARLANT_MANAGED';
+            $this->logDiagnosticTrace($sessionId, $companyCode, $prompt, $classifierMode, $classifierIntent, 1.0, null, $contextBefore, $context['state'] ?? null, null, $dispatchedAction, $parlantResponse, $startTime, $entryPoint);
             return $parlantResponse;
         }
 
-        // 2. Extract structured conversational state from recent turns
+        // 3. Extract structured conversational state from recent turns
         $contextService = app(ConversationContextService::class);
         $contextState = $contextService->extractState($context['history'] ?? []);
         $contextService->applyExpiryRules($contextState, $prompt);
         $context['state'] = $contextState;
 
-        // 3. Classify natural language into a small semantic capability request
+        // 4. Classify natural language into a small semantic capability request
         $classifier = app(IntentClassifierService::class);
         $semantic = $classifier->classify($prompt, $context ?? []);
+        $classifierMode = $semantic['source'] ?? ($classifier->isLlmAvailable() ? 'ollama' : 'heuristic');
+        $classifierIntent = $semantic['intent'] ?? $semantic['capability'] ?? null;
+        $classifierConfidence = $semantic['confidence'] ?? null;
+        $classifierOutput = $semantic;
 
-        // 4. Resolve conversational references (pronouns, deictic follow-ups) using active state
+        // 5. Resolve conversational references (pronouns, deictic follow-ups) using active state
         $semantic = $contextService->resolveReferences($semantic, $contextState, $prompt);
 
-        // 5. Institutional Accounting Safety Policies & Guardrails
+        // 6. Institutional Accounting Safety Policies & Guardrails
         if (!empty($semantic['safety_flag'])) {
-            return $this->handleSafetyPolicy($semantic['safety_flag'], $semantic, $prompt);
+            $safetyEvaluations = [
+                'safety_flag' => $semantic['safety_flag'],
+                'policy' => $semantic['safety_flag'],
+                'action_blocked' => true,
+            ];
+            $dispatchedAction = 'safety_policy:' . $semantic['safety_flag'];
+            $response = $this->handleSafetyPolicy($semantic['safety_flag'], $semantic, $prompt);
+            $this->logDiagnosticTrace($sessionId, $companyCode, $prompt, $classifierMode, $classifierIntent, $classifierConfidence, $classifierOutput, $contextBefore, $contextState, $safetyEvaluations, $dispatchedAction, $response, $startTime, $entryPoint);
+            return $response;
         }
 
-        // 6. Capability Dispatcher
-        return match ($semantic['capability']) {
+        $dispatchedAction = $semantic['capability'];
+
+        // 7. Capability Dispatcher
+        $response = match ($semantic['capability']) {
             'guidance.how_to' => $this->handleGuidanceHowTo($semantic, $prompt, $context ?? []),
             'general.greeting' => $this->handleGreeting($semantic, $prompt),
             'general.help' => $this->handleHelp($semantic),
@@ -71,7 +109,7 @@ class CopilotService
             'refusal.tax_advisory' => $this->handleSafetyPolicy('tax_advisory', $semantic, $prompt),
             'refusal.untracked' => $this->handleUntrackedDataRefusal($prompt),
             'alerts.list' => $this->handleAlertsList($copilotActor),
-            'report.trial_balance', 'report.profit_loss', 'report.balance_sheet' => $this->handleFinancialReport($semantic['capability'], $copilotActor),
+            'report.trial_balance', 'report.profit_loss', 'report.balance_sheet' => $this->handleFinancialReport($semantic['capability'], $copilotActor, $prompt, $context ?? []),
             'voucher.draft' => $this->handleVoucherDraft($semantic, $prompt, $copilotActor),
             'voucher.reverse' => $this->handleVoucherReverse($semantic),
             'voucher.correct_amount' => $this->handleVoucherCorrectAmount($semantic, $prompt, $copilotActor),
@@ -81,6 +119,89 @@ class CopilotService
             'party.transactions', 'transaction.search' => $this->handleTransactionSearch($semantic, $prompt),
             default => $this->handleFallbackSearch($semantic, $prompt),
         };
+
+        $this->logDiagnosticTrace($sessionId, $companyCode, $prompt, $classifierMode, $classifierIntent, $classifierConfidence, $classifierOutput, $contextBefore, $contextState, $safetyEvaluations, $dispatchedAction, $response, $startTime, $entryPoint);
+
+        return $response;
+    }
+
+    /**
+     * Helper to log diagnostic telemetry safely without breaking the user turn.
+     */
+    protected function logDiagnosticTrace(
+        ?string $sessionId,
+        ?string $companyCode,
+        string $prompt,
+        string $classifierMode,
+        ?string $classifierIntent,
+        ?float $classifierConfidence,
+        ?array $classifierOutput,
+        ?array $contextBefore,
+        ?array $contextAfter,
+        ?array $safetyEvaluations,
+        ?string $dispatchedAction,
+        array $finalResponse,
+        float $startTime,
+        ?string $entryPoint = null
+    ): void {
+        try {
+            $durationMs = (int) round((microtime(true) - $startTime) * 1000);
+            if (class_exists(CopilotDiagnosticsService::class)) {
+                app(CopilotDiagnosticsService::class)->recordTrace([
+                    'session_id' => $sessionId,
+                    'company_code' => $companyCode ?? 'MAIN',
+                    'prompt' => $prompt,
+                    'classifier_mode' => $classifierMode,
+                    'classifier_intent' => $classifierIntent,
+                    'classifier_confidence' => $classifierConfidence,
+                    'classifier_output' => $classifierOutput,
+                    'context_before' => $contextBefore,
+                    'context_after' => $contextAfter,
+                    'safety_evaluations' => $safetyEvaluations,
+                    'dispatched_action' => $dispatchedAction,
+                    'execution_result' => $finalResponse['data'] ?? null,
+                    'final_response' => $finalResponse,
+                    'duration_ms' => $durationMs,
+                    'entry_point' => $entryPoint,
+                    'anomaly_flag' => $this->detectAnomalyFlag($finalResponse, $classifierConfidence, $durationMs),
+                ]);
+            }
+        } catch (\Throwable $e) {
+            // Diagnostics logging should never interrupt conversational user response
+        }
+    }
+
+    /**
+     * Detect anomaly signals automatically from the response payload.
+     * Flags suspicious patterns like zero-total financial reports on active tenants,
+     * low classifier confidence, or abnormally high latency.
+     */
+    private function detectAnomalyFlag(array $response, ?float $confidence, ?int $durationMs): ?string
+    {
+        // Anomaly: Financial report with all-zero totals
+        $data = $response['data'] ?? [];
+        if (isset($data['total_debit']) && isset($data['total_credit'])) {
+            $totalDebit = (float) $data['total_debit'];
+            $totalCredit = (float) $data['total_credit'];
+            if ($totalDebit == 0 && $totalCredit == 0 && !empty($data['has_activity'])) {
+                return 'suspicious_zero_report';
+            }
+        }
+        if (isset($data['net_profit']) && (float) $data['net_profit'] == 0 && isset($data['total_revenue']) && (float) $data['total_revenue'] == 0 && !empty($data['has_activity'])) {
+            return 'suspicious_zero_report';
+        }
+
+        // Anomaly: Low classifier confidence
+        if ($confidence !== null && $confidence < 0.50) {
+            return 'low_confidence';
+        }
+
+        // Anomaly: High latency (> 3000ms)
+        if ($durationMs !== null && $durationMs > 3000) {
+            return 'high_latency';
+        }
+
+        return null;
     }
 
     /**
@@ -296,23 +417,30 @@ class CopilotService
     /**
      * Capability: general.help
      */
-    protected function handleHelp(array $semantic): array
+    protected function handleHelp(array $semantic = []): array
     {
+        $name = trim($semantic['arguments']['party'] ?? ($semantic['party'] ?? ''));
+        $role = trim($semantic['arguments']['role_title'] ?? '');
+        $greeting = $name
+            ? "Welcome, **{$name}**" . ($role ? " ({$role})" : "") . "! "
+            : "I am **Taliya**, your AI Accounting Copilot backed by Alamia 360.\n\n";
+
         return [
             'sender' => 'Taliya',
             'intent' => 'general_guidance',
-            'message' => "I am **Taliya**, your AI Accounting Copilot backed by Alamia 360.\n\nHere are some of the things you can ask me:\n" .
-                "• **Find Transactions**: *\"Transaction with Mr. Ali Raza of Izoc Ltd\"*\n" .
-                "• **Inquire Vouchers**: *\"Tell me about voucher OB-2026-001\"*\n" .
-                "• **Account Balances**: *\"What is the balance of Meezan Bank?\"* or *\"Account 1130\"*\n" .
-                "• **Drafting Vouchers**: *\"Paid Rs. 25,000 for office rent via Meezan Bank\"*\n" .
-                "• **Financial Statements**: *\"Show Trial Balance\"*, *\"View Profit & Loss\"*\n" .
-                "• **Audit & Alerts**: *\"Check situations\"* or *\"Any ledger alerts?\"*",
+            'message' => "{$greeting}" . ($name ? "As company " . ($role ?: "executive") . ", here is how I assist your operations:\n\n" : "Here are some of the things you can ask me:\n\n") .
+                "• **📊 Real-Time Financial Reports**: Ask *\"Show Trial Balance summary\"*, *\"Profit & Loss for this year\"*, or *\"Balance Sheet\"*.\n" .
+                "• **🏦 Chart of Accounts**: Ask *\"What is the balance of Meezan Bank?\"* or *\"Account 1130\"*.\n" .
+                "• **📑 Transactions & Daybook**: Ask *\"Transactions with Mr. Ali Raza of Izoc Ltd\"* or *\"What payments were made yesterday?\"*.\n" .
+                "• **📝 Interactive Voucher Staging**: Ask *\"Paid Rs. 25,000 for office rent via Meezan Bank\"* (with dual Maker-Checker review on large amounts).\n" .
+                "• **🔒 Governance & Safety Guardrails**: Immutable ledger enforcement, period lock protection, and GAAP/IFRS reversal workflows.",
             'data' => null,
             'card_type' => 'help',
             'actions' => [
                 ['label' => '📊 Trial Balance', 'action' => 'draft_prompt', 'payload' => ['prompt' => 'Show Trial Balance summary']],
-                ['label' => '🏦 Meezan Bank Balance', 'action' => 'draft_prompt', 'payload' => ['prompt' => 'What is the balance of Meezan Bank?']],
+                ['label' => '📈 Profit & Loss', 'action' => 'draft_prompt', 'payload' => ['prompt' => 'Show Profit & Loss summary']],
+                ['label' => '🏛️ Balance Sheet', 'action' => 'draft_prompt', 'payload' => ['prompt' => 'Show Balance Sheet summary']],
+                ['label' => '📄 View Daybook', 'action' => 'navigate_page', 'payload' => ['page' => 'daybook']],
             ]
         ];
     }
@@ -453,7 +581,7 @@ class CopilotService
     /**
      * Capability: report.trial_balance | report.profit_loss | report.balance_sheet
      */
-    protected function handleFinancialReport(string $capability, $actor): array
+    protected function handleFinancialReport(string $capability, $actor, string $prompt = '', array $context = []): array
     {
         $reportType = match ($capability) {
             'report.profit_loss' => 'profit-loss',
@@ -461,63 +589,146 @@ class CopilotService
             default => 'trial-balance',
         };
 
-        if ($reportType === 'trial-balance') {
-            $result = Alamia360::capabilities()->execute('get_financial_report', [
-                'report_type' => 'trial-balance',
-            ], $actor);
-
-            $data = $result['data'] ?? [];
-            $totalDebit = $data['total_debit'] ?? $data['totals']['debit'] ?? 0;
-            $totalCredit = $data['total_credit'] ?? $data['totals']['credit'] ?? 0;
-            $isBalanced = ($totalDebit == $totalCredit) && ($totalDebit > 0);
-
-            return [
-                'sender' => 'Taliya',
-                'intent' => 'report_trial_balance',
-                'message' => "Here is the Trial Balance summary as of today. " . 
-                    ($isBalanced ? "The books are in balance with total debits matching credits." : "Review total balances below."),
-                'data' => [
-                    'type' => 'trial-balance',
-                    'total_debit' => $totalDebit,
-                    'total_credit' => $totalCredit,
-                    'is_balanced' => $isBalanced,
-                    'accounts_count' => count($data['accounts'] ?? $data['rows'] ?? []),
-                    'raw' => $data,
-                ],
-                'card_type' => 'financial_report',
-            ];
-        }
+        // Contradiction / Discrepancy Pushback Detection
+        $isPushback = (bool) preg_match('/\b(no|actually|wait|incorrect|wrong|disagree|disagrees|not\s+0|shows?\s+[0-9]+|real\s+(?:p&l|profit|report))\b/i', $prompt);
 
         if ($reportType === 'profit-loss') {
             $result = Alamia360::capabilities()->execute('get_financial_report', [
                 'report_type' => 'profit-loss',
             ], $actor);
 
+            $pnl = $result['data'] ?? [];
+            $totalRevenue = (float) ($pnl['total_revenue'] ?? $pnl['total_income'] ?? 0);
+            $totalExpenses = (float) ($pnl['total_expenses'] ?? 0);
+            $netProfit = (float) ($pnl['net_profit'] ?? ($totalRevenue - $totalExpenses));
+            $hasActivity = (count($pnl['income'] ?? []) > 0) || (count($pnl['expenses'] ?? []) > 0) || ($totalRevenue > 0) || ($totalExpenses > 0);
+
+            $formattedProfit = number_format(abs($netProfit), 2);
+            $profitStatus = $netProfit >= 0 ? "Net Profit" : "Net Loss";
+            $fromDate = $pnl['from_date'] ?? date('Y-01-01');
+            $toDate = $pnl['to_date'] ?? date('Y-m-d');
+
+            if ($isPushback) {
+                $message = "🔍 **Report Re-check & Period Clarification**: The calculated summary reflects posted journal entries in the current fiscal year (from `{$fromDate}` to `{$toDate}`). If your expected figure differs, it may belong to unposted draft vouchers, a different fiscal year, or another tenant domain. Let's inspect the detailed P&L ledger directly:";
+            } elseif ($hasActivity) {
+                $message = "Here is the Profit & Loss statement for the current period (`{$fromDate}` to `{$toDate}`). Total Revenue is **PKR " . number_format($totalRevenue, 2) . "**, Total Expenses are **PKR " . number_format($totalExpenses, 2) . "**, resulting in a {$profitStatus} of **PKR {$formattedProfit}**.";
+            } else {
+                $message = "No revenue or operating expense transactions were posted for the selected period (`{$fromDate}` to `{$toDate}`). Total {$profitStatus} is **PKR 0.00**.";
+            }
+
             return [
                 'sender' => 'Taliya',
                 'intent' => 'report_profit_loss',
-                'message' => "Here is the Profit & Loss statement for the current period.",
+                'message' => $message,
                 'data' => [
                     'type' => 'profit-loss',
-                    'raw' => $result['data'] ?? [],
+                    'report_type' => 'profit-loss',
+                    'total_revenue' => $totalRevenue,
+                    'total_income' => $totalRevenue,
+                    'total_expenses' => $totalExpenses,
+                    'net_profit' => $netProfit,
+                    'has_activity' => $hasActivity,
+                    'is_balanced' => true,
+                    'from_date' => $fromDate,
+                    'to_date' => $toDate,
+                    'income_items' => $pnl['income'] ?? [],
+                    'expense_items' => $pnl['expenses'] ?? [],
+                    'raw' => $pnl,
                 ],
                 'card_type' => 'financial_report',
+                'actions' => [
+                    ['label' => '📊 Full P&L Statement', 'action' => 'navigate_page', 'payload' => ['page' => 'profit-loss']],
+                    ['label' => '📄 View Daybook', 'action' => 'navigate_page', 'payload' => ['page' => 'daybook']],
+                ]
             ];
         }
 
+        if ($reportType === 'balance-sheet') {
+            $result = Alamia360::capabilities()->execute('get_financial_report', [
+                'report_type' => 'balance-sheet',
+            ], $actor);
+
+            $bs = $result['data'] ?? [];
+            $totalAssets = (float) ($bs['total_assets'] ?? 0);
+            $totalLiabilities = (float) ($bs['total_liabilities'] ?? 0);
+            $totalEquity = (float) ($bs['total_equity'] ?? 0);
+            $totalLiabEquity = (float) ($bs['total_liabilities_and_equity'] ?? ($totalLiabilities + $totalEquity));
+            $isBalanced = (bool) ($bs['is_balanced'] ?? (abs($totalAssets - $totalLiabEquity) < 0.01));
+            $hasActivity = (count($bs['assets'] ?? []) > 0) || (count($bs['liabilities'] ?? []) > 0) || ($totalAssets > 0);
+            $asOfDate = $bs['as_of_date'] ?? date('Y-m-d');
+
+            if ($isPushback) {
+                $message = "🔍 **Balance Sheet Re-check**: The summary as of `{$asOfDate}` shows Total Assets of **PKR " . number_format($totalAssets, 2) . "** and Total Liabilities & Equity of **PKR " . number_format($totalLiabEquity, 2) . "**. Open the full Balance Sheet to verify account breakdowns:";
+            } elseif ($hasActivity) {
+                $message = "Here is the Balance Sheet as of `{$asOfDate}`. Total Assets are **PKR " . number_format($totalAssets, 2) . "**, matching Total Liabilities & Equity of **PKR " . number_format($totalLiabEquity, 2) . "**.";
+            } else {
+                $message = "No asset or liability postings found for the current period as of `{$asOfDate}`. Total balance is **PKR 0.00**.";
+            }
+
+            return [
+                'sender' => 'Taliya',
+                'intent' => 'report_balance_sheet',
+                'message' => $message,
+                'data' => [
+                    'type' => 'balance-sheet',
+                    'report_type' => 'balance-sheet',
+                    'total_assets' => $totalAssets,
+                    'total_liabilities' => $totalLiabilities,
+                    'total_equity' => $totalEquity,
+                    'total_liabilities_and_equity' => $totalLiabEquity,
+                    'is_balanced' => $isBalanced,
+                    'has_activity' => $hasActivity,
+                    'as_of_date' => $asOfDate,
+                    'asset_items' => $bs['assets'] ?? [],
+                    'liability_items' => $bs['liabilities'] ?? [],
+                    'equity_items' => $bs['equity'] ?? [],
+                    'raw' => $bs,
+                ],
+                'card_type' => 'financial_report',
+                'actions' => [
+                    ['label' => '🏛️ Full Balance Sheet', 'action' => 'navigate_page', 'payload' => ['page' => 'balance-sheet']],
+                    ['label' => '⚖️ Trial Balance', 'action' => 'navigate_page', 'payload' => ['page' => 'trial-balance']],
+                ]
+            ];
+        }
+
+        // Trial Balance
         $result = Alamia360::capabilities()->execute('get_financial_report', [
-            'report_type' => 'balance-sheet',
+            'report_type' => 'trial-balance',
         ], $actor);
+
+        $tb = $result['data'] ?? [];
+        $totalDebit = (float) ($tb['total_debit'] ?? $tb['totals']['debit'] ?? 0);
+        $totalCredit = (float) ($tb['total_credit'] ?? $tb['totals']['credit'] ?? 0);
+        $isBalanced = (abs($totalDebit - $totalCredit) < 0.01) && ($totalDebit > 0);
+        $hasActivity = ($totalDebit > 0) || (count($tb['accounts'] ?? $tb['rows'] ?? []) > 0);
+
+        if ($hasActivity) {
+            $message = "Here is the Trial Balance summary as of today. " . 
+                ($isBalanced ? "The books are in balance with total debits matching credits (**PKR " . number_format($totalDebit, 2) . "**)." : "Review total balances below.");
+        } else {
+            $message = "No posted transactions recorded in the general ledger for the selected period. Total balance is **PKR 0.00**.";
+        }
 
         return [
             'sender' => 'Taliya',
-            'intent' => 'report_balance_sheet',
-            'message' => "Here is the Balance Sheet as of today.",
+            'intent' => 'report_trial_balance',
+            'message' => $message,
             'data' => [
-                'type' => 'balance-sheet',
-                'raw' => $result['data'] ?? [],
+                'type' => 'trial-balance',
+                'report_type' => 'trial-balance',
+                'total_debit' => $totalDebit,
+                'total_credit' => $totalCredit,
+                'is_balanced' => $isBalanced,
+                'has_activity' => $hasActivity,
+                'accounts_count' => count($tb['accounts'] ?? $tb['rows'] ?? []),
+                'raw' => $tb,
             ],
             'card_type' => 'financial_report',
+            'actions' => [
+                ['label' => '⚖️ Open Trial Balance', 'action' => 'navigate_page', 'payload' => ['page' => 'trial-balance']],
+                ['label' => '📄 View Daybook', 'action' => 'navigate_page', 'payload' => ['page' => 'daybook']],
+            ]
         ];
     }
 
@@ -936,14 +1147,31 @@ class CopilotService
     protected function handleAccountQuery(array $semantic, string $prompt): array
     {
         $searchService = app(SearchService::class);
-        $accQuery = $semantic['account'] ?? '';
-        if (empty($accQuery)) {
-            $accQuery = trim(preg_replace('/^(what is the balance of|what is the balance in|what is the balance for|what is the balance|what is in|how much is in|how much in|balance of|balance in|balance for|balance|tell me about account|tell me about|show me account|show me|details of account|details of|account)\s+(the\s+|account\s+)?/i', '', $prompt), " ?.'\"");
+        $accQuery = $semantic['arguments']['account'] ?? ($semantic['account'] ?? '');
+
+        // 1. If an explicit 4-digit code is found anywhere in the query or prompt
+        if (preg_match('/\b([1-5][0-9]{3})\b/', $accQuery . ' ' . $prompt, $cm)) {
+            $codeMatches = $searchService->searchAccounts($cm[1]);
+            if (!empty($codeMatches)) {
+                $targetAcc = collect($codeMatches)->firstWhere('code', $cm[1]) ?? $codeMatches[0];
+                return $this->formatAccountBrief($targetAcc);
+            }
         }
 
-        $accounts = $searchService->searchAccounts($accQuery);
+        if (empty($accQuery)) {
+            $accQuery = trim(preg_replace('/^(show ledger activity for|show ledger for|show statement for|what is the balance of|what is the balance in|what is the balance for|what is the balance|what is in|how much is in|how much in|balance of|balance in|balance for|balance|tell me about account|tell me about|show me account|show me|details of account|details of|account)\s+(the\s+|account\s+)?/i', '', $prompt), " ?.'\"()");
+        }
 
-        // Exact 4-digit code match
+        // Clean query of prefix phrases and trailing (1110) codes
+        $cleanSearch = trim(preg_replace('/^(show ledger activity for|show ledger for|show statement for|what is the balance of|what is the balance in|what is the balance for|what is the balance|what is in|how much is in|how much in|balance of|balance in|balance for|balance|tell me about account|tell me about|show me account|show me|details of account|details of|account)\s+(the\s+|account\s+)?/i', '', $accQuery), " ?.'\"()");
+        $cleanSearch = trim(preg_replace('/\s*\([0-9]{4}\)/', '', $cleanSearch), " ?.'\"()");
+
+        $accounts = $searchService->searchAccounts($cleanSearch ?: $accQuery);
+        if (empty($accounts) && !empty($cleanSearch) && $cleanSearch !== $accQuery) {
+            $accounts = $searchService->searchAccounts($accQuery);
+        }
+
+        // Exact 4-digit code match in results
         if (preg_match('/\b(\d{4})\b/', $accQuery, $cm)) {
             $exactAcc = collect($accounts)->firstWhere('code', $cm[1]);
             if ($exactAcc) {
@@ -952,8 +1180,8 @@ class CopilotService
         }
 
         // Exact name match
-        $exactName = collect($accounts)->first(function ($a) use ($accQuery) {
-            return strcasecmp($a['name'] ?? '', $accQuery) === 0;
+        $exactName = collect($accounts)->first(function ($a) use ($cleanSearch, $accQuery) {
+            return strcasecmp($a['name'] ?? '', $cleanSearch) === 0 || strcasecmp($a['name'] ?? '', $accQuery) === 0;
         });
         if ($exactName) {
             return $this->formatAccountBrief($exactName);
@@ -964,7 +1192,7 @@ class CopilotService
         }
 
         if (count($accounts) > 1) {
-            return $this->formatDisambiguation($accQuery, [], $accounts);
+            return $this->formatDisambiguation($cleanSearch ?: $accQuery, [], $accounts);
         }
 
         $activeCompany = DomainContext::get() ?: 'Active Company';

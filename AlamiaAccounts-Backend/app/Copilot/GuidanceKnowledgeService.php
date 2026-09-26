@@ -11,6 +11,46 @@ class GuidanceKnowledgeService
     {
         $q = strtolower(trim($query));
 
+        // 0. Dynamic Self-Learning Knowledge Base (Custom rules & promoted developer insights)
+        $companyCode = $context['company_code'] ?? null;
+        try {
+            if (class_exists(\AlamiaSoft\AlamiaAccounts\Models\CopilotKnowledgeEntry::class)) {
+                $customEntries = \AlamiaSoft\AlamiaAccounts\Models\CopilotKnowledgeEntry::where('is_active', true)
+                    ->where(function ($queryBuilder) use ($companyCode) {
+                        $queryBuilder->whereNull('company_code');
+                        if ($companyCode) {
+                            $queryBuilder->orWhere('company_code', $companyCode);
+                        }
+                    })
+                    ->get();
+
+                foreach ($customEntries as $entry) {
+                    $triggers = is_array($entry->trigger_keywords) ? $entry->trigger_keywords : [];
+                    foreach ($triggers as $trigger) {
+                        $trigger = strtolower(trim($trigger));
+                        // Specificity floor: skip single-word triggers that could shadow primary classifier capabilities
+                        $tokenCount = count(array_filter(explode(' ', $trigger)));
+                        if ($tokenCount < 2) {
+                            continue;
+                        }
+                        if ($trigger !== '' && (str_contains($q, $trigger) || @preg_match('/' . preg_quote($trigger, '/') . '/i', $q))) {
+                            return [
+                                'topic' => $entry->topic,
+                                'title' => $entry->title,
+                                'summary' => $entry->summary,
+                                'steps' => is_array($entry->steps) ? $entry->steps : [],
+                                'note' => $entry->note,
+                                'actions' => is_array($entry->actions) ? $entry->actions : [],
+                                'is_custom_kb' => true,
+                            ];
+                        }
+                    }
+                }
+            }
+        } catch (\Throwable $e) {
+            // Silently fall through to built-in guidance rules
+        }
+
         // 1. Voucher Correction & Amount Adjustment Workflow
         if (
             preg_match('/\b(fix|correct|change|modify|wrong)\s+(?:a\s+)?(?:voucher|amount|entry|transaction|payment)\b/i', $q) ||

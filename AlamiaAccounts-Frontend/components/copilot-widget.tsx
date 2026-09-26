@@ -462,25 +462,97 @@ export default function CopilotWidget({ companyCode }: { companyCode?: string })
                   {m.cardType === "financial_report" && m.data && (
                     <div className="mt-2.5 p-3 bg-background border border-border rounded-xl text-foreground text-xs space-y-2">
                       <div className="flex justify-between items-center font-semibold text-[11px] text-muted-foreground uppercase">
-                        <span>Report Totals</span>
-                        <span className="text-emerald-600 flex items-center gap-1">
-                          <CheckCircle2 className="w-3 h-3" /> Mathematically Valid
+                        <span>
+                          {m.data.report_type === "profit-loss"
+                            ? "Profit & Loss Summary"
+                            : m.data.report_type === "balance-sheet"
+                            ? "Balance Sheet Summary"
+                            : "Trial Balance Summary"}
                         </span>
+                        {m.data.has_activity ? (
+                          m.data.is_balanced !== false ? (
+                            <span className="text-emerald-600 flex items-center gap-1">
+                              <CheckCircle2 className="w-3 h-3" /> Mathematically Valid
+                            </span>
+                          ) : (
+                            <span className="text-destructive flex items-center gap-1">
+                              <AlertTriangle className="w-3 h-3" /> Out of Balance
+                            </span>
+                          )
+                        ) : (
+                          <span className="text-amber-600 flex items-center gap-1">
+                            <AlertTriangle className="w-3 h-3" /> No Activity in Period
+                          </span>
+                        )}
                       </div>
-                      <div className="grid grid-cols-2 gap-2 text-center">
-                        <div className="p-2 rounded-lg bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/40">
-                          <div className="text-[10px] text-muted-foreground uppercase">Total Debits</div>
-                          <div className="text-sm font-bold font-mono text-emerald-700 dark:text-emerald-300">
-                            PKR {(m.data.total_debit || 0).toLocaleString()}
+
+                      {/* Profit & Loss View */}
+                      {m.data.report_type === "profit-loss" && (
+                        <div className="space-y-2">
+                          <div className="grid grid-cols-2 gap-2 text-center">
+                            <div className="p-2 rounded-lg bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/40">
+                              <div className="text-[10px] text-muted-foreground uppercase">Revenue</div>
+                              <div className="text-sm font-bold font-mono text-emerald-700 dark:text-emerald-300">
+                                PKR {(m.data.total_revenue || m.data.total_income || 0).toLocaleString()}
+                              </div>
+                            </div>
+                            <div className="p-2 rounded-lg bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800/40">
+                              <div className="text-[10px] text-muted-foreground uppercase">Expenses</div>
+                              <div className="text-sm font-bold font-mono text-rose-700 dark:text-rose-300">
+                                PKR {(m.data.total_expenses || 0).toLocaleString()}
+                              </div>
+                            </div>
+                          </div>
+                          <div className={`p-2 rounded-lg text-center border ${
+                            (m.data.net_profit || 0) >= 0
+                              ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-300"
+                              : "bg-rose-500/10 border-rose-500/30 text-rose-700 dark:text-rose-300"
+                          }`}>
+                            <div className="text-[10px] uppercase font-semibold">
+                              {(m.data.net_profit || 0) >= 0 ? "Net Profit" : "Net Loss"}
+                            </div>
+                            <div className="text-base font-extrabold font-mono">
+                              PKR {Math.abs(m.data.net_profit || 0).toLocaleString()}
+                            </div>
                           </div>
                         </div>
-                        <div className="p-2 rounded-lg bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800/40">
-                          <div className="text-[10px] text-muted-foreground uppercase">Total Credits</div>
-                          <div className="text-sm font-bold font-mono text-blue-700 dark:text-blue-300">
-                            PKR {(m.data.total_credit || 0).toLocaleString()}
+                      )}
+
+                      {/* Balance Sheet View */}
+                      {m.data.report_type === "balance-sheet" && (
+                        <div className="grid grid-cols-2 gap-2 text-center">
+                          <div className="p-2 rounded-lg bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/40">
+                            <div className="text-[10px] text-muted-foreground uppercase">Total Assets</div>
+                            <div className="text-sm font-bold font-mono text-emerald-700 dark:text-emerald-300">
+                              PKR {(m.data.total_assets || 0).toLocaleString()}
+                            </div>
+                          </div>
+                          <div className="p-2 rounded-lg bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800/40">
+                            <div className="text-[10px] text-muted-foreground uppercase">Liabilities & Equity</div>
+                            <div className="text-sm font-bold font-mono text-blue-700 dark:text-blue-300">
+                              PKR {(m.data.total_liabilities_and_equity || (m.data.total_liabilities || 0) + (m.data.total_equity || 0)).toLocaleString()}
+                            </div>
                           </div>
                         </div>
-                      </div>
+                      )}
+
+                      {/* Trial Balance / Default View */}
+                      {(m.data.report_type === "trial-balance" || (!m.data.report_type && m.data.type === "trial-balance") || (!m.data.report_type && !m.data.type)) && (
+                        <div className="grid grid-cols-2 gap-2 text-center">
+                          <div className="p-2 rounded-lg bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/40">
+                            <div className="text-[10px] text-muted-foreground uppercase">Total Debits</div>
+                            <div className="text-sm font-bold font-mono text-emerald-700 dark:text-emerald-300">
+                              PKR {(m.data.total_debit || 0).toLocaleString()}
+                            </div>
+                          </div>
+                          <div className="p-2 rounded-lg bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800/40">
+                            <div className="text-[10px] text-muted-foreground uppercase">Total Credits</div>
+                            <div className="text-sm font-bold font-mono text-blue-700 dark:text-blue-300">
+                              PKR {(m.data.total_credit || 0).toLocaleString()}
+                            </div>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
 

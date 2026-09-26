@@ -65,6 +65,30 @@
       "doc_reference": "docs/copilot/copilot-architecture-and-context.md",
       "api_endpoint": "POST /api/copilot/chat",
       "summary": "Natural language inquiry and search across vouchers, accounts, and contacts with automatic double-entry briefing, card formatting, and multi-match disambiguation."
+    },
+    {
+      "intent": "system_diagnostics_and_observability",
+      "keywords": ["telemetry", "trace inspector", "evaluation", "export jsonl", "classifier latency", "safety audit"],
+      "doc_reference": "docs/copilot/SYSTEM_DIAGNOSTICS_AND_SELF_LEARNING.md",
+      "api_endpoints": [
+        "GET /api/copilot/diagnostics",
+        "GET /api/copilot/diagnostics/export",
+        "PATCH /api/copilot/diagnostics/{id}/feedback",
+        "DELETE /api/copilot/diagnostics"
+      ],
+      "summary": "Real-time developer telemetry capturing prompts, classifier decisions, latency, safety evaluations, and responses with full JSONL/CSV dataset export for AI evaluation."
+    },
+    {
+      "intent": "dynamic_self_learning_knowledgebase",
+      "keywords": ["promote to knowledge base", "self-learning rule", "custom guidance", "erp procedure", "workflow training"],
+      "doc_reference": "docs/copilot/SYSTEM_DIAGNOSTICS_AND_SELF_LEARNING.md",
+      "api_endpoints": [
+        "GET /api/copilot/knowledge",
+        "POST /api/copilot/knowledge",
+        "DELETE /api/copilot/knowledge/{id}",
+        "POST /api/copilot/diagnostics/{id}/promote-to-guidance"
+      ],
+      "summary": "Database-driven dynamic knowledgebase allowing developers and domain experts to train Copilot with custom workflows, trigger phrases, and operational steps without code deployment."
     }
   ],
   "database_entities": {
@@ -74,6 +98,8 @@
     "journal_entries": "Header for double-entry transactions (transDate, currency, reference)",
     "journal_details": "Debit/credit line items per account (ledgerUuid, amount, balanceSide)",
     "domain_journal_entries": "Pivot scoping every transaction to a specific domainUuid",
+    "copilot_diagnostic_logs": "Developer telemetry capturing turn prompt, classifier mode, intent, confidence, duration, context state, and output payload",
+    "copilot_knowledge_entries": "Self-learned dynamic ERP guidance rules containing trigger keywords, operational steps, compliance notes, and deep-link actions",
     "custom_voucher_types": "Definitions for user-built dynamic voucher templates",
     "custom_voucher_fields": "Form fields with data types and validation formulas",
     "custom_voucher_account_rules": "Mapping rules that generate double-entry lines from form fields"

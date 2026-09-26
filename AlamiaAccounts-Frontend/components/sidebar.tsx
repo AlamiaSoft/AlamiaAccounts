@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { Home, BarChart3, BookOpen, Wallet, Settings, LogOut, ChevronDown, PieChart } from "lucide-react"
+import { Home, BarChart3, BookOpen, Wallet, Settings, LogOut, ChevronDown, PieChart, Activity } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import CompanySwitcher, { type Company } from "./company-switcher"
@@ -83,6 +83,11 @@ export default function Sidebar({
         { id: "profit-loss", label: "Profit & Loss" },
         { id: "cash-flow", label: "Cash Flow" },
       ],
+    },
+    {
+      id: "diagnostics",
+      label: "System Diagnostics",
+      icon: Activity,
     },
   ]
 

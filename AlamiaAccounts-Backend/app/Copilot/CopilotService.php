@@ -47,6 +47,7 @@ class CopilotService
         // 2. Extract structured conversational state from recent turns
         $contextService = app(ConversationContextService::class);
         $contextState = $contextService->extractState($context['history'] ?? []);
+        $context['state'] = $contextState;
 
         // 3. Classify natural language into a small semantic capability request
         $classifier = app(IntentClassifierService::class);
@@ -62,6 +63,7 @@ class CopilotService
 
         // 6. Capability Dispatcher
         return match ($semantic['capability']) {
+            'guidance.how_to' => $this->handleGuidanceHowTo($semantic, $prompt, $context ?? []),
             'general.greeting' => $this->handleGreeting($semantic, $prompt),
             'general.help' => $this->handleHelp($semantic),
             'refusal.chitchat' => $this->handleChitChatRefusal($prompt),
@@ -71,6 +73,7 @@ class CopilotService
             'report.trial_balance', 'report.profit_loss', 'report.balance_sheet' => $this->handleFinancialReport($semantic['capability'], $copilotActor),
             'voucher.draft' => $this->handleVoucherDraft($semantic, $prompt, $copilotActor),
             'voucher.reverse' => $this->handleVoucherReverse($semantic),
+            'voucher.correct_amount' => $this->handleVoucherCorrectAmount($semantic, $prompt, $copilotActor),
             'voucher.lookup' => $this->handleVoucherLookup($semantic, $prompt),
             'account.balance', 'account.lookup', 'account.ledger' => $this->handleAccountQuery($semantic, $prompt),
             'party.lookup' => $this->handlePartyLookup($semantic, $context ?? []),
@@ -310,6 +313,45 @@ class CopilotService
                 ['label' => '📊 Trial Balance', 'action' => 'draft_prompt', 'payload' => ['prompt' => 'Show Trial Balance summary']],
                 ['label' => '🏦 Meezan Bank Balance', 'action' => 'draft_prompt', 'payload' => ['prompt' => 'What is the balance of Meezan Bank?']],
             ]
+        ];
+    }
+
+    /**
+     * Capability: guidance.how_to
+     * Educational and operational guidance for software features and ERP workflows (Tier 1 Guidance).
+     */
+    protected function handleGuidanceHowTo(array $semantic, string $prompt, array $context = []): array
+    {
+        $guidanceService = app(GuidanceKnowledgeService::class);
+        $guidance = $guidanceService->getGuidance($prompt, $context);
+
+        $activeRef = $context['state']['active_voucher']['reference'] ?? '';
+        $actions = $guidance['actions'] ?? [];
+
+        // Contextual Bridge: If user asks how to fix a voucher and active voucher is in session, offer direct staging CTA
+        if (!empty($activeRef) && (str_contains(strtolower($prompt), 'fix') || str_contains(strtolower($prompt), 'correct') || str_contains(strtolower($prompt), 'amount'))) {
+            array_unshift($actions, [
+                'label' => "📝 Prepare Correction Draft for {$activeRef}",
+                'action' => 'draft_prompt',
+                'payload' => ['prompt' => "Prepare correction draft for {$activeRef}"],
+                'variant' => 'default',
+            ]);
+        }
+
+        $stepsText = implode("\n", $guidance['steps'] ?? []);
+        $message = "### 📘 {$guidance['title']}\n\n{$guidance['summary']}\n\n{$stepsText}\n\n💡 *{$guidance['note']}*";
+
+        return [
+            'sender' => 'Taliya',
+            'intent' => 'guidance_how_to',
+            'message' => $message,
+            'data' => [
+                'topic' => $guidance['topic'] ?? 'general',
+                'query' => $prompt,
+                'reference' => $activeRef,
+            ],
+            'card_type' => 'guidance_how_to',
+            'actions' => $actions,
         ];
     }
 
@@ -610,6 +652,124 @@ class CopilotService
             ]
         ];
     }
+
+    /**
+     * Capability: voucher.correct_amount
+     * Guided workflow to reverse an erroneous voucher and draft a corrected replacement entry.
+     */
+    protected function handleVoucherCorrectAmount(array $semantic, string $prompt, $actor): array
+    {
+        $ref = $semantic['reference'] ?? '';
+        $amount = (float) ($semantic['amount'] ?? 0);
+        $searchService = app(SearchService::class);
+        $targetVoucher = !empty($ref) ? collect($searchService->searchVouchers($ref))->first() : null;
+
+        $makerCheckerThreshold = (float) config('copilot.maker_checker_threshold', 100000.0);
+        $origAmount = 0.0;
+        $origLines = [];
+
+        if (!empty($targetVoucher)) {
+            $origLines = $targetVoucher['lineItems'] ?? ($targetVoucher['line_items'] ?? ($targetVoucher['details'] ?? []));
+            foreach ($origLines as $l) {
+                $origAmount += (float) ($l['debit'] ?? 0);
+            }
+            if ($origAmount <= 0) {
+                $origAmount = (float) ($targetVoucher['amount'] ?? 0);
+            }
+        }
+
+        $requiresDualConfirmation = ($amount >= $makerCheckerThreshold) || ($origAmount >= $makerCheckerThreshold);
+
+        // Build replacement draft line items preserving leaf accounts
+        $replacementDetails = [];
+        if (!empty($origLines)) {
+            foreach ($origLines as $line) {
+                $dr = (float) ($line['debit'] ?? 0);
+                $cr = (float) ($line['credit'] ?? 0);
+                $code = $line['account_code'] ?? ($line['account'] ?? '1130');
+                $name = $line['account_name'] ?? $code;
+
+                $replacementDetails[] = [
+                    'account' => $code,
+                    'account_code' => $code,
+                    'account_name' => $name,
+                    'amount' => $amount,
+                    'type' => $dr > 0 ? 'debit' : 'credit',
+                    'debit' => $dr > 0 ? $amount : 0,
+                    'credit' => $cr > 0 ? $amount : 0,
+                ];
+            }
+        } else {
+            // Default placeholder if no prior lines discovered
+            $replacementDetails = [
+                ['account' => '1200', 'account_code' => '1200', 'account_name' => 'Accounts Receivable', 'amount' => $amount, 'type' => 'debit', 'debit' => $amount, 'credit' => 0],
+                ['account' => '4100', 'account_code' => '4100', 'account_name' => 'Sales Revenue', 'amount' => $amount, 'type' => 'credit', 'debit' => 0, 'credit' => $amount],
+            ];
+        }
+
+        $refDisplay = !empty($ref) ? "**{$ref}**" : "the voucher";
+        $origStr = $origAmount > 0 ? " (originally Rs. " . number_format($origAmount, 2) . ")" : "";
+        $amountStr = "Rs. " . number_format($amount, 2);
+
+        $makerCheckerNotice = $requiresDualConfirmation
+            ? "\n\n⚠️ **Maker-Checker Policy**: Amount ({$amountStr}) meets or exceeds the Rs. " . number_format($makerCheckerThreshold, 2) . " authorization threshold and requires dual approval before posting."
+            : "";
+
+        $message = "To correct {$refDisplay}{$origStr} to **{$amountStr}**, we will execute the institutional guided correction workflow:\n\n" .
+            "1. **Post Compensating Reversal** (`REV-{$ref}`) to zero out the original entry in the general ledger.\n" .
+            "2. **Draft Corrected Replacement Entry** with updated amount (**{$amountStr}**)." .
+            $makerCheckerNotice . "\n\n" .
+            "Review the proposed correction details below and click confirm to proceed:";
+
+        return [
+            'sender' => 'Taliya',
+            'intent' => 'voucher_correction_workflow',
+            'message' => $message,
+            'data' => [
+                'reference' => $ref,
+                'action' => 'correct_voucher',
+                'original_voucher' => $targetVoucher,
+                'original_amount' => $origAmount,
+                'corrected_amount' => $amount,
+                'reversal_reference' => 'REV-' . $ref,
+                'replacement_draft' => [
+                    'reference' => 'JV-' . Carbon::now()->format('Ymd-His'),
+                    'description' => "Corrected replacement for {$ref}",
+                    'amount' => $amount,
+                    'details' => $replacementDetails,
+                    'requires_dual_confirmation' => $requiresDualConfirmation,
+                    'maker_checker_threshold' => $makerCheckerThreshold,
+                ],
+                'requires_dual_confirmation' => $requiresDualConfirmation,
+                'maker_checker_threshold' => $makerCheckerThreshold,
+            ],
+            'card_type' => 'voucher_action',
+            'actions' => [
+                [
+                    'label' => "Confirm Reversal & Draft Replacement ({$amountStr})",
+                    'action' => 'execute_correction_workflow',
+                    'payload' => [
+                        'reference' => $ref,
+                        'amount' => $amount,
+                    ],
+                    'variant' => 'default',
+                ],
+                [
+                    'label' => 'View in Daybook',
+                    'action' => 'navigate_page',
+                    'payload' => ['page' => 'daybook', 'reference' => $ref],
+                    'variant' => 'outline',
+                ],
+                [
+                    'label' => 'View Voucher Details',
+                    'action' => 'navigate_page',
+                    'payload' => ['page' => 'voucher-view', 'type' => 'voucher', 'id' => $ref, 'rawItem' => $targetVoucher],
+                    'variant' => 'outline',
+                ],
+            ]
+        ];
+    }
+
 
     /**
      * Capability: voucher.lookup

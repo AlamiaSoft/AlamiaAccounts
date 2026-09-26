@@ -692,6 +692,182 @@ if (($c10['capability'] ?? '') === 'unknown' && ($c10['confidence'] ?? 1.0) < 0.
     echo "  [FAIL] Expected unknown with low confidence, got: " . json_encode($c10) . "\n";
     $failed++;
 }
+echo "------------------------------------------------------------------------\n";
+
+// ------------------------------------------------------------------------
+// PART 7: REVIEW 0.1.1 PHRASING GENERALIZATION & MULTI-TURN GUIDED REPAIR
+// ------------------------------------------------------------------------
+
+// 1. Phrasing Generalization: "can you find me the voucher related to izoc?"
+echo "Test " . (count($tests) + 13) . " [Review 0.1.1 Phrasing]: \"can you find me the voucher related to izoc?\"\n";
+$resP1 = $copilot->handleChat("can you find me the voucher related to izoc?", 'ALAMIASOFT', []);
+if (($resP1['card_type'] ?? '') === 'voucher_brief' && stripos($resP1['data']['reference'] ?? '', 'SV-2026-112') !== false) {
+    echo "  [PASS] 'can you find me the voucher related to izoc?' -> voucher_brief (SV-2026-112)\n";
+    $passed++;
+} else {
+    echo "  [FAIL] Expected voucher_brief with SV-2026-112 | Got: " . ($resP1['card_type'] ?? 'N/A') . "\n";
+    echo "  Payload: " . json_encode($resP1, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n";
+    $failed++;
+}
+echo "------------------------------------------------------------------------\n";
+
+// 2. Phrasing Generalization: "what we have for izoc?"
+echo "Test " . (count($tests) + 14) . " [Review 0.1.1 Phrasing]: \"what we have for izoc?\"\n";
+$resP2 = $copilot->handleChat("what we have for izoc?", 'ALAMIASOFT', []);
+if (($resP2['card_type'] ?? '') === 'voucher_brief' && stripos($resP2['data']['reference'] ?? '', 'SV-2026-112') !== false) {
+    echo "  [PASS] 'what we have for izoc?' -> voucher_brief (SV-2026-112)\n";
+    $passed++;
+} else {
+    echo "  [FAIL] Expected voucher_brief with SV-2026-112 | Got: " . ($resP2['card_type'] ?? 'N/A') . "\n";
+    echo "  Payload: " . json_encode($resP2, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n";
+    $failed++;
+}
+echo "------------------------------------------------------------------------\n";
+
+// 3. Phrasing Generalization: "need to correct the amount of a voucher... related to Izoc"
+echo "Test " . (count($tests) + 15) . " [Review 0.1.1 Phrasing]: \"need to correct the amount of a voucher... related to Izoc\"\n";
+$resP3 = $copilot->handleChat("need to correct the amount of a voucher... related to Izoc", 'ALAMIASOFT', []);
+if (($resP3['card_type'] ?? '') === 'voucher_brief' && stripos($resP3['data']['reference'] ?? '', 'SV-2026-112') !== false) {
+    echo "  [PASS] 'need to correct the amount of a voucher... related to Izoc' -> voucher_brief (SV-2026-112)\n";
+    $passed++;
+} else {
+    echo "  [FAIL] Expected voucher_brief with SV-2026-112 | Got: " . ($resP3['card_type'] ?? 'N/A') . "\n";
+    echo "  Payload: " . json_encode($resP3, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n";
+    $failed++;
+}
+echo "------------------------------------------------------------------------\n";
+
+// 4. Multi-Turn Verbatim Transcript: Immutability Refusal followed by Guided Repair
+echo "Test " . (count($tests) + 16) . " [Review 0.1.1 Guided Repair]: Turn 1 - \"change the amount to 50,000\" -> Safety Policy Refusal\n";
+$historyAfterSearch = [
+    ['sender' => 'user', 'text' => 'what we have for izoc?', 'cardType' => null],
+    ['sender' => 'taliya', 'text' => 'Found voucher SV-2026-112 for IZOC', 'card_type' => 'voucher_brief', 'data' => ['reference' => 'SV-2026-112', 'amount' => 100000]],
+];
+$resM1 = $copilot->handleChat("change the amount to 50,000", 'ALAMIASOFT', ['history' => $historyAfterSearch]);
+if (($resM1['card_type'] ?? '') === 'safety_policy' && ($resM1['intent'] ?? '') === 'safety_policy_rejection') {
+    echo "  [PASS] 'change the amount to 50,000' -> safety_policy (LEDGER_ENTRY_IMMUTABILITY)\n";
+    $passed++;
+} else {
+    echo "  [FAIL] Expected safety_policy | Got: " . ($resM1['card_type'] ?? 'N/A') . "\n";
+    echo "  Payload: " . json_encode($resM1, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n";
+    $failed++;
+}
+echo "------------------------------------------------------------------------\n";
+
+echo "Test " . (count($tests) + 17) . " [Review 0.1.1 Guided Repair]: Turn 2 - \"but we never got 100,000, correct amount is 50,000; how do i fix that?\" -> Guided Workflow Card\n";
+$historyWithPolicy = array_merge($historyAfterSearch, [
+    ['sender' => 'user', 'text' => 'change the amount to 50,000', 'cardType' => null],
+    ['sender' => 'taliya', 'text' => 'Posted entries are immutable', 'card_type' => 'safety_policy', 'data' => ['reference' => 'SV-2026-112', 'policy' => 'LEDGER_ENTRY_IMMUTABILITY', 'amount' => 100000]],
+]);
+
+$turn2RepairPrompt = "but we never got 100,000, correct amount is 50,000; how do i fix that?";
+$resM2 = $copilot->handleChat($turn2RepairPrompt, 'ALAMIASOFT', ['history' => $historyWithPolicy]);
+$cardM2 = $resM2['card_type'] ?? 'N/A';
+$dataM2 = $resM2['data'] ?? [];
+
+$isGuidedValid = in_array($cardM2, ['voucher_action', 'voucher_draft']) &&
+    ($dataM2['reference'] ?? '') === 'SV-2026-112' &&
+    (($dataM2['corrected_amount'] ?? 0) == 50000.0 || ($dataM2['replacement_draft']['amount'] ?? 0) == 50000.0) &&
+    ($dataM2['requires_dual_confirmation'] ?? false) === true; // Maker-checker triggered because orig amount was 100k
+
+if ($isGuidedValid) {
+    echo "  [PASS] Guided Repair Workflow Card Generated for SV-2026-112 (Amount: 50,000, Maker-Checker Dual Confirmation: YES)\n";
+    $passed++;
+} else {
+    echo "  [FAIL] Expected Guided Repair voucher_action for SV-2026-112 with Rs 50,000 & dual confirmation | Got Card: {$cardM2}\n";
+    echo "  Payload: " . json_encode($resM2, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n";
+    $failed++;
+}
+echo "------------------------------------------------------------------------\n";
+
+// 5. Adversarial Numeric Extraction: Date year 2026 / ID 112 vs Amount 50,000
+echo "Test " . (count($tests) + 18) . " [Adversarial Extraction]: Date year vs Amount Parsing\n";
+$advPrompt = "correct amount of SV-2026-112 on 15 March 2026 is 50,000; how do i fix that?";
+$resAdv = $copilot->handleChat($advPrompt, 'ALAMIASOFT', ['history' => $historyWithPolicy]);
+$dataAdv = $resAdv['data'] ?? [];
+$extractedAmt = (float) ($dataAdv['corrected_amount'] ?? ($dataAdv['replacement_draft']['amount'] ?? 0));
+
+if ($extractedAmt === 50000.0) {
+    echo "  [PASS] Correctly extracted Rs. 50,000 (rejected 2026 date year and 112 ref number)\n";
+    $passed++;
+} else {
+    echo "  [FAIL] Expected extracted amount 50000.0 | Got: {$extractedAmt}\n";
+    $failed++;
+}
+echo "------------------------------------------------------------------------\n";
+
+// 6. Stale Context Probe: Unrelated queries must NOT be polluted by stale active_voucher
+echo "Test " . (count($tests) + 19) . " [Stale Context Probe]: Domain Switch -> \"What is the balance of Meezan Bank?\"\n";
+$resStale1 = $copilot->handleChat("What is the balance of Meezan Bank?", 'ALAMIASOFT', ['history' => $historyWithPolicy]);
+$cardStale1 = $resStale1['card_type'] ?? 'N/A';
+$accCode1 = $resStale1['data']['code'] ?? '';
+
+if ($cardStale1 === 'account_brief' && $accCode1 === '1130') {
+    echo "  [PASS] Stale context reset: Unambiguously resolved Meezan Bank (1130) with zero voucher pollution\n";
+    $passed++;
+} else {
+    echo "  [FAIL] Expected clean account_brief for 1130 | Got Card: {$cardStale1}\n";
+    echo "  Payload: " . json_encode($resStale1, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n";
+    $failed++;
+}
+echo "------------------------------------------------------------------------\n";
+
+echo "Test " . (count($tests) + 20) . " [Stale Context Probe]: Entity Switch -> \"Who is Dog Pvt Ltd?\"\n";
+$resStale2 = $copilot->handleChat("Who is Dog Pvt Ltd?", 'ALAMIASOFT', ['history' => $historyWithPolicy]);
+$cardStale2 = $resStale2['card_type'] ?? 'N/A';
+
+if (in_array($cardStale2, ['not_found', 'entity_brief']) && stripos($resStale2['data']['entity'] ?? ($resStale2['data']['name'] ?? ''), 'Dog') !== false) {
+    echo "  [PASS] Stale context reset: Unambiguously resolved Dog Pvt Ltd with zero voucher pollution\n";
+    $passed++;
+} else {
+    echo "  [FAIL] Expected entity lookup for Dog Pvt Ltd | Got Card: {$cardStale2}\n";
+    echo "  Payload: " . json_encode($resStale2, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n";
+    $failed++;
+}
+echo "------------------------------------------------------------------------\n";
+
+// ------------------------------------------------------------------------
+// PART 8: TIER 1 GUIDANCE & HITL LOOPS (hitl-loops.md)
+// ------------------------------------------------------------------------
+
+// 1. Tier 1 Guidance: "How do I fix a wrong voucher amount?"
+echo "Test " . (count($tests) + 21) . " [Tier 1 Guidance]: \"How do I fix a wrong voucher amount?\"\n";
+$resG1 = $copilot->handleChat("How do I fix a wrong voucher amount?", 'ALAMIASOFT', []);
+if (($resG1['card_type'] ?? '') === 'guidance_how_to' && stripos($resG1['message'] ?? '', 'Reversal') !== false) {
+    echo "  [PASS] 'How do I fix a wrong voucher amount?' -> guidance_how_to (Reversal Workflow Explained)\n";
+    $passed++;
+} else {
+    echo "  [FAIL] Expected guidance_how_to | Got: " . ($resG1['card_type'] ?? 'N/A') . "\n";
+    echo "  Payload: " . json_encode($resG1, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n";
+    $failed++;
+}
+echo "------------------------------------------------------------------------\n";
+
+// 2. Tier 1 Guidance: "How to add a new bank account?"
+echo "Test " . (count($tests) + 22) . " [Tier 1 Guidance]: \"How to add a new bank account?\"\n";
+$resG2 = $copilot->handleChat("How to add a new bank account?", 'ALAMIASOFT', []);
+if (($resG2['card_type'] ?? '') === 'guidance_how_to' && stripos($resG2['message'] ?? '', 'Chart of Accounts') !== false) {
+    echo "  [PASS] 'How to add a new bank account?' -> guidance_how_to (COA Hierarchy Explained)\n";
+    $passed++;
+} else {
+    echo "  [FAIL] Expected guidance_how_to | Got: " . ($resG2['card_type'] ?? 'N/A') . "\n";
+    echo "  Payload: " . json_encode($resG2, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n";
+    $failed++;
+}
+echo "------------------------------------------------------------------------\n";
+
+// 3. Tier 1 Guidance: "How to close an accounting period?"
+echo "Test " . (count($tests) + 23) . " [Tier 1 Guidance]: \"How to close an accounting period?\"\n";
+$resG3 = $copilot->handleChat("How to close an accounting period?", 'ALAMIASOFT', []);
+if (($resG3['card_type'] ?? '') === 'guidance_how_to' && stripos($resG3['message'] ?? '', 'Periods') !== false) {
+    echo "  [PASS] 'How to close an accounting period?' -> guidance_how_to (Period Lock Explained)\n";
+    $passed++;
+} else {
+    echo "  [FAIL] Expected guidance_how_to | Got: " . ($resG3['card_type'] ?? 'N/A') . "\n";
+    echo "  Payload: " . json_encode($resG3, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n";
+    $failed++;
+}
+echo "------------------------------------------------------------------------\n";
 
 echo "========================================================================\n";
 echo " RESULTS: {$passed} PASSED, {$failed} FAILED (Total: " . ($passed + $failed) . " Tests)\n";

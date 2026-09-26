@@ -55,7 +55,7 @@ class IntentClassifierService
                 $contextLines = [];
                 foreach ($recent as $h) {
                     $sender = $h['sender'] ?? 'user';
-                    $text = substr(trim($h['text'] ?? ''), 0, 100);
+                    $text = substr(trim($h['text'] ?? ($h['message'] ?? '')), 0, 100);
                     if ($text) {
                         $contextLines[] = "{$sender}: {$text}";
                     }
@@ -65,11 +65,28 @@ class IntentClassifierService
                 }
             }
 
+            if (!empty($context['state']) && is_array($context['state'])) {
+                $st = $context['state'];
+                $stateParts = [];
+                if (!empty($st['active_voucher']['reference'])) {
+                    $stateParts[] = "Active Voucher: " . $st['active_voucher']['reference'];
+                }
+                if (!empty($st['active_party']['name'])) {
+                    $stateParts[] = "Active Party: " . $st['active_party']['name'];
+                }
+                if (!empty($st['last_policy'])) {
+                    $stateParts[] = "Last Safety Policy: " . $st['last_policy'];
+                }
+                if (!empty($stateParts)) {
+                    $contextSnippet .= "Active Session State:\n" . implode("\n", $stateParts) . "\n\n";
+                }
+            }
+
             $systemPrompt = <<<PROMPT
 You are a semantic capability parser for Alamia Accounts double-entry ERP.
 Analyze the user query inside <user_query>...</user_query> and return JSON ONLY matching this schema:
 {
-  "capability": "account.balance" | "account.lookup" | "party.lookup" | "transaction.search" | "voucher.lookup" | "voucher.draft" | "voucher.reverse" | "report.trial_balance" | "report.profit_loss" | "report.balance_sheet" | "alerts.list" | "general.help" | "general.greeting" | "refusal.chitchat" | "refusal.tax_advisory" | "refusal.untracked" | "unknown",
+  "capability": "guidance.how_to" | "account.balance" | "account.lookup" | "party.lookup" | "transaction.search" | "voucher.lookup" | "voucher.draft" | "voucher.reverse" | "voucher.correct_amount" | "report.trial_balance" | "report.profit_loss" | "report.balance_sheet" | "alerts.list" | "general.help" | "general.greeting" | "refusal.chitchat" | "refusal.tax_advisory" | "refusal.untracked" | "unknown",
   "confidence": 0.0 to 1.0,
   "arguments": {
     "account": "extracted account name or code (e.g. 'Meezan Bank', '1130') or empty string",
@@ -85,20 +102,22 @@ Analyze the user query inside <user_query>...</user_query> and return JSON ONLY 
 }
 
 Domain Capabilities:
+0. guidance.how_to: Inquiring about how to use software features, accounting workflows, or operational steps (e.g. "How do I fix a wrong voucher amount?", "How to add a new bank account?", "How to close an accounting period?", "Where can I find opening balances?").
 1. party.lookup: Inquiring about a person, contact, vendor, or organization identity (e.g., "Who is Ali Raza?", "Who is this IZOC???", "Tell me about IZOC").
-2. transaction.search: Inquiring about historical transactions or reasons (e.g., "Transaction with Mr. Ali Raza of Izoc Ltd", "Why did we pay Dog Pvt Ltd PKR 5,000?", "Show what we have with IZOC", "What did we pay Ali?").
+2. transaction.search: Inquiring about historical transactions or vouchers related to a party/org (e.g., "can you find me the voucher related to izoc?", "what we have for izoc?", "Show what we have with IZOC", "What did we pay Ali?").
 3. account.balance / account.lookup: Inquiring about ledger accounts and balances (e.g., "What is the balance of Meezan Bank?", "Account 1130", "Cash in Hand").
 4. voucher.lookup: Inspecting a specific voucher (e.g., "Tell me about voucher OB-2026-001", "Show SV-2026-112", "What is the narration of OB-2026-001?").
-5. voucher.draft: Drafting a new transaction with amount (e.g., "Paid Rs. 25,000 for office supplies via Meezan Bank", "Create payment of Rs. 10,000 to Ali Raza").
+5. voucher.draft: Explicit request to draft a new transaction with amount (e.g., "Paid Rs. 25,000 for office supplies via Meezan Bank", "Create payment of Rs. 10,000 to Ali Raza").
 6. voucher.reverse: Reversing an accounting voucher (e.g., "reverse OB-2026-001", "void JV-102").
-7. report.trial_balance / report.profit_loss / report.balance_sheet: Financial statement reports.
-8. alerts.list: Operational alerts, anomalies, or pending approvals.
-9. refusal.chitchat: Non-accounting chit-chat, weather, jokes, general knowledge (e.g., "What is the capital of France?").
-10. refusal.tax_advisory: Asking for tax evasion, aggressive tax shelters, or legal advice.
-11. Safety Flags:
+7. voucher.correct_amount: Guided workflow to correct an erroneous voucher amount via reversal + replacement entry (e.g., "correct amount is 50,000; how do I fix that?", "how to fix voucher amount").
+8. report.trial_balance / report.profit_loss / report.balance_sheet: Financial statement reports.
+9. alerts.list: Operational alerts, anomalies, or pending approvals.
+10. refusal.chitchat: Non-accounting chit-chat, weather, jokes, general knowledge (e.g., "What is the capital of France?").
+11. refusal.tax_advisory: Asking for tax evasion, aggressive tax shelters, or legal advice.
+12. Safety Flags:
    - "destructive_account": Requests to delete or purge accounts (e.g., "delete all accounts").
    - "destructive_voucher": Requests to delete posted ledger vouchers (e.g., "delete voucher OB-2026-001").
-   - "mutate_ledger": Requests to mutate posted transaction amounts in place (e.g., "change voucher amount to 500k").
+   - "mutate_ledger": Requests to directly overwrite or mutate posted transaction amounts in place (e.g., "change voucher amount to 500k").
    - "mutate_narration": Requests to delete or modify posted narration (e.g., "delete the wrong narration in OB-2026-001", "change narration of OB-2026-001").
    - "tax_advisory": Requests for tax evasion advice or legal tax avoidance loopholes.
 
@@ -176,12 +195,13 @@ PROMPT;
 
         // Infer primary intent name for backward compatibility with existing tests
         $intent = match ($cap) {
+            'guidance.how_to' => 'GUIDANCE_HOW_TO',
             'general.greeting' => 'GREETING',
             'general.help' => 'HELP',
             'alerts.list' => 'LIST_SITUATIONS',
             'report.trial_balance', 'report.profit_loss', 'report.balance_sheet' => 'INQUIRE_REPORT',
             'voucher.draft' => 'DRAFT_VOUCHER',
-            'voucher.reverse', 'voucher.action' => 'VOUCHER_ACTION',
+            'voucher.reverse', 'voucher.action', 'voucher.correct_amount' => 'VOUCHER_ACTION',
             'voucher.lookup' => 'INQUIRE_VOUCHER',
             'account.balance', 'account.lookup', 'account.ledger' => 'INQUIRE_ACCOUNT',
             'party.lookup' => 'INQUIRE_ENTITY',
@@ -204,13 +224,14 @@ PROMPT;
             'destructive_account' => 'delete_account',
             'destructive_voucher' => 'delete_voucher',
             'mutate_ledger' => 'modify_amount',
-            default => ($cap === 'voucher.reverse' ? 'reverse_voucher' : null),
+            default => ($cap === 'voucher.reverse' ? 'reverse_voucher' : ($cap === 'voucher.correct_amount' ? 'correct_amount' : null)),
         };
 
         $confidence = isset($data['confidence']) && is_numeric($data['confidence'])
             ? (float) $data['confidence']
             : match ($cap) {
                 'account.balance', 'voucher.lookup' => 0.98,
+                'voucher.correct_amount' => 0.95,
                 'general.greeting', 'general.help', 'report.trial_balance', 'report.profit_loss', 'report.balance_sheet', 'alerts.list', 'refusal.chitchat', 'refusal.tax_advisory', 'refusal.untracked' => 0.95,
                 'voucher.draft' => ($amt !== null && $amt > 0) ? 0.92 : 0.60,
                 'party.lookup', 'transaction.search' => (!empty($party) || !empty($org)) ? 0.90 : 0.65,
@@ -345,7 +366,21 @@ PROMPT;
             ]);
         }
 
-        // 4. Greetings & Help
+        // 4. Operational Guidance & How-To (Tier 1 Guidance)
+        if (
+            preg_match('/^(?:how\s+(?:do\s+i|can\s+i|to|should\s+i)\s+(?:add|create|setup|fix|correct|reverse|close|lock|reopen|view|generate|post|reconcile|find|enter)|where\s+(?:can\s+i|do\s+i|is\s+the)|what\s+is\s+the\s+procedure\s+to|explain\s+how\s+to)\b/i', $promptTrimmed) ||
+            str_starts_with($promptLower, 'how to ') ||
+            str_starts_with($promptLower, 'how do i ') ||
+            str_starts_with($promptLower, 'where to ') ||
+            str_starts_with($promptLower, 'how can i ')
+        ) {
+            return $this->normalizeSemanticOutput([
+                'capability' => 'guidance.how_to',
+                'confidence' => 0.95,
+            ]);
+        }
+
+        // 5. Greetings & Help
         if (preg_match('/^(hi|hello|hey|greetings|good morning|good afternoon|good evening|salam|assalam)([\s!,.].*)?$/i', $promptTrimmed)) {
             return $this->normalizeSemanticOutput(['capability' => 'general.greeting', 'confidence' => 0.98]);
         }
@@ -385,6 +420,54 @@ PROMPT;
             ]);
         }
 
+        // 1. Procedural Repair / Guided Correction Workflow (e.g., "correct amount is 50,000; how do i fix that?", "how do i fix that?")
+        $isProceduralRepair = preg_match('/\b(how\s+(?:do\s+i|can\s+i|to|should\s+i)\s+(?:fix|correct|reverse|adjust|change)|how\s+to\s+fix|how\s+to\s+correct|how\s+to\s+reverse|ok\s+how|yes\s+how|how\s+do\s+we\s+fix|what\s+to\s+do\s+now)\b/i', $promptLower) ||
+            preg_match('/\b(?:correct\s+amount\s+is|amount\s+is|should\s+be)\s+[0-9,.]+\s*(?:;|,)?\s*(?:how\s+do\s+i\s+fix|how\s+to\s+fix|how\s+to\s+correct)/i', $promptLower);
+
+        if ($isProceduralRepair) {
+            // Check context for active voucher
+            $activeRef = $context['state']['active_voucher']['reference'] ?? '';
+            if (empty($activeRef) && !empty($context['history'])) {
+                foreach (array_reverse($context['history']) as $h) {
+                    $htext = $h['text'] ?? ($h['message'] ?? '');
+                    if (preg_match('/\b(ob|jv|pv|rv|cv|sv|rev)-[0-9a-z-]+\b/i', $htext, $hm)) {
+                        $activeRef = strtoupper($hm[0]);
+                        break;
+                    }
+                }
+            }
+
+            // Extract target amount deterministically (strip dates, ref strings, and negation amounts first)
+            $cleanedForAmount = preg_replace('/\b[0-9]{1,2}\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|january|february|march|april|may|june|july|august|september|october|november|december)(?:\s+[0-9]{4})?\b/i', '', $promptTrimmed);
+            $cleanedForAmount = preg_replace('/\b(ob|jv|pv|rv|cv|sv|rev)-[0-9a-z-]+\b/i', '', $cleanedForAmount);
+            $cleanedForAmount = preg_replace('/\b(?:never\s+got|originally|was|not)\s*(?:rs\.?|pkr|\$)?\s*[0-9]+(?:,[0-9]{3})*(?:\.[0-9]{1,2})?\b/i', '', $cleanedForAmount);
+            $cleanedForAmount = preg_replace('/\b(19[89][0-9]|20[0-2][0-9]|2030)\b/', '', $cleanedForAmount);
+
+            $targetAmount = null;
+            if (preg_match('/(?:correct\s+(?:amount\s+)?(?:.*?)\s+is|correct\s+amount\s+is|amount\s+should\s+be|amount\s+is|change\s+to|fix\s+to|is\s+actually)\s*(?:rs\.?|pkr|\$)?\s*([0-9]+(?:,[0-9]{3})*(?:\.[0-9]{1,2})?)/i', $cleanedForAmount, $amtMatch)) {
+                $targetAmount = (float) str_replace(',', '', $amtMatch[1]);
+            } elseif (preg_match('/(?:rs\.?|pkr|\$)\s*([0-9]+(?:,[0-9]{3})*(?:\.[0-9]{1,2})?)/i', $cleanedForAmount, $amtMatch2)) {
+                $targetAmount = (float) str_replace(',', '', $amtMatch2[1]);
+            }
+
+            if ($targetAmount !== null && $targetAmount > 0) {
+                return $this->normalizeSemanticOutput([
+                    'capability' => 'voucher.correct_amount',
+                    'arguments' => [
+                        'reference' => $activeRef,
+                        'amount' => $targetAmount,
+                    ],
+                    'confidence' => 0.95,
+                ]);
+            } elseif (!empty($activeRef)) {
+                return $this->normalizeSemanticOutput([
+                    'capability' => 'voucher.reverse',
+                    'arguments' => ['reference' => $activeRef],
+                    'confidence' => 0.95,
+                ]);
+            }
+        }
+
         // 8. Voucher Reference Lookup
         if (preg_match('/\b(ob|jv|pv|rv|cv|sv|rev)-[0-9a-z-]+\b/i', $prompt, $vm)) {
             $reqInfo = [];
@@ -399,10 +482,24 @@ PROMPT;
             ]);
         }
 
-        // 9. Transaction Search (Party / Org) - MUST PRECEDE ACCOUNT INQUIRIES
+        // 9. Transaction & Voucher Search (Party / Org) - MUST PRECEDE ACCOUNT INQUIRIES
         if (
             str_contains($promptLower, 'transaction') ||
             str_contains($promptLower, 'transactions') ||
+            str_contains($promptLower, 'voucher related to') ||
+            str_contains($promptLower, 'vouchers related to') ||
+            str_contains($promptLower, 'voucher for') ||
+            str_contains($promptLower, 'vouchers for') ||
+            str_contains($promptLower, 'voucher of') ||
+            str_contains($promptLower, 'vouchers of') ||
+            str_contains($promptLower, 'what we have for') ||
+            str_contains($promptLower, 'what do we have for') ||
+            str_contains($promptLower, 'what we have with') ||
+            str_contains($promptLower, 'what do we have with') ||
+            str_contains($promptLower, 'need to correct the amount of a voucher') ||
+            str_contains($promptLower, 'find me the voucher') ||
+            str_contains($promptLower, 'find voucher') ||
+            str_contains($promptLower, 'search voucher') ||
             str_contains($promptLower, 'what did we pay') ||
             str_contains($promptLower, 'why we paid') ||
             str_contains($promptLower, 'why did we pay') ||
@@ -413,15 +510,17 @@ PROMPT;
             str_contains($promptLower, 'who created') ||
             str_contains($promptLower, 'payment to') ||
             str_contains($promptLower, 'receipt from') ||
-            str_contains($promptLower, 'show me what we have') ||
-            str_contains($promptLower, 'what we have with')
+            str_contains($promptLower, 'show me what we have')
         ) {
             $party = '';
             $org = '';
-            if (preg_match('/(?:have\s+with|paid\s+to|payment\s+to|pay|with|for)\s+(?:mr\.?|ms\.?|mrs\.?|dr\.?)?\s*([a-z0-9\s]+?)(?:\s+of|\s+from|\s+in|\s+at|\s+make|\s+through|\?|\.|\;|\,|$)/i', $prompt, $pMatch)) {
+            
+            // Extract entity candidate from phrases like "voucher related to Izoc", "what we have for izoc", "need to correct the amount of a voucher... related to Izoc", etc.
+            if (preg_match('/(?:voucher(?:s)?\s*(?:\.{1,3}\s*)?(?:related\s+to|for|of)|have\s+(?:for|with)|paid\s+to|payment\s+to|pay|with|for)\s+(?:mr\.?|ms\.?|mrs\.?|dr\.?)?\s*([a-z0-9\s.,-]+?)(?:\s+of|\s+from|\s+in|\s+at|\s+make|\s+through|\?|\.|\;|\,|$)/i', $prompt, $pMatch)) {
                 $cand = trim($pMatch[1]);
-                $cand = trim(preg_replace('/^(?:what\s+)?(?:do\s+)?we\s+have\s+with\s+/i', '', $cand));
-                if (!in_array(strtolower($cand), ['we', 'us', 'me', 'our', 'them', 'him', 'her', 'it'])) {
+                $cand = trim(preg_replace('/^(?:what\s+)?(?:do\s+)?we\s+have\s+(?:with|for)\s+/i', '', $cand));
+                $cand = trim(preg_replace('/^(this|that|the|a|an)\s+/i', '', $cand), " ?.!\"'");
+                if (!in_array(strtolower($cand), ['we', 'us', 'me', 'our', 'them', 'him', 'her', 'it', 'a voucher', 'the voucher', 'vouchers'])) {
                     $party = $cand;
                 }
             }
@@ -443,6 +542,15 @@ PROMPT;
                 $direction = 'outgoing';
             } elseif (str_contains($promptLower, 'pay us') || str_contains($promptLower, 'receipt from')) {
                 $direction = 'incoming';
+            }
+
+            $isOrg = (!empty($org) && empty($party)) ||
+                preg_match('/\b(ltd|limited|inc|corp|pvt|co|company|technologies|solutions|services|group|holdings)\b/i', $party) ||
+                (ctype_upper($party) && strlen($party) <= 6 && !in_array($party, ['I', 'ME', 'WE', 'US', 'HE', 'SHE']));
+
+            if ($isOrg && !empty($party) && empty($org)) {
+                $org = $party;
+                $party = '';
             }
 
             return $this->normalizeSemanticOutput([

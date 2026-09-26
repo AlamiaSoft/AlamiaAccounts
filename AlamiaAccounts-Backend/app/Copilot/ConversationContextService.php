@@ -15,37 +15,74 @@ class ConversationContextService
             'active_voucher' => null,
             'active_account' => null,
             'last_capability' => null,
+            'last_policy' => null,
+            'last_card_type' => null,
             'last_query' => null,
+            'turn_count_since_voucher' => 0,
         ];
 
         if (empty($history)) {
             return $state;
         }
 
-        foreach (array_reverse($history) as $turn) {
-            $text = $turn['text'] ?? '';
-            $data = $turn['data'] ?? [];
+        $turnsSinceVoucher = 0;
+        $foundVoucher = false;
 
-            // 1. Voucher references (e.g., OB-2026-001, SV-2026-112)
+        foreach (array_reverse($history) as $turn) {
+            $text = $turn['text'] ?? ($turn['message'] ?? '');
+            $data = $turn['data'] ?? [];
+            $cardType = $turn['card_type'] ?? '';
+
+            // 1. Capture last capability & policy from cards
+            if (empty($state['last_capability'])) {
+                if (!empty($turn['intent'])) {
+                    $state['last_capability'] = $turn['intent'];
+                } elseif (!empty($cardType)) {
+                    $state['last_capability'] = $cardType;
+                }
+            }
+
+            if (empty($state['last_policy']) && (!empty($data['policy']) || $cardType === 'safety_policy')) {
+                $state['last_policy'] = $data['policy'] ?? 'LEDGER_ENTRY_IMMUTABILITY';
+                $state['last_card_type'] = $cardType ?: 'safety_policy';
+            }
+
+            // 2. Voucher references (e.g., OB-2026-001, SV-2026-112)
             if (empty($state['active_voucher'])) {
                 if (!empty($data['reference'])) {
                     $state['active_voucher'] = [
                         'reference' => strtoupper($data['reference']),
                         'description' => $data['description'] ?? '',
+                        'amount' => $data['amount'] ?? null,
                     ];
+                    $foundVoucher = true;
                 } elseif (!empty($data['latest_voucher']['reference'])) {
                     $state['active_voucher'] = [
                         'reference' => strtoupper($data['latest_voucher']['reference']),
                         'description' => $data['latest_voucher']['description'] ?? '',
+                        'amount' => $data['latest_voucher']['amount'] ?? null,
                     ];
+                    $foundVoucher = true;
+                } elseif (!empty($data['voucher']['reference'])) {
+                    $state['active_voucher'] = [
+                        'reference' => strtoupper($data['voucher']['reference']),
+                        'description' => $data['voucher']['description'] ?? '',
+                        'amount' => $data['voucher']['amount'] ?? null,
+                    ];
+                    $foundVoucher = true;
                 } elseif (preg_match('/\b(ob|jv|pv|rv|cv|sv|rev)-[0-9a-z-]+\b/i', $text, $vm)) {
                     $state['active_voucher'] = [
                         'reference' => strtoupper($vm[0]),
                     ];
+                    $foundVoucher = true;
                 }
             }
 
-            // 2. Parties / Organizations (e.g., IZOC, Ali Raza)
+            if (!$foundVoucher) {
+                $turnsSinceVoucher++;
+            }
+
+            // 3. Parties / Organizations (e.g., IZOC, Ali Raza)
             if (empty($state['active_party'])) {
                 if (!empty($data['name']) && in_array($data['type'] ?? '', ['party', 'contact'])) {
                     $state['active_party'] = [
@@ -61,7 +98,7 @@ class ConversationContextService
                 }
             }
 
-            // 3. Accounts (e.g., 1130, Meezan Bank)
+            // 4. Accounts (e.g., 1130, Meezan Bank)
             if (empty($state['active_account'])) {
                 if (!empty($data['code']) && ($data['type'] ?? '') === 'account') {
                     $state['active_account'] = [
@@ -73,13 +110,41 @@ class ConversationContextService
                 }
             }
 
-            // 4. Last query
+            // 5. Last query
             if (empty($state['last_query']) && !empty($text)) {
                 $state['last_query'] = $text;
             }
         }
 
+        $state['turn_count_since_voucher'] = $turnsSinceVoucher;
+
         return $state;
+    }
+
+    /**
+     * Enforce explicit lifecycle expiry and domain-switch invalidation rules.
+     */
+    public function applyExpiryRules(array &$state, string $prompt): void
+    {
+        $promptLower = strtolower(trim($prompt));
+
+        // Rule 1: Clear active voucher/policy if prompt explicitly addresses a new account or organization
+        $isAccountSwitch = preg_match('/\b(meezan|alfalah|hbl|mcb|ubl|cash in hand|bank account|chart of accounts|\b\d{4}\b)\b/i', $promptLower);
+        $isNewEntitySwitch = preg_match('/\b(who is dog|dog pvt|tell me about dog|who is ali|who is [a-z0-9\s]+(?:ltd|pvt|inc|corp))\b/i', $promptLower);
+        $isReportQuery = preg_match('/\b(trial balance|profit and loss|profit & loss|balance sheet|income statement|general help|situations)\b/i', $promptLower);
+
+        if ($isAccountSwitch || $isNewEntitySwitch || $isReportQuery) {
+            $state['active_voucher'] = null;
+            $state['last_policy'] = null;
+            $state['last_card_type'] = null;
+        }
+
+        // Rule 2: Turn Decay - Expire ephemeral safety remediation context if > 2 turns have elapsed without voucher reference
+        if (($state['turn_count_since_voucher'] ?? 0) > 2) {
+            $state['active_voucher'] = null;
+            $state['last_policy'] = null;
+            $state['last_card_type'] = null;
+        }
     }
 
     /**
@@ -87,14 +152,66 @@ class ConversationContextService
      */
     public function resolveReferences(array $semantic, array $state, string $prompt): array
     {
+        // Apply lifecycle rules before reference resolution
+        $this->applyExpiryRules($state, $prompt);
+
         $args = $semantic['arguments'] ?? [];
         $party = $args['party'] ?? ($semantic['party'] ?? '');
         $org = $args['organization'] ?? ($semantic['organization'] ?? '');
         $ref = $args['reference'] ?? ($semantic['reference'] ?? '');
 
-        $promptLower = strtolower(trim($prompt));
+        $promptTrimmed = trim($prompt);
+        $promptLower = strtolower($promptTrimmed);
 
-        // 1. Resolve party / organization pronouns (e.g., "who is she?", "who made that payment?", "what about that company?")
+        // 1. Procedural Repair & Guided Correction Follow-Up
+        // e.g., "but we never got 100,000, correct amount is 50,000; how do i fix that?", "how do I fix that?", "how to correct this?"
+        $isProceduralRepair = preg_match('/\b(how\s+(?:do\s+i|can\s+i|to|should\s+i)\s+(?:fix|correct|reverse|adjust|change)|how\s+to\s+fix|how\s+to\s+correct|how\s+to\s+reverse|ok\s+how|yes\s+how|how\s+do\s+we\s+fix|what\s+to\s+do\s+now)\b/i', $promptLower) ||
+            preg_match('/\b(?:correct\s+amount\s+is|amount\s+is|should\s+be)\s+[0-9,.]+\s*(?:;|,)?\s*(?:how\s+do\s+i\s+fix|how\s+to\s+fix|how\s+to\s+correct)/i', $promptLower);
+
+        if ($isProceduralRepair && !empty($state['active_voucher']['reference'])) {
+            $vRef = $state['active_voucher']['reference'];
+            
+            // Extract target amount deterministically (strip dates, ref strings, and negation amounts first)
+            $cleanedForAmount = preg_replace('/\b[0-9]{1,2}\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|january|february|march|april|may|june|july|august|september|october|november|december)(?:\s+[0-9]{4})?\b/i', '', $promptTrimmed);
+            $cleanedForAmount = preg_replace('/\b(ob|jv|pv|rv|cv|sv|rev)-[0-9a-z-]+\b/i', '', $cleanedForAmount);
+            $cleanedForAmount = preg_replace('/\b(?:never\s+got|originally|was|not)\s*(?:rs\.?|pkr|\$)?\s*[0-9]+(?:,[0-9]{3})*(?:\.[0-9]{1,2})?\b/i', '', $cleanedForAmount);
+            $cleanedForAmount = preg_replace('/\b(19[89][0-9]|20[0-2][0-9]|2030)\b/', '', $cleanedForAmount);
+
+            $targetAmount = null;
+            if (preg_match('/(?:correct\s+(?:amount\s+)?(?:.*?)\s+is|correct\s+amount\s+is|amount\s+should\s+be|amount\s+is|change\s+to|fix\s+to|is\s+actually)\s*(?:rs\.?|pkr|\$)?\s*([0-9]+(?:,[0-9]{3})*(?:\.[0-9]{1,2})?)/i', $cleanedForAmount, $amtMatch)) {
+                $targetAmount = (float) str_replace(',', '', $amtMatch[1]);
+            } elseif (preg_match('/(?:rs\.?|pkr|\$)\s*([0-9]+(?:,[0-9]{3})*(?:\.[0-9]{1,2})?)/i', $cleanedForAmount, $amtMatch2)) {
+                $targetAmount = (float) str_replace(',', '', $amtMatch2[1]);
+            }
+
+            if ($targetAmount !== null && $targetAmount > 0) {
+                $semantic['capability'] = 'voucher.correct_amount';
+                $semantic['intent'] = 'VOUCHER_ACTION';
+                $semantic['action'] = 'correct_amount';
+                $semantic['reference'] = $vRef;
+                $semantic['amount'] = $targetAmount;
+                $semantic['arguments']['reference'] = $vRef;
+                $semantic['arguments']['amount'] = $targetAmount;
+                $semantic['entity_value'] = $vRef;
+                $semantic['entity'] = $vRef;
+                $semantic['confidence'] = 0.95;
+                $semantic['safety_flag'] = null; // Routed into safe guided workflow
+                return $semantic;
+            } elseif (in_array($state['last_policy'], ['LEDGER_ENTRY_IMMUTABILITY', 'HISTORICAL_LEDGER_IMMUTABILITY', 'VOUCHER_DESCRIPTION_IMMUTABILITY']) || $state['last_card_type'] === 'safety_policy') {
+                $semantic['capability'] = 'voucher.reverse';
+                $semantic['intent'] = 'VOUCHER_ACTION';
+                $semantic['action'] = 'reverse_voucher';
+                $semantic['reference'] = $vRef;
+                $semantic['arguments']['reference'] = $vRef;
+                $semantic['entity_value'] = $vRef;
+                $semantic['entity'] = $vRef;
+                $semantic['confidence'] = 0.95;
+                $semantic['safety_flag'] = null;
+                return $semantic;
+            }
+        }
+
+        // 2. Resolve party / organization pronouns (e.g., "who is she?", "who made that payment?", "what about that company?")
         $isPronoun = in_array(strtolower($party), ['he', 'she', 'him', 'her', 'it', 'them', 'this', 'that', 'this company', 'that company', 'this person']) ||
             in_array(strtolower($org), ['he', 'she', 'him', 'her', 'it', 'them', 'this', 'that', 'this company', 'that company']) ||
             (empty($party) && empty($org) && preg_match('/\b(who is (?:he|she|this|that|them|it|this person|that person|this company|that company)|who made that payment|who paid that|about that company|about that client)\b/i', $promptLower));
@@ -117,7 +234,7 @@ class ConversationContextService
             $semantic['entity'] = $resolvedName;
         }
 
-        // 2. Resolve voucher reference for actions or follow-ups (e.g., "change the narration", "reverse it", "who worked on this voucher?", "who created it?")
+        // 3. Resolve voucher reference for actions or follow-ups (e.g., "change the narration", "reverse it", "who worked on this voucher?", "who created it?")
         if (empty($ref) && !empty($state['active_voucher']['reference'])) {
             $isVoucherReferencePhrase = preg_match('/\b(the narration|the description|the voucher|that voucher|this voucher|the transaction|that transaction|this transaction|that payment|this payment|who worked on this|who worked on that|who created this|who created that|who entered this|who entered that|who posted this|who posted that|reverse it|void it|cancel it|its voucher|its details|its narration)\b/i', $promptLower);
             if ($isVoucherReferencePhrase) {

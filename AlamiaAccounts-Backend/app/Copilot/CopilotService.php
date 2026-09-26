@@ -36,6 +36,14 @@ class CopilotService
             return $this->handleDirectAction($context, $copilotActor);
         }
 
+        // 2. Delegate to Parlant dialogue engine if sidecar is available
+        $parlantClient = app(ParlantClient::class);
+        $sessionId = $context['session_id'] ?? ($companyCode ?? 'default_session');
+        $parlantResponse = $parlantClient->sendMessage($sessionId, $prompt, $companyCode ?? 'MAIN', $context);
+        if ($parlantResponse !== null) {
+            return $parlantResponse;
+        }
+
         // 2. Extract structured conversational state from recent turns
         $contextService = app(ConversationContextService::class);
         $contextState = $contextService->extractState($context['history'] ?? []);

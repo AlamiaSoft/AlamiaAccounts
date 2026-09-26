@@ -23,6 +23,8 @@ Route::get('/login', function () {
 })->name('login');
 Route::post('/copilot/chat-public', [CopilotController::class, 'chat']);
 Route::get('/copilot/capabilities-public', [CopilotController::class, 'capabilities']);
+Route::post('/copilot/capabilities-public/{capability}/execute', [CopilotController::class, 'executeCapability']);
+Route::post('/alamia-360/capabilities-public/{capability}/execute', [CopilotController::class, 'executeCapability']);
 
 // Protected routes
 Route::middleware('auth:sanctum')->group(function () {
@@ -82,8 +84,10 @@ Route::middleware('auth:sanctum')->group(function () {
     // Audit Trail
     Route::get('/audit-trail', [AuditTrailController::class, 'index']);
 
-    // Copilot (Taliya AI)
+    // Copilot (Taliya AI) & Alamia 360 Capabilities
     Route::post('/copilot/chat', [CopilotController::class, 'chat']);
     Route::get('/copilot/capabilities', [CopilotController::class, 'capabilities']);
     Route::get('/copilot/situations', [CopilotController::class, 'situations']);
+    Route::post('/copilot/capabilities/{capability}/execute', [CopilotController::class, 'executeCapability']);
+    Route::post('/alamia-360/capabilities/{capability}/execute', [CopilotController::class, 'executeCapability']);
 });

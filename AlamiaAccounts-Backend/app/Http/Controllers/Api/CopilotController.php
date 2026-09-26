@@ -101,4 +101,36 @@ class CopilotController extends Controller
             'count' => count($list),
         ]);
     }
+
+    /**
+     * Execute a registered Alamia 360 capability directly (used by sidecars, Parlant, and MCP).
+     */
+    public function executeCapability(Request $request, string $capability): JsonResponse
+    {
+        $companyCode = $request->input('company_code') ?? $request->header('X-Company-Code');
+        if ($companyCode) {
+            \AlamiaSoft\AlamiaAccounts\Services\DomainContext::set($companyCode);
+        }
+
+        $input = $request->input('input', $request->except(['company_code']));
+        $actorId = $request->input('actor_id', 'taliya_copilot');
+        
+        $actor = Alamia360::actors()->find($actorId)
+            ?? \Alamia360\Actors\Actor::ai($actorId, 'accounting_copilot');
+
+        try {
+            $result = Alamia360::capabilities()->execute($capability, $input, $actor);
+            return response()->json([
+                'success' => true,
+                'capability' => $capability,
+                'data' => $result,
+            ]);
+        } catch (\Throwable $e) {
+            return response()->json([
+                'success' => false,
+                'capability' => $capability,
+                'error' => $e->getMessage(),
+            ], 422);
+        }
+    }
 }

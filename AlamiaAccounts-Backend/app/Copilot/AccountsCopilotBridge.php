@@ -343,7 +343,7 @@ class AccountsCopilotBridge
                 }
                 return ['situations' => $output, 'count' => count($output)];
             });
-            // 6. search_entities
+        // 6. search_entities
         Alamia360::capability('search_entities')
             ->describe('Global domain-scoped search across vouchers, accounts, ledgers, and users')
             ->input([
@@ -361,6 +361,107 @@ class AccountsCopilotBridge
                 $searchService = app(\AlamiaSoft\AlamiaAccounts\Services\SearchService::class);
                 return $searchService->globalSearch($query);
             });
+
+        // 7. reverse_voucher
+        Alamia360::capability('reverse_voucher')
+            ->describe('Generate a compensating reversal (REV-) voucher for a posted entry')
+            ->input([
+                'reference' => ['type' => 'string', 'required' => true],
+                'reason' => ['type' => 'string', 'required' => false],
+            ])
+            ->output(['reversed' => ['type' => 'boolean'], 'reversal_reference' => ['type' => 'string']])
+            ->withSideEffect('write')
+            ->allowedFor(['human', 'ai'])
+            ->handleUsing(function (array $input, $actor) {
+                $voucherService = app(VoucherService::class);
+                $ref = $input['reference'] ?? '';
+                $reason = $input['reason'] ?? 'Reversal initiated via Taliya Copilot';
+                $reversal = $voucherService->reverseVoucher($ref, $reason);
+
+                return [
+                    'reversed' => true,
+                    'original_reference' => $ref,
+                    'reversal_reference' => $reversal->reference ?? ('REV-' . $ref),
+                    'date' => Carbon::now()->toDateString(),
+                ];
+            });
+
+        // 8. lookup_voucher
+        Alamia360::capability('lookup_voucher')
+            ->describe('Lookup exact voucher details, line items, and audit status by reference')
+            ->input([
+                'reference' => ['type' => 'string', 'required' => true],
+            ])
+            ->output(['voucher' => ['type' => 'array']])
+            ->withSideEffect('read')
+            ->allowedFor(['human', 'ai', 'system'])
+            ->handleUsing(function (array $input, $actor) {
+                $searchService = app(SearchService::class);
+                $ref = $input['reference'] ?? '';
+                $vouchers = $searchService->searchVouchers($ref);
+                return ['found' => !empty($vouchers), 'vouchers' => $vouchers];
+            });
+
+        // 9. account_balance
+        Alamia360::capability('account_balance')
+            ->describe('Query live balance and COA position for an account code or name')
+            ->input([
+                'account' => ['type' => 'string', 'required' => true],
+            ])
+            ->output(['account' => ['type' => 'array']])
+            ->withSideEffect('read')
+            ->allowedFor(['human', 'ai', 'system'])
+            ->handleUsing(function (array $input, $actor) {
+                $searchService = app(SearchService::class);
+                $acc = $input['account'] ?? '';
+                $accounts = $searchService->searchAccounts($acc);
+                return ['found' => !empty($accounts), 'accounts' => $accounts];
+            });
+
+        // 10. resolve_entity
+        Alamia360::capability('resolve_entity')
+            ->describe('Fuzzy match an entity name against contacts, accounts, and ledger narration memos')
+            ->input([
+                'query' => ['type' => 'string', 'required' => true],
+            ])
+            ->output(['entity' => ['type' => 'array']])
+            ->withSideEffect('read')
+            ->allowedFor(['human', 'ai', 'system'])
+            ->handleUsing(function (array $input, $actor) {
+                $rawQuery = trim($input['query'] ?? '');
+                $cleanQuery = trim(preg_replace('/^(this|that|the|a|an)\s+/i', '', $rawQuery), " ?!.#\"'");
+                if (empty($cleanQuery)) {
+                    return ['found' => false, 'entity' => null];
+                }
+
+                $isOrg = preg_match('/\b(ltd|limited|inc|corp|pvt|co|company|technologies|solutions|services|group)\b/i', $cleanQuery) ||
+                    (ctype_upper($cleanQuery) && strlen($cleanQuery) <= 6);
+
+                // 1. Search users
+                $users = \DB::table('users')
+                    ->where(function ($q) use ($cleanQuery) {
+                        $q->where('name', 'like', "%{$cleanQuery}%")
+                          ->orWhere('email', 'like', "%{$cleanQuery}%");
+                    })
+                    ->get()
+                    ->toArray();
+
+                // 2. Search journal entry narrations
+                $searchService = app(SearchService::class);
+                $vouchers = $searchService->searchVouchers($cleanQuery);
+
+                $found = !empty($users) || !empty($vouchers);
+                return [
+                    'found' => $found,
+                    'query' => $rawQuery,
+                    'canonical_name' => $cleanQuery,
+                    'entity_type' => $isOrg ? 'organization' : 'person',
+                    'is_registered_user' => !empty($users),
+                    'users_matched' => $users,
+                    'vouchers_matched' => $vouchers,
+                    'transaction_count' => count($vouchers),
+                ];
+            });
     }
 
     protected static function registerActors(): void
@@ -370,9 +471,13 @@ class AccountsCopilotBridge
                 'lookup_account',
                 'draft_voucher',
                 'post_voucher',
+                'reverse_voucher',
+                'lookup_voucher',
+                'account_balance',
                 'get_financial_report',
                 'list_situations',
                 'search_entities',
+                'resolve_entity',
             ])
             ->authorizeUsing(fn ($actor, $cap, $subject) => true);
 

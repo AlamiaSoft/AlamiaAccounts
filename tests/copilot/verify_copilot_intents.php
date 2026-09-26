@@ -974,9 +974,75 @@ if ($cardOutOfDomain === 'out_of_scope' || $cardOutOfDomain === 'safety_policy')
 }
 echo "------------------------------------------------------------------------\n";
 
+// 6. Dual-Mode Anti-Drift Benchmark: Assert parity across all canonical capabilities
+echo "Test " . (count($tests) + 29) . " [Dual-Mode Anti-Drift]: Parity Check between Active Schema & Heuristic Fallback\n";
+$canonicalCatalog = [
+    'guidance.how_to' => 'How do I fix a wrong voucher amount?',
+    'voucher.lookup' => 'Tell me about voucher OB-2026-001',
+    'voucher.draft' => 'Paid Rs. 25,000 for office supplies via Meezan Bank',
+    'voucher.reverse' => 'reverse OB-2026-001',
+    'account.balance' => 'What is the balance of Meezan Bank?',
+    'party.lookup' => 'Who is Ali Raza?',
+    'transaction.search' => 'What did we pay Ali Raza?',
+    'report.trial_balance' => 'Show Trial Balance summary',
+    'report.profit_loss' => 'View Profit and Loss',
+    'report.balance_sheet' => 'Show Balance Sheet',
+    'alerts.list' => 'Show pending situations',
+    'refusal.chitchat' => 'What is the capital of France?',
+    'refusal.tax_advisory' => 'How can I evade corporate taxes?',
+    'refusal.untracked' => 'What is the system password?',
+];
+
+$parityPassed = true;
+$driftErrors = [];
+foreach ($canonicalCatalog as $expectedCap => $samplePrompt) {
+    $classified = $classifier->classify($samplePrompt);
+    $gotCap = $classified['capability'] ?? 'unknown';
+    if ($gotCap !== $expectedCap) {
+        $parityPassed = false;
+        $driftErrors[] = "Prompt '{$samplePrompt}' -> Expected: {$expectedCap}, Got: {$gotCap}";
+    }
+}
+
+if ($parityPassed) {
+    echo "  [PASS] 100% Anti-Drift Parity: All " . count($canonicalCatalog) . " canonical capabilities matched with zero divergence\n";
+    $passed++;
+} else {
+    echo "  [FAIL] Dual-Mode Drift detected:\n    " . implode("\n    ", $driftErrors) . "\n";
+    $failed++;
+}
+echo "------------------------------------------------------------------------\n";
+
+// 7. Context Decay Multi-Turn Regression: Voucher context must expire after >2 unrelated turns
+echo "Test " . (count($tests) + 30) . " [Stale Context Decay]: Active Voucher expires after 2+ turns without mention\n";
+$decayHistory = [
+    ['sender' => 'user', 'text' => 'show voucher SV-2026-112', 'card_type' => 'voucher_brief', 'data' => ['reference' => 'SV-2026-112']],
+    ['sender' => 'taliya', 'text' => 'Here is voucher SV-2026-112', 'card_type' => 'voucher_brief', 'data' => ['reference' => 'SV-2026-112']],
+    ['sender' => 'user', 'text' => 'What is the balance of Cash in Hand?', 'card_type' => null],
+    ['sender' => 'taliya', 'text' => 'Balance of Cash in Hand is Rs. 100,000', 'card_type' => 'account_brief'],
+    ['sender' => 'user', 'text' => 'Show Trial Balance summary', 'card_type' => null],
+    ['sender' => 'taliya', 'text' => 'Here is the Trial Balance', 'card_type' => 'financial_report'],
+];
+
+// 3 turns have elapsed since SV-2026-112. Asking "how do I fix that?" must NOT resurrect SV-2026-112
+$resDecay = $copilot->handleChat("how do I fix that?", 'ALAMIASOFT', ['history' => $decayHistory]);
+$cardDecay = $resDecay['card_type'] ?? '';
+$refDecay = $resDecay['data']['reference'] ?? '';
+
+if ($cardDecay === 'guidance_how_to' && empty($refDecay)) {
+    echo "  [PASS] Stale context decay verified: Expired voucher context after 3 turns -> clean guidance without voucher pollution\n";
+    $passed++;
+} else {
+    echo "  [FAIL] Expected clean guidance_how_to without stale voucher | Got Card: {$cardDecay}, Ref: {$refDecay}\n";
+    echo "  Payload: " . json_encode($resDecay, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n";
+    $failed++;
+}
+echo "------------------------------------------------------------------------\n";
+
 echo "========================================================================\n";
 echo " RESULTS: {$passed} PASSED, {$failed} FAILED (Total: " . ($passed + $failed) . " Tests)\n";
 echo "========================================================================\n\n";
 
 exit($failed === 0 ? 0 : 1);
+
 

@@ -47,6 +47,7 @@ class CopilotService
         // 2. Extract structured conversational state from recent turns
         $contextService = app(ConversationContextService::class);
         $contextState = $contextService->extractState($context['history'] ?? []);
+        $contextService->applyExpiryRules($contextState, $prompt);
         $context['state'] = $contextState;
 
         // 3. Classify natural language into a small semantic capability request

@@ -128,10 +128,20 @@ class ConversationContextService
     {
         $promptLower = strtolower(trim($prompt));
 
+        // If prompt explicitly mentions a voucher reference, update active_voucher
+        if (preg_match('/\b(ob|jv|pv|rv|cv|sv|rev)-[0-9a-z-]+\b/i', $promptLower, $vm)) {
+            $state['active_voucher'] = [
+                'reference' => strtoupper($vm[0]),
+            ];
+            $state['turn_count_since_voucher'] = 0;
+            return;
+        }
+
         // Rule 1: Clear active voucher/policy if prompt explicitly addresses a new account or organization
-        $isAccountSwitch = preg_match('/\b(meezan|alfalah|hbl|mcb|ubl|cash in hand|bank account|chart of accounts|\b\d{4}\b)\b/i', $promptLower);
-        $isNewEntitySwitch = preg_match('/\b(who is dog|dog pvt|tell me about dog|who is ali|who is [a-z0-9\s]+(?:ltd|pvt|inc|corp))\b/i', $promptLower);
-        $isReportQuery = preg_match('/\b(trial balance|profit and loss|profit & loss|balance sheet|income statement|general help|situations)\b/i', $promptLower);
+        $cleanedForAccount = preg_replace('/\b(19|20)\d{2}\b/', '', $promptLower);
+        $isAccountSwitch = (bool) preg_match('/\b(meezan|alfalah|hbl|mcb|ubl|cash in hand|bank account|chart of accounts|\b\d{4}\b)\b/i', $cleanedForAccount);
+        $isNewEntitySwitch = (bool) preg_match('/\b(who is dog|dog pvt|tell me about dog|who is ali|who is [a-z0-9\s]+(?:ltd|pvt|inc|corp))\b/i', $promptLower);
+        $isReportQuery = (bool) preg_match('/\b(trial balance|profit and loss|profit & loss|balance sheet|income statement|general help|situations)\b/i', $promptLower);
 
         if ($isAccountSwitch || $isNewEntitySwitch || $isReportQuery) {
             $state['active_voucher'] = null;

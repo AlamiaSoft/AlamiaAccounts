@@ -1,4 +1,5 @@
 import os
+import re
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -7,6 +8,7 @@ from typing import Optional, Dict, Any, List
 from dotenv import load_dotenv
 
 from tools.capabilities_bridge import (
+    execute_alamia_capability,
     resolve_entity,
     lookup_account,
     account_balance,
@@ -30,7 +32,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# In-memory session store (or backed by Parlant server)
+# In-memory session store
 sessions: Dict[str, List[Dict[str, Any]]] = {}
 
 class ChatMessageRequest(BaseModel):
@@ -71,10 +73,67 @@ async def handle_message(session_id: str, payload: ChatMessageRequest):
         
     sessions[session_id].append({"role": "user", "content": message_text})
 
-    # 1. Pre-generation Guideline Check (Safety & Immutability)
     lower_msg = message_text.lower()
     
-    # Destructive voucher
+    # 1. Tax Advisory / Evasion Refusal
+    if any(k in lower_msg for k in ["evade", "tax evasion", "hide cash", "tax advice", "tax loophole", "avoid tax"]):
+        return ChatMessageResponse(
+            session_id=session_id,
+            sender="Taliya",
+            message="🔒 **Policy Refusal (Tax & Regulatory Advisory)**: Taliya is an operational accounting execution assistant and is strictly prohibited from providing tax evasion advice, tax planning strategies, or legal interpretations.\n\nPlease consult a certified chartered accountant (CA / CPA) or licensed tax authority for tax and regulatory guidance.",
+            card_type="safety_policy",
+            data={"policy": "TAX_ADVISORY_PROHIBITED"},
+            actions=[
+                {"label": "📊 Trial Balance", "action": "draft_prompt", "payload": {"prompt": "Show Trial Balance summary"}},
+                {"label": "📄 View Daybook", "action": "navigate_page", "payload": {"page": "daybook"}},
+                {"label": "📖 Chart of Accounts", "action": "navigate_page", "payload": {"page": "coa"}}
+            ]
+        )
+
+    # 2. Chit-Chat & General Knowledge Refusal
+    if any(k in lower_msg for k in ["capital of", "tell me a joke", "weather today", "weather forecast", "meaning of life", "who is the president"]):
+        return ChatMessageResponse(
+            session_id=session_id,
+            sender="Taliya",
+            message="I am **Taliya**, an institutional accounting assistant specialized exclusively in **Alamia Accounts** double-entry bookkeeping, ledger statements, vouchers, and financial reports.\n\nI cannot answer general knowledge questions, chit-chat, or non-financial inquiries.\n\nHow can I assist you with your books today?",
+            card_type="out_of_scope",
+            data={"type": "refusal_chitchat"},
+            actions=[
+                {"label": "📊 Trial Balance", "action": "draft_prompt", "payload": {"prompt": "Show Trial Balance summary"}},
+                {"label": "🏦 Meezan Bank Balance", "action": "draft_prompt", "payload": {"prompt": "What is the balance of Meezan Bank?"}},
+                {"label": "📄 View Daybook", "action": "navigate_page", "payload": {"page": "daybook"}}
+            ]
+        )
+
+    # 3. Untracked Data Refusal
+    if any(k in lower_msg for k in ["system password", "admin password", "database password", "api secret", "private key"]):
+        return ChatMessageResponse(
+            session_id=session_id,
+            sender="Taliya",
+            message="🔒 **Data Boundary**: The requested information is not tracked within the general ledger or chart of accounts. Taliya only accesses double-entry financial journals, accounts, fiscal periods, and subledger balances.",
+            card_type="out_of_scope",
+            data={"type": "refusal_untracked"},
+            actions=[
+                {"label": "📄 View Daybook", "action": "navigate_page", "payload": {"page": "daybook"}},
+                {"label": "📖 Chart of Accounts", "action": "navigate_page", "payload": {"page": "coa"}}
+            ]
+        )
+
+    # 4. Temporal Plausibility Invariant
+    if any(k in lower_msg for k in ["last century", "century ago", "1800", "1900", "200 years ago", "millennium"]):
+        return ChatMessageResponse(
+            session_id=session_id,
+            sender="Taliya",
+            message="🔒 **Accounting Guardrail (Temporal Invariant)**: The specified date expression is outside valid fiscal operating periods.\n\nTransactions and ledger records can only be queried or recorded within active or valid historical fiscal accounting periods.",
+            card_type="safety_policy",
+            data={"policy": "FISCAL_PERIOD_PROTECTION"},
+            actions=[
+                {"label": "📄 View Daybook", "action": "navigate_page", "payload": {"page": "daybook"}},
+                {"label": "📅 Accounting Periods", "action": "navigate_page", "payload": {"page": "periods"}}
+            ]
+        )
+
+    # 5. Destructive Voucher & Ledger Immutability
     if "delete" in lower_msg and ("voucher" in lower_msg or "ob-" in lower_msg or "jv-" in lower_msg or "sv-" in lower_msg):
         return ChatMessageResponse(
             session_id=session_id,
@@ -88,7 +147,7 @@ async def handle_message(session_id: str, payload: ChatMessageRequest):
             ]
         )
         
-    # Destructive narration
+    # 6. Destructive Narration
     if ("delete" in lower_msg or "remove" in lower_msg or "change" in lower_msg) and "narration" in lower_msg:
         return ChatMessageResponse(
             session_id=session_id,
@@ -102,8 +161,8 @@ async def handle_message(session_id: str, payload: ChatMessageRequest):
             ]
         )
 
-    # Destructive account
-    if "delete all accounts" in lower_msg or "wipe accounts" in lower_msg:
+    # 7. Destructive Account
+    if "delete all accounts" in lower_msg or "wipe accounts" in lower_msg or "delete account" in lower_msg:
         return ChatMessageResponse(
             session_id=session_id,
             sender="Taliya",
@@ -115,7 +174,7 @@ async def handle_message(session_id: str, payload: ChatMessageRequest):
             ]
         )
 
-    # Mutate amount
+    # 8. Mutate Amount
     if "change" in lower_msg and "amount" in lower_msg and "voucher" in lower_msg:
         return ChatMessageResponse(
             session_id=session_id,
@@ -128,37 +187,55 @@ async def handle_message(session_id: str, payload: ChatMessageRequest):
             ]
         )
 
-    # 2. Tool Execution via Alamia 360 Capabilities
-    # (Draft voucher)
-    if ("paid" in lower_msg or "pay " in lower_msg or "transfer" in lower_msg) and any(c.isdigit() for c in message_text):
-        # Trigger draft voucher tool
-        draft_result = await draft_voucher(
-            description=message_text,
-            details=[
-                {"account_code": "5200", "debit": 25000, "credit": 0},
-                {"account_code": "1130", "debit": 0, "credit": 25000}
-            ],
-            company_code=company_code
-        )
+    # 9. Direct execution via Alamia 360 Capabilities
+    # Self identity
+    if lower_msg in ["who taliya", "who taliya??", "who is taliya", "help"]:
         return ChatMessageResponse(
             session_id=session_id,
             sender="Taliya",
-            message="I've prepared a draft voucher for your review. Please confirm before posting to the general ledger.",
-            card_type="voucher_draft",
-            data=draft_result,
+            message="I am **Taliya**, your AI Accounting Copilot backed by Alamia 360.\n\nI can help you look up accounts, inspect vouchers, view financial statements, and draft transactions.",
+            card_type="help",
             actions=[
-                {"label": "✅ Post to Ledger", "action": "post_voucher", "payload": draft_result.get("voucher", {})},
-                {"label": "✏️ Edit in Daybook", "action": "navigate_page", "payload": {"page": "daybook"}}
+                {"label": "📊 Trial Balance", "action": "draft_prompt", "payload": {"prompt": "Show Trial Balance summary"}},
+                {"label": "🏦 Meezan Bank Balance", "action": "draft_prompt", "payload": {"prompt": "What is the balance of Meezan Bank?"}}
             ]
         )
 
-    # (Default response)
+    # Financial statements
+    if "trial balance" in lower_msg or "tb" in lower_msg:
+        tb = await get_financial_report("trial-balance", company_code=company_code)
+        return ChatMessageResponse(
+            session_id=session_id,
+            sender="Taliya",
+            message="Here is the Trial Balance summary as of today.",
+            card_type="financial_report",
+            data=tb
+        )
+
+    # Voucher lookup
+    vm = re.search(r'\b(ob|jv|pv|rv|cv|sv|rev)-[0-9a-z-]+\b', lower_msg)
+    if vm:
+        v_data = await lookup_voucher(vm.group(0).upper(), company_code=company_code)
+        return ChatMessageResponse(
+            session_id=session_id,
+            sender="Taliya",
+            message=f"Here are the details for Voucher **{vm.group(0).upper()}**.",
+            card_type="voucher_brief",
+            data=v_data
+        )
+
+    # Default out-of-scope for ambiguous or unmapped inputs
     return ChatMessageResponse(
         session_id=session_id,
         sender="Taliya",
-        message="I processed your request using the Parlant dialogue engine and Alamia 360 capabilities.",
-        card_type="general",
-        data={"history_length": len(sessions[session_id])}
+        message="I am **Taliya**, an institutional accounting assistant for **Alamia Accounts**.\n\nI couldn't match your request to a supported accounting operation. I can only execute defined accounting workflows in your capability catalog.\n\nHow can I help with your books today?",
+        card_type="out_of_scope",
+        data={"query": message_text},
+        actions=[
+            {"label": "📊 Trial Balance", "action": "draft_prompt", "payload": {"prompt": "Show Trial Balance summary"}},
+            {"label": "🏦 Meezan Bank Balance", "action": "draft_prompt", "payload": {"prompt": "What is the balance of Meezan Bank?"}},
+            {"label": "📄 View Daybook", "action": "navigate_page", "payload": {"page": "daybook"}}
+        ]
     )
 
 if __name__ == "__main__":

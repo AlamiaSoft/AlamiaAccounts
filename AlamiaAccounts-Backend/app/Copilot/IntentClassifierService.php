@@ -249,6 +249,13 @@ PROMPT;
             ]);
         }
 
+        if (preg_match('/\b(last century|century ago|18[0-9]{2}|19[0-9]{2}|200 years ago|millennium)\b/i', $promptLower)) {
+            return $this->normalizeSemanticOutput([
+                'capability' => 'unknown',
+                'safety_flag' => 'implausible_temporal_request',
+            ]);
+        }
+
         if (
             preg_match('/\b(delete|remove|purge|erase|drop|wipe|destroy)\s+(?:all\s+)?(accounts?|chart\s+of\s+accounts?|ledger|vouchers?|database|company|entries|data)\b/i', $promptTrimmed) ||
             preg_match('/\b(delete|remove|purge|erase|drop)\s+(?:the\s+)?account\s+(\d{4}|[a-z0-9\s]+)/i', $promptTrimmed) ||
@@ -268,7 +275,7 @@ PROMPT;
         if (preg_match('/^(hi|hello|hey|greetings|good morning|good afternoon|good evening|salam|assalam)([\s!,.].*)?$/i', $promptTrimmed)) {
             return $this->normalizeSemanticOutput(['capability' => 'general.greeting']);
         }
-        if (preg_match('/^(help|who are you|what can you do|how to use|commands|features|\?)$/i', $promptTrimmed)) {
+        if (preg_match('/^(help|who are you|who is taliya|who taliya|what is taliya|who made you|about taliya|about you|what can you do|how to use|commands|features|\?)[\s?!.]*$/i', $promptTrimmed) || preg_match('/\b(who is taliya|who taliya|what is taliya)\b/i', $promptTrimmed)) {
             return $this->normalizeSemanticOutput(['capability' => 'general.help']);
         }
 
@@ -289,7 +296,8 @@ PROMPT;
         }
 
         // 5. Voucher Drafting
-        $isQuestionInquiry = (bool) preg_match('/^(what was|what did|what is|how much was|did we|was there|show|find|lookup|tell me about|check)\b/i', $promptTrimmed);
+        $isQuestionInquiry = (bool) preg_match('/^(what was|what did|what is|how much was|how much did|how much is|why did|why was|why were|why we|why|did we|was there|show|find|lookup|tell me about|check|who worked|who created|who entered|who posted)\b/i', $promptTrimmed) ||
+            str_ends_with($promptTrimmed, '?');
         $promptWithoutDates = preg_replace('/\b[0-9]{1,2}\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|january|february|march|april|may|june|july|august|september|october|november|december)\b/i', '', $promptTrimmed);
         if (
             !$isQuestionInquiry &&
@@ -304,9 +312,14 @@ PROMPT;
 
         // 6. Voucher Reference Lookup
         if (preg_match('/\b(ob|jv|pv|rv|cv|sv|rev)-[0-9a-z-]+\b/i', $prompt, $vm)) {
+            $reqInfo = [];
+            if (str_contains($promptLower, 'who worked') || str_contains($promptLower, 'who created') || str_contains($promptLower, 'who posted') || str_contains($promptLower, 'who entered')) {
+                $reqInfo = ['created_by', 'workforce'];
+            }
             return $this->normalizeSemanticOutput([
                 'capability' => 'voucher.lookup',
                 'arguments' => ['reference' => $vm[0]],
+                'requested_information' => $reqInfo,
             ]);
         }
 
@@ -315,9 +328,13 @@ PROMPT;
             str_contains($promptLower, 'transaction') ||
             str_contains($promptLower, 'transactions') ||
             str_contains($promptLower, 'what did we pay') ||
+            str_contains($promptLower, 'why we paid') ||
+            str_contains($promptLower, 'why did we pay') ||
             str_contains($promptLower, 'what payment') ||
             str_contains($promptLower, 'what did') ||
             str_contains($promptLower, 'what was') ||
+            str_contains($promptLower, 'who worked') ||
+            str_contains($promptLower, 'who created') ||
             str_contains($promptLower, 'payment to') ||
             str_contains($promptLower, 'receipt from') ||
             str_contains($promptLower, 'show me what we have') ||
@@ -381,7 +398,7 @@ PROMPT;
 
         // 9. Party & Organization Identity Inquiries
         if (
-            preg_match('/^who\s+(?:is|are)\s+(?:this\s+|that\s+|the\s+|a\s+|an\s+)?([a-z0-9\s.,-]+?)[\s?!.]*$/i', $promptTrimmed, $whoMatch) ||
+            preg_match('/^(?:what\s+or\s+who|who\s+or\s+what|who|what)\s+(?:is|are|was|were)?\s+(?:this\s+|that\s+|the\s+|a\s+|an\s+)?([a-z0-9\s.,-]+?)[\s?!.]*$/i', $promptTrimmed, $whoMatch) ||
             preg_match('/^tell\s+me\s+about\s+(?:party\s+|contact\s+|person\s+|client\s+|vendor\s+|company\s+)?([a-z0-9\s.,-]+?)[\s?!.]*$/i', $promptTrimmed, $tellMatch) ||
             preg_match('/^(?:what\s+company\s+is|what\s+firm\s+is|who\s+is)\s+([a-z0-9\s.,-]+?)\s+(?:associated\s+with|working\s+with)[\s?!.]*$/i', $promptTrimmed, $assocMatch)
         ) {

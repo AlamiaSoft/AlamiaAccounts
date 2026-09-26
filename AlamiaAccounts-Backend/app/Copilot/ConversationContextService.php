@@ -117,15 +117,22 @@ class ConversationContextService
             $semantic['entity'] = $resolvedName;
         }
 
-        // 2. Resolve voucher reference for actions or follow-ups (e.g., "change the narration", "reverse it", "who entered that voucher?")
+        // 2. Resolve voucher reference for actions or follow-ups (e.g., "change the narration", "reverse it", "who worked on this voucher?", "who created it?")
         if (empty($ref) && !empty($state['active_voucher']['reference'])) {
-            $isVoucherReferencePhrase = preg_match('/\b(the narration|the description|the voucher|that voucher|that payment|that transaction|reverse it|void it|cancel it)\b/i', $promptLower);
+            $isVoucherReferencePhrase = preg_match('/\b(the narration|the description|the voucher|that voucher|this voucher|the transaction|that transaction|this transaction|that payment|this payment|who worked on this|who worked on that|who created this|who created that|who entered this|who entered that|who posted this|who posted that|reverse it|void it|cancel it|its voucher|its details|its narration)\b/i', $promptLower);
             if ($isVoucherReferencePhrase) {
                 $vRef = $state['active_voucher']['reference'];
                 $semantic['reference'] = $vRef;
                 $semantic['arguments']['reference'] = $vRef;
                 $semantic['entity_value'] = $vRef;
                 $semantic['entity'] = $vRef;
+                if ($semantic['capability'] === 'unknown' || $semantic['capability'] === 'transaction.search') {
+                    $semantic['capability'] = 'voucher.lookup';
+                }
+                if (preg_match('/\b(who worked|who created|who entered|who posted)\b/i', $promptLower)) {
+                    $semantic['requested_information'] = array_unique(array_merge($semantic['requested_information'] ?? [], ['created_by', 'workforce']));
+                    $semantic['capability'] = 'voucher.lookup';
+                }
             }
         }
 

@@ -167,6 +167,15 @@ class AccountsCopilotBridge
             ->handleUsing(function (array $input, $actor) {
                 $description = trim($input['description'] ?? 'Journal Voucher');
                 $details = $input['details'] ?? [];
+                $date = $input['date'] ?? Carbon::now()->toDateString();
+
+                // P0 Gate 1: Temporal Plausibility Invariant (Reject absurd / pre-inception / out-of-bounds dates)
+                if (
+                    preg_match('/\b(last century|century ago|18[0-9]{2}|19[0-9]{2}|200 years ago|millennium)\b/i', $description) ||
+                    preg_match('/\b(last century|century ago|18[0-9]{2}|19[0-9]{2}|200 years ago|millennium)\b/i', $date)
+                ) {
+                    throw new Exception("Temporal Invariant: Transaction date or qualifier in '{$description}' is outside valid fiscal operating periods.");
+                }
 
                 if (count($details) < 2) {
                     throw new Exception('Voucher draft must have at least 2 entries (Dr and Cr).');
@@ -184,11 +193,11 @@ class AccountsCopilotBridge
 
                     $account = LedgerAccount::where('code', $code)->first();
                     if (!$account) {
-                        $errors[] = "Line " . ($idx + 1) . ": Account code '{$code}' not found.";
+                        $errors[] = "Line " . ($idx + 1) . ": Account code '{$code}' not found in Chart of Accounts.";
                         continue;
                     }
 
-                    // Taliya Guardrail #1: Category / Folder Account rejection
+                    // P0 Gate 2: Category / Folder Account rejection (Transactions must target leaf posting accounts)
                     if ($account->category) {
                         $errors[] = "Account {$code} ({$account->name}) is a Category Folder. Transactions must target specific posting accounts (e.g. 1130 Meezan Bank).";
                     }
@@ -228,7 +237,7 @@ class AccountsCopilotBridge
                     'errors' => $errors,
                     'voucher' => [
                         'reference' => $reference,
-                        'date' => Carbon::now()->toDateString(),
+                        'date' => $date,
                         'description' => $description,
                         'details' => $enrichedDetails,
                     ],

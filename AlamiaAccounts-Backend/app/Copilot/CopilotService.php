@@ -177,6 +177,23 @@ class CopilotService
             ];
         }
 
+        if ($policy === 'implausible_temporal_request' || $policy === 'FISCAL_PERIOD_PROTECTION') {
+            return [
+                'sender' => 'Taliya',
+                'intent' => 'safety_policy_rejection',
+                'message' => "🔒 **Accounting Guardrail (Temporal Invariant)**: The specified date or time expression is outside valid fiscal operating periods.\n\nTransactions and ledger records can only be queried or recorded within active or valid historical fiscal accounting periods.",
+                'data' => [
+                    'policy' => 'FISCAL_PERIOD_PROTECTION',
+                    'query' => $prompt,
+                ],
+                'card_type' => 'safety_policy',
+                'actions' => [
+                    ['label' => '📄 View Daybook', 'action' => 'navigate_page', 'payload' => ['page' => 'daybook']],
+                    ['label' => '📅 Accounting Periods', 'action' => 'navigate_page', 'payload' => ['page' => 'periods']],
+                ]
+            ];
+        }
+
         if ($policy === 'destructive_account') {
             return [
                 'sender' => 'Taliya',
@@ -370,6 +387,31 @@ class CopilotService
      */
     protected function handleVoucherDraft(array $semantic, string $prompt, $actor): array
     {
+        $promptTrimmed = trim($prompt);
+        $promptLower = strtolower($promptTrimmed);
+
+        // 1. Inquiry Interrogative Gating: Questions starting with why/what/who/how or ending with '?' are inquiries, NOT drafts
+        $isQuestionInquiry = (bool) preg_match('/^(why|what|who|how|when|where|which|did we|was there)\b/i', $promptTrimmed) ||
+            str_ends_with($promptTrimmed, '?');
+        if ($isQuestionInquiry) {
+            return $this->handleTransactionSearch($semantic, $prompt);
+        }
+
+        // 2. Temporal Plausibility Gating: Absurd or out-of-bounds dates trigger safety guardrail
+        if (preg_match('/\b(last century|century ago|18[0-9]{2}|19[0-9]{2}|200 years ago|millennium)\b/i', $promptLower)) {
+            return [
+                'sender' => 'Taliya',
+                'intent' => 'safety_policy_rejection',
+                'message' => "🔒 **Accounting Guardrail (Temporal Invariant)**: The specified date expression is outside valid fiscal operating periods.\n\nTransactions can only be recorded within active or valid historical fiscal accounting periods.",
+                'data' => ['policy' => 'FISCAL_PERIOD_PROTECTION'],
+                'card_type' => 'safety_policy',
+                'actions' => [
+                    ['label' => '📄 View Daybook', 'action' => 'navigate_page', 'payload' => ['page' => 'daybook']],
+                    ['label' => '📅 Accounting Periods', 'action' => 'navigate_page', 'payload' => ['page' => 'periods']],
+                ]
+            ];
+        }
+
         $amount = (float) ($semantic['amount'] ?? 0);
         if ($amount <= 0 && preg_match('/(?:rs\.?|pkr|\$)?\s*([0-9]+(?:,[0-9]{3})*(?:\.[0-9]{1,2})?)/i', $prompt, $amountMatch)) {
             $amount = (float) str_replace(',', '', $amountMatch[1]);
@@ -417,18 +459,28 @@ class CopilotService
         $creditCode = $creditCode ?? '1130';
         $debitCode = $debitCode ?? '4600';
 
+        // Resolve real account names from chart of accounts
+        $searchService = app(SearchService::class);
+        $debitAccounts = $searchService->searchAccounts($debitCode);
+        $creditAccounts = $searchService->searchAccounts($creditCode);
+
+        $debitName = !empty($debitAccounts) ? $debitAccounts[0]['name'] : $debitCode;
+        $creditName = !empty($creditAccounts) ? $creditAccounts[0]['name'] : $creditCode;
+
         $draft = Alamia360::capabilities()->execute('draft_voucher', [
             'type' => 'journal',
             'description' => $prompt,
             'details' => [
                 [
                     'account_code' => $debitCode,
+                    'account_name' => $debitName,
                     'debit' => $amount,
                     'credit' => 0,
                     'memo' => $prompt,
                 ],
                 [
                     'account_code' => $creditCode,
+                    'account_name' => $creditName,
                     'debit' => 0,
                     'credit' => $amount,
                     'memo' => $prompt,
@@ -494,17 +546,37 @@ class CopilotService
 
         $vouchers = $searchService->searchVouchers($ref);
         if (!empty($vouchers)) {
+            $voucher = $vouchers[0];
+            $reqInfo = $semantic['requested_information'] ?? [];
+            if (in_array('created_by', $reqInfo) || in_array('workforce', $reqInfo) || str_contains(strtolower($prompt), 'who worked') || str_contains(strtolower($prompt), 'who created')) {
+                $vRef = $voucher['reference'] ?? $ref;
+                $desc = $voucher['description'] ?? '';
+                $createdBy = $voucher['created_by'] ?? 'System Administrator';
+                return [
+                    'sender' => 'Taliya',
+                    'intent' => 'voucher_audit_brief',
+                    'message' => "Voucher **{$vRef}** (*{$desc}*) was created/posted by **{$createdBy}**.\n\nTransaction Details & Line Items:",
+                    'data' => $voucher,
+                    'card_type' => 'voucher_brief',
+                    'actions' => [
+                        ['label' => "View {$vRef} in Daybook", 'action' => 'navigate_page', 'payload' => ['page' => 'daybook', 'reference' => $vRef]],
+                        ['label' => '📖 Chart of Accounts', 'action' => 'navigate_page', 'payload' => ['page' => 'coa']],
+                    ]
+                ];
+            }
+
             if (count($vouchers) === 1) {
                 return $this->formatVoucherBrief($vouchers[0]);
             }
             return $this->formatDisambiguation($ref, $vouchers, []);
         }
 
+        $targetRef = !empty($ref) ? $ref : $prompt;
         return [
             'sender' => 'Taliya',
             'intent' => 'voucher_not_found',
-            'message' => "I couldn't find any voucher matching reference '**{$ref}**'.",
-            'data' => ['reference' => $ref],
+            'message' => "I couldn't find any voucher matching reference '**{$targetRef}**'.",
+            'data' => ['reference' => $targetRef],
             'card_type' => 'not_found',
             'actions' => [
                 ['label' => '📄 Open Daybook', 'action' => 'navigate_page', 'payload' => ['page' => 'daybook']],

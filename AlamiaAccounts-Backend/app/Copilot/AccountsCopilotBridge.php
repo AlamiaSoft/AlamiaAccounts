@@ -228,18 +228,24 @@ class AccountsCopilotBridge
                 }
 
                 $reference = 'JV-' . Carbon::now()->format('Ymd-His');
+                $makerCheckerThreshold = (float) config('copilot.maker_checker_threshold', 100000.0);
+                $requiresDualConfirmation = $totalDebit >= $makerCheckerThreshold;
 
                 return [
                     'valid' => empty($errors),
                     'is_balanced' => $isBalanced,
                     'total_debit' => $totalDebit,
                     'total_credit' => $totalCredit,
+                    'requires_dual_confirmation' => $requiresDualConfirmation,
+                    'maker_checker_threshold' => $makerCheckerThreshold,
                     'errors' => $errors,
                     'voucher' => [
                         'reference' => $reference,
                         'date' => $date,
                         'description' => $description,
                         'details' => $enrichedDetails,
+                        'requires_dual_confirmation' => $requiresDualConfirmation,
+                        'maker_checker_threshold' => $makerCheckerThreshold,
                     ],
                 ];
             });

@@ -64,6 +64,9 @@ class CopilotService
         return match ($semantic['capability']) {
             'general.greeting' => $this->handleGreeting($semantic, $prompt),
             'general.help' => $this->handleHelp($semantic),
+            'refusal.chitchat' => $this->handleChitChatRefusal($prompt),
+            'refusal.tax_advisory' => $this->handleSafetyPolicy('tax_advisory', $semantic, $prompt),
+            'refusal.untracked' => $this->handleUntrackedDataRefusal($prompt),
             'alerts.list' => $this->handleAlertsList($copilotActor),
             'report.trial_balance', 'report.profit_loss', 'report.balance_sheet' => $this->handleFinancialReport($semantic['capability'], $copilotActor),
             'voucher.draft' => $this->handleVoucherDraft($semantic, $prompt, $copilotActor),
@@ -119,6 +122,24 @@ class CopilotService
         $ref = $semantic['reference'] ?? '';
         if (empty($ref) && preg_match('/\b(ob|jv|pv|rv|cv|sv|rev)-[0-9a-z-]+\b/i', $prompt, $rm)) {
             $ref = strtoupper($rm[0]);
+        }
+
+        if ($policy === 'tax_advisory') {
+            return [
+                'sender' => 'Taliya',
+                'intent' => 'safety_policy_rejection',
+                'message' => "🔒 **Policy Refusal (Tax & Regulatory Advisory)**: Taliya is an operational accounting execution assistant and is strictly prohibited from providing tax evasion advice, tax planning strategies, or legal interpretations.\n\nPlease consult a certified chartered accountant (CA / CPA) or licensed tax authority for tax and regulatory guidance.",
+                'data' => [
+                    'policy' => 'TAX_ADVISORY_PROHIBITED',
+                    'query' => $prompt,
+                ],
+                'card_type' => 'safety_policy',
+                'actions' => [
+                    ['label' => '📊 Trial Balance', 'action' => 'draft_prompt', 'payload' => ['prompt' => 'Show Trial Balance summary']],
+                    ['label' => '📄 View Daybook', 'action' => 'navigate_page', 'payload' => ['page' => 'daybook']],
+                    ['label' => '📖 Chart of Accounts', 'action' => 'navigate_page', 'payload' => ['page' => 'coa']],
+                ]
+            ];
         }
 
         $searchService = app(SearchService::class);
@@ -288,6 +309,49 @@ class CopilotService
             'actions' => [
                 ['label' => '📊 Trial Balance', 'action' => 'draft_prompt', 'payload' => ['prompt' => 'Show Trial Balance summary']],
                 ['label' => '🏦 Meezan Bank Balance', 'action' => 'draft_prompt', 'payload' => ['prompt' => 'What is the balance of Meezan Bank?']],
+            ]
+        ];
+    }
+
+    /**
+     * First-Class Refusal: Non-accounting chit-chat & general knowledge
+     */
+    protected function handleChitChatRefusal(string $prompt): array
+    {
+        return [
+            'sender' => 'Taliya',
+            'intent' => 'out_of_scope_refusal',
+            'message' => "I am **Taliya**, an institutional accounting assistant specialized exclusively in **Alamia Accounts** double-entry bookkeeping, ledger statements, vouchers, and financial reports.\n\nI cannot answer general knowledge questions, chit-chat, or non-financial inquiries.\n\nHow can I assist you with your books today?",
+            'data' => [
+                'type' => 'refusal_chitchat',
+                'query' => $prompt,
+            ],
+            'card_type' => 'out_of_scope',
+            'actions' => [
+                ['label' => '📊 Trial Balance', 'action' => 'draft_prompt', 'payload' => ['prompt' => 'Show Trial Balance summary']],
+                ['label' => '🏦 Meezan Bank Balance', 'action' => 'draft_prompt', 'payload' => ['prompt' => 'What is the balance of Meezan Bank?']],
+                ['label' => '📄 View Daybook', 'action' => 'navigate_page', 'payload' => ['page' => 'daybook']],
+            ]
+        ];
+    }
+
+    /**
+     * First-Class Refusal: Untracked data attributes
+     */
+    protected function handleUntrackedDataRefusal(string $prompt): array
+    {
+        return [
+            'sender' => 'Taliya',
+            'intent' => 'untracked_data_refusal',
+            'message' => "🔒 **Data Boundary**: The requested information is not tracked within the general ledger or chart of accounts. Taliya only accesses double-entry financial journals, accounts, fiscal periods, and subledger balances.",
+            'data' => [
+                'type' => 'refusal_untracked',
+                'query' => $prompt,
+            ],
+            'card_type' => 'out_of_scope',
+            'actions' => [
+                ['label' => '📄 View Daybook', 'action' => 'navigate_page', 'payload' => ['page' => 'daybook']],
+                ['label' => '📖 Chart of Accounts', 'action' => 'navigate_page', 'payload' => ['page' => 'coa']],
             ]
         ];
     }
@@ -467,6 +531,9 @@ class CopilotService
         $debitName = !empty($debitAccounts) ? $debitAccounts[0]['name'] : $debitCode;
         $creditName = !empty($creditAccounts) ? $creditAccounts[0]['name'] : $creditCode;
 
+        $makerCheckerThreshold = (float) config('copilot.maker_checker_threshold', 100000.0);
+        $requiresDualConfirmation = $amount >= $makerCheckerThreshold;
+
         $draft = Alamia360::capabilities()->execute('draft_voucher', [
             'type' => 'journal',
             'description' => $prompt,
@@ -488,10 +555,21 @@ class CopilotService
             ],
         ], $actor);
 
+        $draft['requires_dual_confirmation'] = $requiresDualConfirmation;
+        $draft['maker_checker_threshold'] = $makerCheckerThreshold;
+        if (!empty($draft['voucher'])) {
+            $draft['voucher']['requires_dual_confirmation'] = $requiresDualConfirmation;
+            $draft['voucher']['maker_checker_threshold'] = $makerCheckerThreshold;
+        }
+
+        $message = $requiresDualConfirmation
+            ? "I have prepared a draft journal voucher for **Rs. " . number_format($amount, 2) . "**.\n\n⚠️ **Maker-Checker Policy**: Transactions of Rs. " . number_format($makerCheckerThreshold, 2) . " or higher require secondary authorization (segregation of duties) before posting. Please review the details below before submitting for approval:"
+            : "I have prepared a draft journal voucher based on your request. Please review the details below before posting:";
+
         return [
             'sender' => 'Taliya',
             'intent' => 'draft_voucher',
-            'message' => "I have prepared a draft journal voucher based on your request. Please review the details below before posting:",
+            'message' => $message,
             'data' => $draft,
             'card_type' => 'voucher_draft',
         ];
@@ -938,6 +1016,28 @@ class CopilotService
 
             if ($totalMatches > 1) {
                 return $this->formatDisambiguation($cleanQuery, $vouchers, $accounts, $users);
+            }
+
+            $confidenceThreshold = (float) config('copilot.confidence_threshold', 0.70);
+            $confidence = (float) ($semantic['confidence'] ?? 0.50);
+
+            if ($confidence < $confidenceThreshold) {
+                return [
+                    'sender' => 'Taliya',
+                    'intent' => 'out_of_scope_refusal',
+                    'message' => "I am **Taliya**, an institutional accounting assistant for **Alamia Accounts**.\n\nI couldn't match your request to a supported accounting operation (accounts, vouchers, ledgers, or financial reports). I can only execute defined accounting workflows in your capability catalog.\n\nHow can I help with your books today?",
+                    'data' => [
+                        'query' => $prompt,
+                        'confidence' => $confidence,
+                        'capability' => $semantic['capability'] ?? 'unknown',
+                    ],
+                    'card_type' => 'out_of_scope',
+                    'actions' => [
+                        ['label' => '📊 Trial Balance', 'action' => 'draft_prompt', 'payload' => ['prompt' => 'Show Trial Balance summary']],
+                        ['label' => '🏦 Meezan Bank Balance', 'action' => 'draft_prompt', 'payload' => ['prompt' => 'What is the balance of Meezan Bank?']],
+                        ['label' => '📄 Daybook', 'action' => 'navigate_page', 'payload' => ['page' => 'daybook']],
+                    ]
+                ];
             }
 
             return [

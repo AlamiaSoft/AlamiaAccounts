@@ -132,19 +132,32 @@ The Alamia Accounts AI Copilot (**Taliya**) operates on a bounded **Semantic Cap
 
 ---
 
-### Candidate Frameworks for Direct Integration:
+### Framework Selection & Architecture: **Parlant (`parlant`)**
 
-| Framework / Solution | Core Strengths | Target Role in Alamia Accounts |
-| :--- | :--- | :--- |
-| **`LLMRouter` / `Router-R1`** (`ulab-uiuc/LLMRouter`) | Multi-round conversational routing, trained round-aware representations | Multi-turn capability dispatcher and dialogue round manager. |
-| **`ai-assistant-framework`** | Explicit short-term memory, alias registries, query rewriting, contextual graph expansion | Contextual reference resolver (`she`, `that payment`, `IZOC Pvt Ltd` $\leftrightarrow$ `Ali Raza`). |
+Following research evaluation ([`research-and-recommednation.md`](file:///e:/Alamia/AlamiaAccounts/docs/copilot/improvements/dialogue-management/research-and-recommednation.md)), **Parlant** is adopted as the production-grade dialogue management and behavioral control engine:
+
+| Requirement | Parlant Architecture in Alamia Accounts |
+| :--- | :--- |
+| **Sidecar Deployment** | Runs as a Python standalone service (`p.Server`) on `localhost:8800`, called by Laravel backend over REST/HTTP. |
+| **Local LLM Execution** | Native integration via `parlant[ollama]` using `qwen3.5:4b` without external cloud dependencies. |
+| **Anaphora / Deixis** | Sessions maintain an ordered **event timeline** (messages, tool calls, results). Contextual pronouns (*"he"*, *"she"*, *"that payment"*, *"its narration"*) are grounded naturally in prior events. |
+| **Conversational Repair** | Managed through **Guidelines** (`condition -> action`) and **Journeys** to steer dialog steps on corrections (*"no, not that one..."*) without fragile regexes. |
+| **Deterministic Guardrails** | Pre-generation guidelines strictly enforce GAAP/IFRS ledger immutability and block destructive actions (`safety_flag`) before execution. |
+| **Capability Tools** | Direct 1:1 mapping of domain capabilities (`party.lookup`, `voucher.draft`, `voucher.reverse`, `report.*`) to Parlant `@p.tool` decorators. |
+
+### Dedicated Entity Resolution Tool Architecture:
+- Parlant Glossary manages static domain terms.
+- For dynamic accounting entity aliases across tenant ledgers (`"IZOC"` $\leftrightarrow$ `"IZOC Ltd"` $\leftrightarrow$ `"Ali Raza"`), Alamia provides a dedicated `resolve_entity` tool using PostgreSQL `pg_trgm` fuzzy matching against `domain_contacts`, `domain_ledger_accounts`, and `domain_journal_entries`.
+- Parlant guidelines invoke `resolve_entity` before executing `party.lookup` or `transaction.search`.
 
 ---
 
-### Integration Action Plan:
-1. **Direct Feasibility & Benchmark Evaluation**: Run direct feasibility evaluations on candidate repositories (`LLMRouter` and `ai-assistant-framework`) against Alamia's domain capability schema and 42-test safety contract.
-2. **Direct Integration Architecture**: Deploy the chosen solution as a containerized routing/memory service or native service adapter integrated with [`CopilotService.php`](file:///e:/Alamia/AlamiaAccounts/AlamiaAccounts-Backend/app/Copilot/CopilotService.php).
-3. **End-to-End Safety & Invariant Verification**: Wire all resolved intents and entity contexts directly into the double-entry accounting layer while maintaining 100% test pass rate across the contract suite.
+### Implementation Action Plan:
+1. **Parlant Sidecar Setup**: Configure Docker container running `parlant` with local Ollama (`qwen3.5:4b`).
+2. **Define Guidelines & Tools**: Register domain capability tools and safety guidelines matching our frozen schema.
+3. **Build `resolve_entity` Backend Endpoint**: Implement PostgreSQL trigram fuzzy search for entity footprints and aliases.
+4. **Benchmark Against Contract Suite**: Validate the Parlant integration against the 42-scenario test suite in [`tests/copilot/verify_copilot_intents.php`](file:///e:/Alamia/AlamiaAccounts/tests/copilot/verify_copilot_intents.php).
+
 
 
 

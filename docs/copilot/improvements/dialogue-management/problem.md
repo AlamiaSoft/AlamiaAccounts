@@ -152,47 +152,37 @@ The target dialogue management / routing solution must parse dialogue context in
 
 ---
 
-## 6. Candidate Frameworks Identified for Research & Benchmark
+## 6. Candidate Evaluation & Framework Selection
 
-The research agent should evaluate candidate open-source frameworks against our architecture:
+Based on the comparative research report in [`research-and-recommednation.md`](file:///e:/Alamia/AlamiaAccounts/docs/copilot/improvements/dialogue-management/research-and-recommednation.md):
 
-### Candidate 1: `LLMRouter` / `Router-R1` (`ulab-uiuc/LLMRouter`)
-- **Key Focus**: Multi-round conversational routing.
-- **Strengths**: Specifically designed for multi-turn dialogue routing with trained round-aware representations rather than static single-turn dispatch.
-- **Research Question**: Can `LLMRouter` or `Router-R1` be deployed as a local lightweight routing service (e.g. Python FastAPI container or ONNX runtime) interfacing with our Laravel backend?
+### 1. Ruled Out Candidates
+- **`LLMRouter` / `Router-R1` (`ulab-uiuc/LLMRouter`)**: **Ruled Out.** Designed strictly for model-choice routing (cost/quality/latency dispatch across multiple LLMs), not dialogue slot filling, query rewriting, or conversational state management.
+- **`ai-assistant-framework`**: **Ruled Out.** Unverified / low-activity generic project lacking proven conversational memory or entity graph infrastructure.
 
-### Candidate 2: `ai-assistant-framework`
-- **Key Focus**: Short-term memory, entity resolution, alias handling, query rewriting, and contextual graph expansion.
-- **Strengths**: Explicit memory models addressing anaphoric references (*"she"*, *"that payment"*), aliases, and contextual expansion.
-- **Research Question**: How does its entity resolution and short-term memory architecture integrate with relational database footprints (PostgreSQL ledger)?
+### 2. Selected Dialogue Engine: **Parlant (`parlant`)**
+**Parlant** is selected as the production-grade dialogue management and behavioral control framework for Alamia Accounts.
 
-### Candidate 3: Other Production-Grade Dialogue & Routing Frameworks
-- Any other mature, open-source frameworks specifically tailored for:
-  - Multi-turn conversational slot filling / task-oriented dialogue.
-  - Anaphora resolution and contextual query rewriting.
-  - Low-latency local deployment (compatible with Docker / PHP backend / Ollama LLMs).
-
----
-
-## 7. Evaluation & Benchmark Criteria for Research Agent
-
-When shortlisting and evaluating candidates, assess each on:
-
-| Evaluation Dimension | Description & Target Metric |
+| Dimension | Parlant Implementation in Alamia Accounts |
 | :--- | :--- |
-| **1. Multi-Turn Context & Memory** | How reliably does it resolve conversational pronouns (`he`, `she`, `that voucher`, `its narration`) and conversational corrections across $\ge 5$ dialogue rounds? |
-| **2. Integration Friction with PHP/Laravel** | Can it run as a lightweight containerized sidecar (e.g. FastAPI / gRPC / JSON-RPC over HTTP) communicating seamlessly with Laravel 11? |
-| **3. Inference Efficiency & Local LLM Support** | Does it function efficiently with local small models (e.g., `qwen3.5:4b`, `llama3.2:3b`, or small embedding routers) without mandatory external cloud API dependencies? |
-| **4. Guardrail & Policy Determinism** | Does it allow deterministic safety policy overrides (e.g. blocking destructive voucher deletions before routing to arbitrary LLM completions)? |
-| **5. Entity & Alias Normalization** | How well does it handle entity alias graphs and fuzzy matches against local database records? |
+| **Sidecar Service** | Runs as a Python service (`p.Server`) on `localhost:8800`, called by Laravel over HTTP. |
+| **Local LLM Support** | Native integration via `pip install parlant[ollama]` supporting `qwen3.5:4b` without cloud lock-in. |
+| **Anaphora / Deixis** | Sessions are ordered **event timelines** (messages, tool calls, results). Contextual pronouns (*"he"*, *"she"*, *"that payment"*) are grounded naturally within the conversational context window. |
+| **Conversational Repair** | Controlled by **Guidelines** (`condition -> action`) and **Journeys** to redirect active steps upon user corrections (*"no, not that one..."*) without regex. |
+| **Deterministic Guardrails** | Pre-generation guidelines enforce GAAP/IFRS ledger immutability and block destructive actions before execution. |
+| **Capability Tools** | Direct 1:1 mapping of our frozen schema (`party.lookup`, `voucher.draft`, `report.*`) to Parlant `@p.tool` decorators. |
+
+### 3. Dedicated Entity Resolution Tool Architecture
+Parlant's Glossary manages static domain terms. For dynamic, accounting-specific entity aliases across tenant ledgers:
+- Build a dedicated `resolve_entity` tool in the backend using PostgreSQL `pg_trgm` fuzzy matching against `domain_contacts`, `domain_ledger_accounts`, and `domain_journal_entries`.
+- Parlant guidelines invoke `resolve_entity` before executing `party.lookup` or `transaction.search`.
 
 ---
 
-## 8. Existing Benchmark & Contract Test Suite
+## 7. Next Steps & Implementation Roadmap
 
-The repository contains an automated 42-scenario behavioral contract and safety test suite:
-- **Location**: [`tests/copilot/verify_copilot_intents.php`](file:///e:/Alamia/AlamiaAccounts/tests/copilot/verify_copilot_intents.php)
-- **Execution**: `docker exec alamia-accounts-backend php tests/copilot/verify_copilot_intents.php`
-- **Current Baseline**: 42/42 (100%) passing on current schema contract.
+1. **Parlant Sidecar Setup**: Configure a Docker sidecar service running `parlant` with local Ollama provider (`qwen3.5:4b`).
+2. **Define Guidelines & Tools**: Register domain capability tools (`voucher.draft`, `party.lookup`, etc.) and safety guidelines matching our frozen schema.
+3. **Build `resolve_entity` Backend Endpoint**: Implement PostgreSQL trigram fuzzy search for entity footprints and aliases.
+4. **Benchmark Against Contract Suite**: Validate the Parlant integration against the 42-scenario test suite in [`tests/copilot/verify_copilot_intents.php`](file:///e:/Alamia/AlamiaAccounts/tests/copilot/verify_copilot_intents.php).
 
-Any candidate solution must be capable of fulfilling or exceeding this 42-scenario contract suite while cleanly resolving multi-turn conversational history.

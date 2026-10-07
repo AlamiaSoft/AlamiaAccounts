@@ -127,6 +127,7 @@ All agents operating on this codebase must adhere to the version-controlled proj
 ### Core Protocol Commands
 ```bash
 node scripts/pm.js status                     # Executive completion & blocker summary
+node scripts/verify-architecture.js           # Automated 7-Suite Architectural & Coding Standards Conformance Linter
 node scripts/pm.js add "<title>" [--priority=high] [--epic=EP-XX] # Ingest task from user request
 node scripts/pm.js next [--agent=<role>]       # Compile exact next prioritized unblocked task
 node scripts/pm.js context <task_id>          # Compile 2-8 KB targeted context brief
@@ -139,6 +140,8 @@ node scripts/pm.js pause <task_id>            # Move task to ON_HOLD / PAUSED
 ### Invariants for Agents
 1. **Automatic Request Ingestion**: When the user requests a new feature, bug fix, or operational change in chat, the agent MUST immediately register it as a task via `node scripts/pm.js add` before/during execution so the project DAG and live board remain 100% synchronized.
 2. **Never read the entire `.project/` tree at once**: Always query targeted context via `node scripts/pm.js context <id>` or `node scripts/pm.js next`.
-3. **Hard Verification Gate**: No task can transition to `DONE` without automated verification tests passing.
-4. **Traceable Handoffs**: Work sessions are recorded under `.project/runs/<task_id>/`.
+3. **Architectural Conformance Gate**: Run `node scripts/verify-architecture.js` to ensure zero boundary breaches, zero raw Abivia model imports in controllers, zero hardcoded heuristics, and single source of truth.
+4. **Hard Verification Gate**: No task can transition to `DONE` without automated verification tests passing.
+5. **Traceable Handoffs**: Work sessions are recorded under `.project/runs/<task_id>/`.
+
 

@@ -154,3 +154,23 @@ Go to **Reports** and test all 4 core statements:
 | 9 | Balance Sheet Equilibrium | [x] Passed | Antigravity E2E | Assets (Rs. 710,000) === Liabilities (0) + Equity (500k) + Retained Earnings (210k) |
 | 10 | General Ledger Running Balances | [x] Passed | Antigravity E2E | All accounts (Cash, Bank, AR) verified with running balance audit |
 | 11 | Multi-Company Isolation (`MAIN` vs `KAMAL`) | [x] Passed | Antigravity E2E | Kamal Express verified at Rs. 0; Main Company data intact at Rs. 710,000 |
+
+---
+
+## 4. Architectural & Coding Standards Conformance Verification
+
+In addition to functional and financial calculations, the repository enforces automated architectural conformance testing:
+
+```bash
+node scripts/verify-architecture.js
+```
+
+### Evaluated Invariant Suites:
+1. **Abivia Kernel Encapsulation**: Asserts zero direct imports of `\Abivia\Ledger\Models` in controllers or UI.
+2. **Zero Heuristic Guessing**: Prohibits string-based startsWith/pattern heuristics for posting accounts.
+3. **Centralized Currency Context**: Enforces `DomainContext::getDefaultCurrency()`.
+4. **GAAP Historical Immutability**: Asserts HTTP 422 block on physical voucher deletion.
+5. **Reusable Package Boundaries & Single Source of Truth**: Detects missing package services or shadowed workspaces.
+6. **E2E Test Suite Registry**: Asserts all persistent tests are registered in `run-all.js`.
+7. **Agent-PM DAG Integrity**: Validates frontmatter schemas across all task specifications.
+

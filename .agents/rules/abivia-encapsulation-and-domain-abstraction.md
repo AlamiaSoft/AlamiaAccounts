@@ -22,3 +22,7 @@ All AI agents and developers operating on this repository must strictly obey the
 
 3. **Authentication & Authorization Boundary**:
    - Authentication and tenant boundary checks belong strictly at the HTTP middleware pipeline (`AuthenticateSalesOrSanctum`, `auth:sanctum`), never embedded inside core accounting domain services.
+
+4. **Automated Architectural Conformance Verification**:
+   - Run `node scripts/verify-architecture.js` to automatically audit the codebase against these encapsulation rules, detect direct Abivia model imports, hardcoded account heuristics, and shadowed workspace drift.
+

@@ -1,0 +1,8 @@
+{
+  "task_id": "T-029",
+  "run_id": "002",
+  "timestamp": "2026-10-07T15:28:59.320Z",
+  "action": "FINISH",
+  "git_commit": "e9a94d4",
+  "evidence": "Enhanced LedgerView and LedgerDetailView with universal account switcher, date range presets, in-table search, useTallyTableNavigation (Up/Down/Enter/Esc), and seamless voucher drilldown navigation."
+}

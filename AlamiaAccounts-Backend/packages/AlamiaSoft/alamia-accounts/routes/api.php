@@ -45,6 +45,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::apiResource('accounts', AccountController::class);
     
     // Vouchers
+    Route::post('/vouchers/clear-all', [VoucherController::class, 'clearAll']);
     Route::post('/vouchers/{reference}/reverse', [VoucherController::class, 'reverse']);
     Route::apiResource('vouchers', VoucherController::class);
     
@@ -70,8 +71,11 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/reports/profit-loss', [ReportController::class, 'profitAndLoss']);
     Route::get('/reports/balance-sheet', [ReportController::class, 'balanceSheet']);
     Route::get('/reports/ledger', [ReportController::class, 'ledger']);
+    Route::get('/reports/bank-book', [ReportController::class, 'bankBook']);
     Route::get('/reports/receivables', [ReportController::class, 'receivables']);
     Route::get('/reports/payables', [ReportController::class, 'payables']);
+    Route::get('/reports/balance-sheet-diagnostics', [ReportController::class, 'balanceSheetDiagnostics']);
+    Route::get('/reports/ledger-integrity-audit', [ReportController::class, 'ledgerIntegrityAudit']);
     // Periods & Fiscal Controls
     Route::get('/periods', [PeriodController::class, 'index']);
     Route::post('/periods/{id}/close', [PeriodController::class, 'close']);
@@ -103,7 +107,22 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/copilot/knowledge', [CopilotController::class, 'knowledgeList']);
     Route::post('/copilot/knowledge', [CopilotController::class, 'knowledgeStore']);
     Route::delete('/copilot/knowledge/{id}', [CopilotController::class, 'knowledgeDelete']);
+
+    // Accountant Help & User Manual Portal API
+    Route::get('/manual', [\App\Http\Controllers\Api\ManualController::class, 'index']);
 });
+
+// Front-Office & Sales POS Integration API (v1) - Dual Sanctum User & Machine POS Gateway Authentication
+Route::middleware([\App\Http\Middleware\AuthenticateSalesOrSanctum::class])->group(function () {
+    Route::post('/v1/sales', [\App\Http\Controllers\Api\V1\SalesIntegrationController::class, 'store']);
+    Route::get('/v1/sales', [\App\Http\Controllers\Api\V1\SalesIntegrationController::class, 'index']);
+    Route::get('/v1/sales/{id}', [\App\Http\Controllers\Api\V1\SalesIntegrationController::class, 'show']);
+    Route::post('/v1/sales/{id}/approve', [\App\Http\Controllers\Api\V1\SalesIntegrationController::class, 'approve']);
+    Route::post('/v1/sales/reconcile', [\App\Http\Controllers\Api\V1\SalesIntegrationController::class, 'reconcileShift']);
+    Route::get('/v1/receipts/{id}/print', [\App\Http\Controllers\Api\V1\SalesIntegrationController::class, 'printReceipt']);
+});
+
+Route::get('/manual', [\App\Http\Controllers\Api\ManualController::class, 'index']);
 
 // Public testing routes
 Route::get('/copilot/diagnostics-public', [CopilotController::class, 'diagnostics']);
@@ -115,4 +134,5 @@ Route::delete('/copilot/diagnostics-public', [CopilotController::class, 'pruneDi
 Route::get('/copilot/knowledge-public', [CopilotController::class, 'knowledgeList']);
 Route::post('/copilot/knowledge-public', [CopilotController::class, 'knowledgeStore']);
 Route::delete('/copilot/knowledge-public/{id}', [CopilotController::class, 'knowledgeDelete']);
+
 

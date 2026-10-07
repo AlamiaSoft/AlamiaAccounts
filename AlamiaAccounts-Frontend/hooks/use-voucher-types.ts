@@ -1,11 +1,11 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { voucherTypeApi } from '@/lib/api'
 
-export function useVoucherTypes() {
+export function useVoucherTypes(companyCode?: string) {
     const queryClient = useQueryClient()
 
-    const { data: voucherTypes, isLoading } = useQuery({
-        queryKey: ['voucher-types'],
+    const { data: voucherTypes, isLoading, refetch } = useQuery({
+        queryKey: ['voucher-types', companyCode],
         queryFn: async () => {
             const response = await voucherTypeApi.getAll()
             return response.data.data || []
@@ -42,6 +42,7 @@ export function useVoucherTypes() {
     return {
         voucherTypes: voucherTypes || [],
         isLoading,
+        refetch,
         createVoucherType,
         updateVoucherType,
         deleteVoucherType,

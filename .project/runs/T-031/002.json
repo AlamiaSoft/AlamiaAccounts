@@ -1,0 +1,8 @@
+{
+  "task_id": "T-031",
+  "run_id": "002",
+  "timestamp": "2026-10-07T15:32:02.580Z",
+  "action": "FINISH",
+  "git_commit": "e9a94d4",
+  "evidence": "Created and verified SubledgerAR and SubledgerAP components with party directories, aging brackets (0-30, 31-60, 61-90, 90+), Tally keyboard navigation, and voucher drilldown."
+}

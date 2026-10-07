@@ -18,17 +18,28 @@ export interface LineItem {
 
 interface VoucherLineItemsProps {
   lineItems: LineItem[]
-  onUpdate: (id: string, fieldOrUpdates: keyof LineItem | Partial<LineItem>, value?: any) => void
-  onRemove: (id: string) => void
+  onUpdate?: (id: string, fieldOrUpdates: keyof LineItem | Partial<LineItem>, value?: any) => void
+  onUpdateLineItem?: (id: string, fieldOrUpdates: keyof LineItem | Partial<LineItem>, value?: any) => void
+  onRemove?: (id: string) => void
+  onRemoveLineItem?: (id: string) => void
+  onAddLineItem?: () => void
   disabled?: boolean
+  currency?: string
+  companyCode?: string
 }
 
 export default function VoucherLineItems({
   lineItems,
-  onUpdate,
-  onRemove,
+  onUpdate: propOnUpdate,
+  onUpdateLineItem,
+  onRemove: propOnRemove,
+  onRemoveLineItem,
   disabled = false,
+  currency = "PKR",
+  companyCode,
 }: VoucherLineItemsProps) {
+  const onUpdate = propOnUpdate || onUpdateLineItem || (() => {})
+  const onRemove = propOnRemove || onRemoveLineItem || (() => {})
   const { accounts, isLoading: isLoadingAccounts } = useAccounts()
 
   const accountList: AccountOption[] = useMemo(() => {

@@ -69,6 +69,49 @@ class VoucherController extends Controller
 
     public function store(Request $request)
     {
+        // 1. Normalize currency to current company's configured default currency
+        if (!$request->filled('currency')) {
+            $companyCode = $request->input('company_code') ?? $request->header('X-Company-Code');
+            $request->merge([
+                'currency' => \AlamiaSoft\AlamiaAccounts\Services\DomainContext::getDefaultCurrency($companyCode)
+            ]);
+        }
+
+        // 2. Normalize entries from lineItems, details, or line_items if entries is absent
+        if (!$request->filled('entries') && ($request->filled('lineItems') || $request->filled('details') || $request->filled('line_items'))) {
+            $rawLines = $request->input('lineItems') ?? $request->input('details') ?? $request->input('line_items') ?? [];
+            $normalizedEntries = [];
+            foreach ($rawLines as $line) {
+                $accountCode = $line['account_code'] ?? $line['account'] ?? '';
+                $debit = (float) ($line['debit'] ?? 0);
+                $credit = (float) ($line['credit'] ?? 0);
+                $amt = (float) ($line['amount'] ?? 0);
+                if ($amt <= 0) {
+                    $amt = $debit > 0 ? $debit : $credit;
+                }
+                $type = $line['type'] ?? ($debit > 0 ? 'debit' : 'credit');
+                $desc = $line['description'] ?? $line['memo'] ?? $request->input('narration') ?? $request->input('description') ?? null;
+
+                $normalizedEntries[] = [
+                    'account_code' => (string) $accountCode,
+                    'amount' => $amt,
+                    'type' => strtolower($type) === 'credit' ? 'credit' : 'debit',
+                    'description' => $desc,
+                ];
+            }
+            $request->merge(['entries' => $normalizedEntries]);
+        }
+
+        // 3. Normalize description from narration if absent
+        if (!$request->filled('description') && $request->filled('narration')) {
+            $request->merge(['description' => $request->input('narration')]);
+        }
+
+        // 4. Normalize reference from number if absent
+        if (!$request->filled('reference') && $request->filled('number')) {
+            $request->merge(['reference' => $request->input('number')]);
+        }
+
         $validated = $request->validate([
             'date' => 'required|date',
             'reference' => 'required|string',
@@ -76,9 +119,12 @@ class VoucherController extends Controller
             'currency' => 'required|string|size:3',
             'entries' => 'required|array|min:2',
             'entries.*.account_code' => 'required|string',
-            'entries.*.amount' => 'required|numeric|min:0',
+            'entries.*.amount' => 'required|numeric|min:0.01',
             'entries.*.type' => 'required|in:debit,credit',
             'entries.*.description' => 'nullable|string',
+            'custom_fields' => 'nullable|array',
+            'voucher_type' => 'nullable|string',
+            'type' => 'nullable|string',
         ]);
 
         try {
@@ -88,6 +134,9 @@ class VoucherController extends Controller
                 'description' => $validated['description'] ?? '',
                 'currency' => $validated['currency'],
                 'entries' => $validated['entries'],
+                'custom_fields' => $request->input('custom_fields'),
+                'voucher_type' => $request->input('voucher_type') ?? $request->input('type'),
+                'type' => $request->input('type'),
             ]);
 
             return response()->json(['data' => $voucher], 201);
@@ -154,6 +203,28 @@ class VoucherController extends Controller
             return response()->json([
                 'message' => $e->getMessage()
             ], 422);
+        }
+    }
+
+    /**
+     * Clear / Reset all transactions for the current tenant company
+     */
+    public function clearAll(Request $request)
+    {
+        try {
+            $companyCode = $request->header('X-Company-Code');
+            $count = $this->voucherService->clearAllTransactions($companyCode);
+
+            return response()->json([
+                'success' => true,
+                'message' => "Successfully cleared {$count} transactions for company.",
+                'cleared_count' => $count,
+            ], 200);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ], 500);
         }
     }
 }

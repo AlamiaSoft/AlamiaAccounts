@@ -106,6 +106,27 @@ class AccountService
         if (isset($data['parent_code'])) {
             $message->parent = new EntityRef($data['parent_code']);
         }
+
+        // Set metadata / account_class in extra
+        $extra = $data['extra'] ?? [];
+        if (is_string($extra)) {
+            $extra = json_decode($extra, true) ?: [];
+        } elseif (is_object($extra)) {
+            $extra = (array)$extra;
+        }
+
+        if (empty($extra['account_class']) && isset($data['account_class'])) {
+            $extra['account_class'] = is_object($data['account_class']) ? $data['account_class']->value : (string)$data['account_class'];
+        } elseif (empty($extra['account_class']) && isset($data['parent_code'])) {
+            $parent = LedgerAccount::where('code', $data['parent_code'])->first();
+            if ($parent) {
+                $parentClass = $this->getAccountClassEnum($parent);
+                $extra['account_class'] = $parentClass->value;
+            }
+        }
+        if (!empty($extra)) {
+            $message->extra = (object)$extra;
+        }
         
         // Create account via Abivia controller (for validation and business logic)
         try {
@@ -228,6 +249,8 @@ class AccountService
             ->pluck('total_balance', 'journal_details.ledgerUuid')
             ->toArray();
 
+        $allAccountsMap = $accounts->keyBy('ledgerUuid');
+
         $result = [];
         foreach ($accounts as $account) {
             $name = $account->names->first()->name ?? $account->code;
@@ -236,25 +259,9 @@ class AccountService
                 $parentCode = $uuidToCode[$account->parentUuid] ?? null;
             }
 
-            // Determine friendly accounting type and group ID
-            $type = 'Asset';
-            $groupId = 'current';
-            if (str_starts_with($account->code, '1')) {
-                $type = 'Asset';
-                $groupId = str_starts_with($account->code, '13') ? 'fixed' : 'current';
-            } elseif (str_starts_with($account->code, '2')) {
-                $type = 'Liability';
-                $groupId = 'liability';
-            } elseif (str_starts_with($account->code, '3')) {
-                $type = 'Income';
-                $groupId = 'income';
-            } elseif (str_starts_with($account->code, '4')) {
-                $type = 'Expense';
-                $groupId = 'expense';
-            } elseif (str_starts_with($account->code, '5')) {
-                $type = 'Capital';
-                $groupId = 'capital';
-            }
+            // Determine friendly accounting type and group ID from hierarchy
+            $type = $this->getAccountClass($account, $allAccountsMap);
+            $groupId = strtolower($type);
 
             $rawBalance = (float)($balances[$account->ledgerUuid] ?? 0.0);
             $balance = $account->debit ? $rawBalance : abs($rawBalance);
@@ -278,6 +285,55 @@ class AccountService
         }
 
         return $result;
+    }
+
+    /**
+     * Resolve the strongly-typed formal accounting class enum
+     * by inspecting account metadata or traversing the account tree up to the root folder.
+     */
+    public function getAccountClassEnum(LedgerAccount $account, $allAccountsMap = null): \AlamiaSoft\AlamiaAccounts\Enums\AccountClass
+    {
+        if ($allAccountsMap === null) {
+            $allAccountsMap = LedgerAccount::with('names')->get()->keyBy('ledgerUuid');
+        }
+
+        $curr = $account;
+        while ($curr) {
+            $extra = $curr->extra;
+            if (is_string($extra)) {
+                $extra = json_decode($extra, true) ?: [];
+            } elseif (is_object($extra)) {
+                $extra = (array)$extra;
+            }
+
+            if (!empty($extra['account_class'])) {
+                $resolved = \AlamiaSoft\AlamiaAccounts\Enums\AccountClass::tryFrom($extra['account_class']);
+                if ($resolved !== null) {
+                    return $resolved;
+                }
+            }
+
+            if (!$curr->parentUuid) {
+                break;
+            }
+
+            $parent = is_array($allAccountsMap) ? ($allAccountsMap[$curr->parentUuid] ?? null) : $allAccountsMap->get($curr->parentUuid);
+            if (!$parent || empty($parent->code)) {
+                break;
+            }
+            $curr = $parent;
+        }
+
+        // If no explicit class and no parent hierarchy, return UNCLASSIFIED
+        return \AlamiaSoft\AlamiaAccounts\Enums\AccountClass::UNCLASSIFIED;
+    }
+
+    /**
+     * Resolve the formal accounting class title for UI/API display.
+     */
+    public function getAccountClass(LedgerAccount $account, $allAccountsMap = null): string
+    {
+        return $this->getAccountClassEnum($account, $allAccountsMap)->label();
     }
 
     /**

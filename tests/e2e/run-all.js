@@ -12,6 +12,8 @@ const test07 = require('./07-master-e2e-accounting.test');
 const test08 = require('./08-group-ledger-and-subledgers.test');
 const test09 = require('./09-voucher-lifecycle-negative.test');
 const test10 = require('./10-accountant-production-readiness.test');
+const test11 = require('./11-tally-workstation-and-subledgers.test');
+const test12 = require('./12-balance-sheet-diagnostics-and-copilot.test');
 
 async function runAll() {
   console.log('================================================================');
@@ -30,6 +32,8 @@ async function runAll() {
     { name: '08: Group Ledgers & AR/AP Subledgers', fn: test08 },
     { name: '09: Voucher Lifecycle & Negative Validations', fn: test09 },
     { name: '10: Accountant Production Readiness & Hardening', fn: test10 },
+    { name: '11: Tally Workstation, Bank Book & Subledgers', fn: test11 },
+    { name: '12: Balance Sheet Diagnostics & AI Copilot', fn: test12 },
   ];
 
   const results = [];

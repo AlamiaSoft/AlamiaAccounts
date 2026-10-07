@@ -3,10 +3,10 @@
 import { useState, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Download, Eye, Loader2, CheckCircle2, AlertTriangle, Scale, Users, Building2 } from "lucide-react"
+import { Download, Eye, Loader2, CheckCircle2, AlertTriangle, Scale, Users, Building2, Wrench, Bot, ChevronDown, ChevronUp, ArrowRight, ShieldAlert, Sparkles } from "lucide-react"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import ReportView from "@/components/report-view"
-import { useTrialBalance, useProfitLoss, useBalanceSheet, useReceivables, usePayables } from "@/hooks/use-reports"
+import { useTrialBalance, useProfitLoss, useBalanceSheet, useReceivables, usePayables, useBalanceSheetDiagnostics } from "@/hooks/use-reports"
 import { useCompanies } from "@/hooks/use-companies"
 import type { PrintSettings } from "@/components/print-template-settings"
 
@@ -29,6 +29,7 @@ export default function FinancialReports({ initialReport, companyName, printSett
   const [fromDate, setFromDate] = useState(startOfYear)
   const [plLayout, setPlLayout] = useState<"income-expense" | "vertical">("income-expense")
   const [viewingReport, setViewingReport] = useState(false)
+  const [showDiagnostics, setShowDiagnostics] = useState(false)
 
   useEffect(() => {
     if (initialReport && initialReport !== selectedReport) {
@@ -74,6 +75,7 @@ export default function FinancialReports({ initialReport, companyName, printSett
   const { data: apiBS, isLoading: isLoadingBS } = useBalanceSheet(reportPeriod, "PKR")
   const { data: apiReceivables, isLoading: isLoadingAR } = useReceivables(reportPeriod, "PKR")
   const { data: apiPayables, isLoading: isLoadingAP } = usePayables(reportPeriod, "PKR")
+  const { data: apiBSDiagnostics, isLoading: isLoadingBSDiag } = useBalanceSheetDiagnostics(reportPeriod, "PKR")
 
   // Map backend trial balance to frontend format (handle both array and { accounts: [...] } object)
   const trialBalanceAccounts = Array.isArray(apiTrialBalance)
@@ -162,32 +164,214 @@ export default function FinancialReports({ initialReport, companyName, printSett
             </span>
           </div>
         ) : (
-          <div className="p-4 bg-destructive/10 border-2 border-destructive rounded-xl text-destructive shadow-md animate-in fade-in duration-200">
-            <div className="flex items-start justify-between gap-4">
-              <div className="flex items-start gap-3">
-                <div className="p-2 rounded-lg bg-destructive/20 text-destructive mt-0.5 shrink-0">
-                  <AlertTriangle className="w-6 h-6 animate-pulse" />
-                </div>
-                <div>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <h4 className="font-bold text-base">Action Required: Balance Sheet is NOT Balanced!</h4>
-                    <span className="px-2 py-0.5 text-xs font-extrabold rounded bg-destructive text-destructive-foreground uppercase tracking-wider">
-                      Difference: Rs. {discrepancy.toLocaleString()}
-                    </span>
+          <div className="space-y-4">
+            <div className="p-4 bg-destructive/10 border-2 border-destructive rounded-xl text-destructive shadow-md animate-in fade-in duration-200">
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex items-start gap-3">
+                  <div className="p-2 rounded-lg bg-destructive/20 text-destructive mt-0.5 shrink-0">
+                    <AlertTriangle className="w-6 h-6 animate-pulse" />
                   </div>
-                  <p className="text-sm mt-1 text-destructive/90">
-                    Total Assets (Rs. {totalAssets.toLocaleString()}) does not match Total Liabilities & Equity (Rs. {totalLiabEquity.toLocaleString()}).
-                    {totalAssets > totalLiabEquity
-                      ? ` Total Assets exceed Liabilities + Equity by Rs. ${discrepancy.toLocaleString()}.`
-                      : ` Liabilities + Equity exceed Total Assets by Rs. ${discrepancy.toLocaleString()}.`
-                    }
-                  </p>
-                  <p className="text-xs text-muted-foreground mt-2">
-                    Note: Unbalanced balances typically occur if a transaction has not recognized current-period net profit in retained earnings, or if there is an unposted opening/suspense journal entry.
-                  </p>
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h4 className="font-bold text-base">Action Required: Balance Sheet is NOT Balanced!</h4>
+                      <span className="px-2 py-0.5 text-xs font-extrabold rounded bg-destructive text-destructive-foreground uppercase tracking-wider">
+                        Difference: Rs. {discrepancy.toLocaleString()}
+                      </span>
+                    </div>
+                    <p className="text-sm mt-1 text-destructive/90">
+                      Total Assets (Rs. {totalAssets.toLocaleString()}) does not match Total Liabilities & Equity (Rs. {totalLiabEquity.toLocaleString()}).
+                      {totalAssets > totalLiabEquity
+                        ? ` Total Assets exceed Liabilities + Equity by Rs. ${discrepancy.toLocaleString()}.`
+                        : ` Liabilities + Equity exceed Total Assets by Rs. ${discrepancy.toLocaleString()}.`
+                      }
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-2">
+                      Note: Unbalanced balances typically occur if a transaction has not recognized current-period net profit in retained earnings, or if there is an unposted opening/suspense journal entry.
+                    </p>
+
+                    {/* Interactive Action Buttons */}
+                    <div className="mt-3.5 flex flex-wrap items-center gap-2.5 pt-2.5 border-t border-destructive/20">
+                      <Button
+                        size="sm"
+                        variant={showDiagnostics ? "secondary" : "destructive"}
+                        onClick={() => setShowDiagnostics(!showDiagnostics)}
+                        className="gap-1.5 font-bold shadow-xs cursor-pointer"
+                      >
+                        <Wrench className="w-3.5 h-3.5" />
+                        {showDiagnostics ? "Hide Forensic Diagnostics" : "Auto-Diagnose Root Causes"}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          window.dispatchEvent(
+                            new CustomEvent("copilot:open", {
+                              detail: { prompt: "Why is the balance sheet not balanced? Please diagnose the root causes and tell me how to fix it." },
+                            })
+                          )
+                        }}
+                        className="gap-1.5 font-semibold bg-background hover:bg-muted text-foreground border-destructive/40 shadow-xs cursor-pointer"
+                      >
+                        <Bot className="w-3.5 h-3.5 text-primary" />
+                        Ask Taliya Copilot to Explain & Fix
+                      </Button>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
+
+            {/* Expandable Forensic Root-Cause Anomaly Breakdown Panel */}
+            {showDiagnostics && (
+              <Card className="border-2 border-primary/30 bg-primary/5 shadow-md animate-in fade-in slide-in-from-top-2 duration-200">
+                <CardHeader className="pb-3 border-b border-border/50">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2.5">
+                      <div className="p-2 rounded-lg bg-primary/10 text-primary">
+                        <Wrench className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <CardTitle className="text-base font-bold flex items-center gap-2">
+                          Forensic Balance Sheet Diagnostic Audit
+                          {isLoadingBSDiag && <Loader2 className="w-4 h-4 animate-spin text-primary" />}
+                        </CardTitle>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          Automated multi-vector ledger analysis detecting mathematical and structural imbalances.
+                        </p>
+                      </div>
+                    </div>
+                    <span className="px-2.5 py-1 text-xs font-bold rounded-full bg-destructive/10 text-destructive border border-destructive/30">
+                      Discrepancy: Rs. {Number(apiBSDiagnostics?.discrepancy || discrepancy).toLocaleString()}
+                    </span>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-4 pt-4">
+                  {/* Root Causes / Anomalies List */}
+                  <div>
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-1.5">
+                      <ShieldAlert className="w-4 h-4 text-destructive" />
+                      Detected Root-Cause Anomalies ({apiBSDiagnostics?.anomalies_count || apiBSDiagnostics?.anomalies?.length || 0})
+                    </h4>
+
+                    {apiBSDiagnostics?.anomalies && apiBSDiagnostics.anomalies.length > 0 ? (
+                      <div className="space-y-2.5">
+                        {apiBSDiagnostics.anomalies.map((anom: any, idx: number) => (
+                          <div
+                            key={idx}
+                            className={`p-3.5 rounded-xl border text-xs space-y-2 transition-all ${
+                              anom.severity === "critical"
+                                ? "bg-destructive/10 border-destructive/40 text-destructive-foreground"
+                                : "bg-amber-500/10 border-amber-500/30 text-foreground"
+                            }`}
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="flex items-center gap-2 font-bold text-sm text-foreground">
+                                <span className="px-2 py-0.5 text-[10px] uppercase font-extrabold rounded bg-destructive text-destructive-foreground">
+                                  {anom.vector || anom.severity}
+                                </span>
+                                <span>{anom.title}</span>
+                              </div>
+                              <span className="font-mono font-bold text-xs px-2 py-0.5 rounded bg-background border border-border text-foreground shrink-0">
+                                Impact: Rs. {Number(anom.impact_amount || 0).toLocaleString()}
+                              </span>
+                            </div>
+                            <p className="text-xs text-muted-foreground leading-relaxed">
+                              {anom.description}
+                            </p>
+                            {anom.suggested_fix && (
+                              <div className="p-2.5 rounded-lg bg-background/90 border border-border text-foreground text-xs flex flex-wrap items-center justify-between gap-2">
+                                <div className="text-xs flex-1">
+                                  <span className="font-bold text-primary">Corrective Action:</span> {anom.suggested_fix.replace(/\s*\(\?page=[^)]+\)/gi, "")}
+                                </div>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => {
+                                    const targetPage = anom.fix_target_page || (anom.account_code ? "coa" : "daybook")
+                                    window.dispatchEvent(
+                                      new CustomEvent("copilot:navigate", {
+                                        detail: { page: targetPage },
+                                      })
+                                    )
+                                  }}
+                                  className="gap-1 text-[11px] font-semibold text-primary hover:text-primary hover:bg-primary/10 shrink-0 cursor-pointer h-7 px-2"
+                                >
+                                  <span>
+                                    Fix in {anom.fix_target_page === "ledger" ? "General Ledger" : (anom.fix_target_page === "coa" || anom.account_code ? "Chart of Accounts" : (anom.fix_target_page === "voucher-journal" ? "Journal Entry" : "Day Book"))}
+                                  </span>
+                                  <ArrowRight className="w-3 h-3" />
+                                </Button>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="p-4 rounded-xl bg-muted/40 border border-border text-center text-xs text-muted-foreground">
+                        No single-legged vouchers or unclassified accounts found. The variance may stem from unposted opening position entries or unmapped net income.
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Recommended Step-by-Step Guidance */}
+                  {apiBSDiagnostics?.step_by_step_guidance && apiBSDiagnostics.step_by_step_guidance.length > 0 && (
+                    <div className="p-3.5 rounded-xl bg-background border border-border space-y-2">
+                      <h4 className="text-xs font-bold text-foreground uppercase tracking-wider flex items-center gap-1.5">
+                        <Sparkles className="w-3.5 h-3.5 text-primary" />
+                        Recommended Step-by-Step Remediation Plan
+                      </h4>
+                      <ul className="space-y-2 text-xs text-muted-foreground pl-1">
+                        {apiBSDiagnostics.step_by_step_guidance.map((step: string, sIdx: number) => {
+                          const cleanStep = step.replace(/\s*\(\?page=[^)]+\)/gi, "")
+                          let navPage: string | null = null
+                          let navLabel: string | null = null
+
+                          if (/chart of accounts|coa/i.test(cleanStep)) {
+                            navPage = "coa"
+                            navLabel = "Open Chart of Accounts"
+                          } else if (/general ledger|ledger/i.test(cleanStep)) {
+                            navPage = "ledger"
+                            navLabel = "Open General Ledger"
+                          } else if (/daybook|day book/i.test(cleanStep)) {
+                            navPage = "daybook"
+                            navLabel = "Open Day Book"
+                          } else if (/voucher-journal|journal voucher|reclassification/i.test(cleanStep)) {
+                            navPage = "voucher-journal"
+                            navLabel = "Open Journal Entry"
+                          }
+
+                          return (
+                            <li key={sIdx} className="flex flex-wrap items-center justify-between gap-2 p-2.5 rounded-lg bg-muted/30 border border-border/50">
+                              <div className="flex items-start gap-2 max-w-[75%]">
+                                <span className="font-bold text-primary shrink-0">{sIdx + 1}.</span>
+                                <span className="text-foreground leading-relaxed">{cleanStep}</span>
+                              </div>
+                              {navPage && (
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => {
+                                    window.dispatchEvent(
+                                      new CustomEvent("copilot:navigate", {
+                                        detail: { page: navPage },
+                                      })
+                                    )
+                                  }}
+                                  className="gap-1 text-[11px] font-semibold text-primary hover:text-primary hover:bg-primary/10 shrink-0 cursor-pointer h-7 px-2"
+                                >
+                                  <span>{navLabel}</span>
+                                  <ArrowRight className="w-3 h-3" />
+                                </Button>
+                              )}
+                            </li>
+                          )
+                        })}
+                      </ul>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )}
           </div>
         )}
 

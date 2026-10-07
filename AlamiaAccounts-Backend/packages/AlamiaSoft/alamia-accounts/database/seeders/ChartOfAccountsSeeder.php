@@ -115,6 +115,9 @@ class ChartOfAccountsSeeder extends Seeder
             'code'       => $code,
             'category'   => $isCategory,
             'debit'      => $debit,
+            'extra'      => [
+                'account_class' => $categoryName,
+            ],
             'parent'     => [
                 'uuid' => $parent->ledgerUuid ?? null,
             ],

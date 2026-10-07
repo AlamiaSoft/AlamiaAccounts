@@ -83,6 +83,29 @@ class DomainContext
     }
 
     /**
+     * Get the configured default currency for a company domain or the current active domain.
+     *
+     * @param string|null $companyCode Optional company code
+     * @return string ISO currency code (defaults to 'PKR')
+     */
+    public static function getDefaultCurrency(?string $companyCode = null): string
+    {
+        if (!empty($companyCode)) {
+            $domain = LedgerDomain::where('code', strtoupper(trim($companyCode)))->first();
+            if ($domain && !empty($domain->currencyDefault)) {
+                return $domain->currencyDefault;
+            }
+        }
+
+        $currentDomain = static::getDomain();
+        if ($currentDomain && !empty($currentDomain->currencyDefault)) {
+            return $currentDomain->currencyDefault;
+        }
+
+        return config('alamia-accounts.default_currency', 'PKR');
+    }
+
+    /**
      * Reset to default domain.
      */
     public static function reset(): void

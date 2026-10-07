@@ -21,7 +21,10 @@ class CustomVoucherTypeService
             $voucherTypeId = DB::table('custom_voucher_types')->insertGetId([
                 'name' => $validated['name'],
                 'prefix' => $validated['prefix'],
+                'company_code' => $validated['company_code'] ?? null,
                 'description' => $validated['description'] ?? null,
+                'default_debit_account' => $validated['default_debit_account'] ?? null,
+                'default_credit_account' => $validated['default_credit_account'] ?? null,
                 'active' => $validated['active'] ?? true,
                 'created_at' => now(),
                 'updated_at' => now(),
@@ -35,7 +38,7 @@ class CustomVoucherTypeService
                         'name' => $field['name'],
                         'type' => $field['type'],
                         'required' => $field['required'] ?? false,
-                        'options' => isset($field['options']) ? json_encode($field['options']) : null,
+                        'options' => isset($field['options']) ? (is_array($field['options']) ? json_encode($field['options']) : $field['options']) : null,
                         'created_at' => now(),
                         'updated_at' => now(),
                     ]);
@@ -48,7 +51,7 @@ class CustomVoucherTypeService
                     DB::table('voucher_account_rules')->insert([
                         'voucher_type_id' => $voucherTypeId,
                         'side' => $rule['side'],
-                        'account_groups' => json_encode($rule['account_groups']),
+                        'account_groups' => is_array($rule['account_groups'] ?? null) ? json_encode($rule['account_groups']) : json_encode([]),
                         'created_at' => now(),
                         'updated_at' => now(),
                     ]);
@@ -60,7 +63,7 @@ class CustomVoucherTypeService
                 foreach ($validated['validation_rules'] as $rule) {
                     DB::table('voucher_validation_rules')->insert([
                         'voucher_type_id' => $voucherTypeId,
-                        'field_name' => $rule['field_name'],
+                        'field_name' => $rule['field_name'] ?? $rule['fieldName'] ?? '',
                         'type' => $rule['type'],
                         'value' => $rule['value'] ?? null,
                         'message' => $rule['message'] ?? null,
@@ -75,8 +78,8 @@ class CustomVoucherTypeService
                 foreach ($validated['auto_calculation_rules'] as $rule) {
                     DB::table('voucher_calculation_rules')->insert([
                         'voucher_type_id' => $voucherTypeId,
-                        'target_field' => $rule['target_field'],
-                        'formula' => $rule['formula'],
+                        'target_field' => $rule['target_field'] ?? $rule['targetField'] ?? '',
+                        'formula' => $rule['formula'] ?? '',
                         'description' => $rule['description'] ?? null,
                         'created_at' => now(),
                         'updated_at' => now(),
@@ -89,9 +92,9 @@ class CustomVoucherTypeService
                 foreach ($validated['default_value_rules'] as $rule) {
                     DB::table('voucher_default_rules')->insert([
                         'voucher_type_id' => $voucherTypeId,
-                        'field_name' => $rule['field_name'],
+                        'field_name' => $rule['field_name'] ?? $rule['fieldName'] ?? '',
                         'condition' => $rule['condition'] ?? null,
-                        'default_value' => $rule['default_value'],
+                        'default_value' => $rule['default_value'] ?? $rule['defaultValue'] ?? '',
                         'created_at' => now(),
                         'updated_at' => now(),
                     ]);
@@ -103,13 +106,31 @@ class CustomVoucherTypeService
                 foreach ($validated['approval_rules'] as $rule) {
                     DB::table('voucher_approval_rules')->insert([
                         'voucher_type_id' => $voucherTypeId,
-                        'condition' => $rule['condition'],
-                        'approver_role' => $rule['approver_role'],
-                        'min_amount' => $rule['min_amount'] ?? null,
+                        'condition' => $rule['condition'] ?? '',
+                        'approver_role' => $rule['approver_role'] ?? $rule['approverRole'] ?? 'Manager',
+                        'min_amount' => $rule['min_amount'] ?? $rule['minAmount'] ?? null,
                         'created_at' => now(),
                         'updated_at' => now(),
                     ]);
                 }
+            }
+
+            // Create numbering scheme if provided
+            if (!empty($validated['numbering_scheme']) && DB::getSchemaBuilder()->hasTable('voucher_numbering_schemes')) {
+                $ns = $validated['numbering_scheme'];
+                DB::table('voucher_numbering_schemes')->insert([
+                    'voucher_type_id' => $voucherTypeId,
+                    'prefix' => $validated['prefix'],
+                    'starting_number' => $ns['starting_number'] ?? $ns['startingNumber'] ?? 1,
+                    'padding' => $ns['padding'] ?? 4,
+                    'separator' => $ns['separator'] ?? '-',
+                    'custom_separator' => $ns['custom_separator'] ?? $ns['customSeparator'] ?? null,
+                    'include_year' => $ns['include_year'] ?? $ns['includeYear'] ?? false,
+                    'include_month' => $ns['include_month'] ?? $ns['includeMonth'] ?? false,
+                    'reset_period' => $ns['reset_period'] ?? $ns['resetPeriod'] ?? 'never',
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
             }
             
             DB::commit();
@@ -132,28 +153,45 @@ class CustomVoucherTypeService
         if (!$voucherType) {
             throw new Exception("Voucher type not found");
         }
+
+        $numberingScheme = null;
+        if (DB::getSchemaBuilder()->hasTable('voucher_numbering_schemes')) {
+            $numberingScheme = DB::table('voucher_numbering_schemes')->where('voucher_type_id', $id)->first();
+        }
         
         return [
             'id' => $voucherType->id,
             'name' => $voucherType->name,
             'prefix' => $voucherType->prefix,
+            'company_code' => $voucherType->company_code ?? null,
             'description' => $voucherType->description,
-            'active' => $voucherType->active,
+            'default_debit_account' => $voucherType->default_debit_account ?? null,
+            'default_credit_account' => $voucherType->default_credit_account ?? null,
+            'active' => (bool)$voucherType->active,
             'custom_fields' => $this->getCustomFields($id),
             'account_rules' => $this->getAccountRules($id),
             'validation_rules' => $this->getValidationRules($id),
             'auto_calculation_rules' => $this->getCalculationRules($id),
             'default_value_rules' => $this->getDefaultRules($id),
             'approval_rules' => $this->getApprovalRules($id),
+            'numbering_scheme' => $numberingScheme ? (array)$numberingScheme : null,
         ];
     }
     
     /**
-     * Get all voucher types
+     * Get all voucher types (optionally filtered by company_code)
      */
-    public function getAllVoucherTypes(): array
+    public function getAllVoucherTypes(?string $companyCode = null): array
     {
-        $types = DB::table('custom_voucher_types')->get();
+        $query = DB::table('custom_voucher_types');
+        if ($companyCode) {
+            $query->where(function($q) use ($companyCode) {
+                $q->whereNull('company_code')
+                  ->orWhere('company_code', '')
+                  ->orWhere('company_code', $companyCode);
+            });
+        }
+        $types = $query->orderBy('id', 'asc')->get();
         
         return $types->map(function($type) {
             return $this->getVoucherType($type->id);
@@ -173,7 +211,10 @@ class CustomVoucherTypeService
             DB::table('custom_voucher_types')->where('id', $id)->update([
                 'name' => $validated['name'],
                 'prefix' => $validated['prefix'],
+                'company_code' => $validated['company_code'] ?? null,
                 'description' => $validated['description'] ?? null,
+                'default_debit_account' => $validated['default_debit_account'] ?? null,
+                'default_credit_account' => $validated['default_credit_account'] ?? null,
                 'active' => $validated['active'] ?? true,
                 'updated_at' => now(),
             ]);
@@ -185,9 +226,55 @@ class CustomVoucherTypeService
             DB::table('voucher_calculation_rules')->where('voucher_type_id', $id)->delete();
             DB::table('voucher_default_rules')->where('voucher_type_id', $id)->delete();
             DB::table('voucher_approval_rules')->where('voucher_type_id', $id)->delete();
+            if (DB::getSchemaBuilder()->hasTable('voucher_numbering_schemes')) {
+                DB::table('voucher_numbering_schemes')->where('voucher_type_id', $id)->delete();
+            }
             
-            // Re-create with new data (same logic as create)
-            // ... (similar to createVoucherType)
+            // Re-create custom fields
+            if (!empty($validated['custom_fields'])) {
+                foreach ($validated['custom_fields'] as $field) {
+                    DB::table('custom_voucher_fields')->insert([
+                        'voucher_type_id' => $id,
+                        'name' => $field['name'],
+                        'type' => $field['type'],
+                        'required' => $field['required'] ?? false,
+                        'options' => isset($field['options']) ? (is_array($field['options']) ? json_encode($field['options']) : $field['options']) : null,
+                        'created_at' => now(),
+                        'updated_at' => now(),
+                    ]);
+                }
+            }
+            
+            // Re-create account rules
+            if (!empty($validated['account_rules'])) {
+                foreach ($validated['account_rules'] as $rule) {
+                    DB::table('voucher_account_rules')->insert([
+                        'voucher_type_id' => $id,
+                        'side' => $rule['side'],
+                        'account_groups' => is_array($rule['account_groups'] ?? null) ? json_encode($rule['account_groups']) : json_encode([]),
+                        'created_at' => now(),
+                        'updated_at' => now(),
+                    ]);
+                }
+            }
+
+            // Re-create numbering scheme if provided
+            if (!empty($validated['numbering_scheme']) && DB::getSchemaBuilder()->hasTable('voucher_numbering_schemes')) {
+                $ns = $validated['numbering_scheme'];
+                DB::table('voucher_numbering_schemes')->insert([
+                    'voucher_type_id' => $id,
+                    'prefix' => $validated['prefix'],
+                    'starting_number' => $ns['starting_number'] ?? $ns['startingNumber'] ?? 1,
+                    'padding' => $ns['padding'] ?? 4,
+                    'separator' => $ns['separator'] ?? '-',
+                    'custom_separator' => $ns['custom_separator'] ?? $ns['customSeparator'] ?? null,
+                    'include_year' => $ns['include_year'] ?? $ns['includeYear'] ?? false,
+                    'include_month' => $ns['include_month'] ?? $ns['includeMonth'] ?? false,
+                    'reset_period' => $ns['reset_period'] ?? $ns['resetPeriod'] ?? 'never',
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+            }
             
             DB::commit();
             
@@ -354,14 +441,20 @@ class CustomVoucherTypeService
         $validator = Validator::make($data, [
             'name' => 'required|string|max:255',
             'prefix' => 'required|string|max:10',
+            'company_code' => 'nullable|string|max:50',
             'description' => 'nullable|string',
+            'default_debit_account' => 'nullable|string|max:50',
+            'default_credit_account' => 'nullable|string|max:50',
             'active' => 'boolean',
-            'custom_fields' => 'array',
-            'account_rules' => 'array',
-            'validation_rules' => 'array',
-            'auto_calculation_rules' => 'array',
-            'default_value_rules' => 'array',
-            'approval_rules' => 'array',
+            'custom_fields' => 'nullable|array',
+            'account_rules' => 'nullable|array',
+            'validation_rules' => 'nullable|array',
+            'auto_calculation_rules' => 'nullable|array',
+            'default_value_rules' => 'nullable|array',
+            'approval_rules' => 'nullable|array',
+            'numbering_scheme' => 'nullable|array',
+            'sections' => 'nullable|array',
+            'permissions' => 'nullable|array',
         ]);
         
         if ($validator->fails()) {
@@ -393,6 +486,7 @@ class CustomVoucherTypeService
         return DB::table('voucher_account_rules')
             ->where('voucher_type_id', $voucherTypeId)
             ->get()
+            ->map(function($r) { return (array)$r; })
             ->toArray();
     }
     
@@ -401,6 +495,7 @@ class CustomVoucherTypeService
         return DB::table('voucher_validation_rules')
             ->where('voucher_type_id', $voucherTypeId)
             ->get()
+            ->map(function($r) { return (array)$r; })
             ->toArray();
     }
     
@@ -409,6 +504,7 @@ class CustomVoucherTypeService
         return DB::table('voucher_calculation_rules')
             ->where('voucher_type_id', $voucherTypeId)
             ->get()
+            ->map(function($r) { return (array)$r; })
             ->toArray();
     }
     
@@ -417,6 +513,7 @@ class CustomVoucherTypeService
         return DB::table('voucher_default_rules')
             ->where('voucher_type_id', $voucherTypeId)
             ->get()
+            ->map(function($r) { return (array)$r; })
             ->toArray();
     }
     
@@ -425,6 +522,7 @@ class CustomVoucherTypeService
         return DB::table('voucher_approval_rules')
             ->where('voucher_type_id', $voucherTypeId)
             ->get()
+            ->map(function($r) { return (array)$r; })
             ->toArray();
     }
 }

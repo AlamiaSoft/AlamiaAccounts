@@ -198,23 +198,55 @@ class CopilotDiagnosticsService
             }
         }
 
-        $entry = CopilotKnowledgeEntry::create([
-            'company_code' => $payload['company_code'] ?? $trace->company_code,
-            'topic' => $payload['topic'] ?? ($trace->classifier_intent ?? 'custom_guidance'),
-            'trigger_keywords' => $triggers,
-            'domain' => $payload['domain'] ?? 'general',
-            'title' => $payload['title'] ?? 'Operational Guidance',
-            'summary' => $payload['summary'] ?? ($trace->final_response['message'] ?? $trace->prompt),
-            'steps' => $payload['steps'] ?? [],
-            'note' => $payload['note'] ?? null,
-            'actions' => $payload['actions'] ?? [],
-            'source_diagnostic_id' => $trace->id,
-            'is_active' => true,
-            'promoted_by' => auth()->check() ? auth()->user()->name : 'system',
-            'promoted_at' => now(),
-            'change_reason' => $payload['change_reason'] ?? 'Promoted from diagnostic trace #' . $trace->id,
-            'version' => 1,
-        ]);
+        $targetCompany = $payload['company_code'] ?? $trace->company_code;
+        $targetTopic = $payload['topic'] ?? ($trace->classifier_intent ?? 'custom_guidance');
+
+        $existing = CopilotKnowledgeEntry::where('topic', $targetTopic)
+            ->where(function ($q) use ($targetCompany) {
+                if ($targetCompany) {
+                    $q->where('company_code', $targetCompany);
+                } else {
+                    $q->whereNull('company_code');
+                }
+            })
+            ->first();
+
+        if ($existing) {
+            $existing->update([
+                'trigger_keywords' => $triggers,
+                'domain' => $payload['domain'] ?? $existing->domain,
+                'title' => $payload['title'] ?? $existing->title,
+                'summary' => $payload['summary'] ?? ($trace->final_response['message'] ?? $trace->prompt),
+                'steps' => $payload['steps'] ?? $existing->steps,
+                'note' => $payload['note'] ?? $existing->note,
+                'actions' => $payload['actions'] ?? $existing->actions,
+                'source_diagnostic_id' => $trace->id,
+                'is_active' => true,
+                'promoted_by' => auth()->check() ? auth()->user()->name : 'system',
+                'promoted_at' => now(),
+                'change_reason' => $payload['change_reason'] ?? 'Updated from diagnostic trace #' . $trace->id,
+                'version' => ($existing->version ?? 1) + 1,
+            ]);
+            $entry = $existing;
+        } else {
+            $entry = CopilotKnowledgeEntry::create([
+                'company_code' => $targetCompany,
+                'topic' => $targetTopic,
+                'trigger_keywords' => $triggers,
+                'domain' => $payload['domain'] ?? 'general',
+                'title' => $payload['title'] ?? 'Operational Guidance',
+                'summary' => $payload['summary'] ?? ($trace->final_response['message'] ?? $trace->prompt),
+                'steps' => $payload['steps'] ?? [],
+                'note' => $payload['note'] ?? null,
+                'actions' => $payload['actions'] ?? [],
+                'source_diagnostic_id' => $trace->id,
+                'is_active' => true,
+                'promoted_by' => auth()->check() ? auth()->user()->name : 'system',
+                'promoted_at' => now(),
+                'change_reason' => $payload['change_reason'] ?? 'Promoted from diagnostic trace #' . $trace->id,
+                'version' => 1,
+            ]);
+        }
 
         $trace->status = 'promoted_to_kb';
         $trace->save();

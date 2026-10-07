@@ -60,6 +60,17 @@ Welcome to **Alamia Accounts**. All AI agents operating on this repository must 
    - Reopening a locked period requires a documented business reason and is logged in the audit trail.
 7. **Permanent Accounting Audit Trail**:
    - All financial operations (`POST_OPENING_BALANCES`, `CREATE_VOUCHER`, `REVERSE_VOUCHER`, `CLOSE_PERIOD`, `REOPEN_PERIOD`) are recorded in `accounting_audit_trails` capturing user, action, timestamp, IP, entity, and reasons.
+8. **Abivia Kernel Encapsulation & Domain Services Mandate**:
+   - **NEVER** call or query underlying Abivia engine models (`\Abivia\Ledger\Models\...`) directly from HTTP controllers, UI endpoints, or feature scripts.
+   - All ledger access must be encapsulated behind Alamia domain services (`VoucherService`, `CompanyService`, `AccountService`, `ReportService`, `PeriodService`).
+   - Company attributes (such as configured default currency) must **ALWAYS** be resolved through centralized helpers (e.g. `DomainContext::getDefaultCurrency($companyCode)` or `CompanyService::getDefaultCurrency()`) rather than scattered ad-hoc database queries.
+9. **Zero Hardcoded Account Codes & Zero Heuristic Guessing**:
+   - **NEVER** hardcode fixed account numbers (e.g., `"5200"`, `"5100"`, `"1110"`, `"3100"`, `"4200"`) in frontend components, controllers, or service scripts.
+   - **NEVER** use heuristic pattern matching (such as `startsWith('4')`, `includes('commission')`, `includes('expense')`) to infer or guess posting accounts.
+   - Every ledger transaction account MUST originate from either:
+     1. An explicit configuration in the tenant's Custom Voucher Type (`default_debit_account`, `default_credit_account`, or configured account rules) or company settings, or
+     2. An explicit manual selection by the accountant from the UI dropdown / combobox.
+   - When helper buttons (e.g., adding line items for commissions or fees) are clicked, lines must be created prompting the accountant to explicitly select their debit/credit accounts from the dropdown, or pre-filling strictly from configured voucher rules.
 
 ---
 
@@ -106,3 +117,28 @@ Welcome to **Alamia Accounts**. All AI agents operating on this repository must 
 - Machine-readable rules and intent mappings for the AI Copilot must be maintained in `docs/copilot/`.
 - Executive readiness certification sign-offs belong in `docs/ACCOUNTANT_READINESS_CERTIFICATION.md`.
 - Accountant operational instructions belong in `docs/ACCOUNTANT_UAT_GUIDE.md`.
+
+---
+
+## 6. Project Execution Protocol (Agent-PM)
+
+All agents operating on this codebase must adhere to the version-controlled project state machine located in [`.project/`](file:///e:/Alamia/AlamiaAccounts/.project).
+
+### Core Protocol Commands
+```bash
+node scripts/pm.js status                     # Executive completion & blocker summary
+node scripts/pm.js add "<title>" [--priority=high] [--epic=EP-XX] # Ingest task from user request
+node scripts/pm.js next [--agent=<role>]       # Compile exact next prioritized unblocked task
+node scripts/pm.js context <task_id>          # Compile 2-8 KB targeted context brief
+node scripts/pm.js start <task_id>            # Move to IN_PROGRESS and log Git branch/commit
+node scripts/pm.js verify <task_id>           # Run automated verification test command
+node scripts/pm.js finish <task_id> --evidence="..." # Enforce verification and mark DONE
+node scripts/pm.js pause <task_id>            # Move task to ON_HOLD / PAUSED
+```
+
+### Invariants for Agents
+1. **Automatic Request Ingestion**: When the user requests a new feature, bug fix, or operational change in chat, the agent MUST immediately register it as a task via `node scripts/pm.js add` before/during execution so the project DAG and live board remain 100% synchronized.
+2. **Never read the entire `.project/` tree at once**: Always query targeted context via `node scripts/pm.js context <id>` or `node scripts/pm.js next`.
+3. **Hard Verification Gate**: No task can transition to `DONE` without automated verification tests passing.
+4. **Traceable Handoffs**: Work sessions are recorded under `.project/runs/<task_id>/`.
+

@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Download, Printer, Receipt, Loader2, Calendar, ArrowLeftRight } from "lucide-react"
+import { Download, Printer, Receipt, Loader2, Calendar, ArrowLeftRight, Trash2 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { useVouchers } from "@/hooks/use-vouchers"
 import { useAccounts } from "@/hooks/use-accounts"
@@ -16,6 +16,10 @@ import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { cn } from "@/lib/utils"
+import { useSales } from "@/hooks/use-sales"
+import PosSalesApproval from "@/components/pos-sales-approval"
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { ShoppingBag, BookOpen } from "lucide-react"
 
 interface FlattenedEntry {
   id: string
@@ -32,12 +36,37 @@ export default function DayBook() {
   const queryClient = useQueryClient()
   const [selectedDate, setSelectedDate] = useState(() => new Date().toISOString().split("T")[0])
   const [showAllDates, setShowAllDates] = useState(false)
+  const [activeTab, setActiveTab] = useState<"daybook" | "pos-approvals">("daybook")
   const [reversalTarget, setReversalTarget] = useState<string | null>(null)
   const [reversalReason, setReversalReason] = useState("")
+  const [isClearDialogOpen, setIsClearDialogOpen] = useState(false)
   const [statusAlert, setStatusAlert] = useState<{ type: "success" | "error"; message: string } | null>(null)
 
   const { vouchers: apiVouchers, isLoading } = useVouchers()
   const { accounts: allAccounts } = useAccounts()
+  const { sales } = useSales({ status: "staged" })
+  const pendingSalesCount = useMemo(() => (sales || []).filter((s: any) => s.status === "staged").length, [sales])
+
+  const clearMutation = useMutation({
+    mutationFn: () => voucherApi.clearAll(),
+    onSuccess: (res: any) => {
+      queryClient.invalidateQueries({ queryKey: ["vouchers"] })
+      queryClient.invalidateQueries({ queryKey: ["accounts"] })
+      queryClient.invalidateQueries({ queryKey: ["reports"] })
+      queryClient.invalidateQueries({ queryKey: ["audit-trail"] })
+      const count = res?.data?.cleared_count ?? 0
+      setStatusAlert({
+        type: "success",
+        message: `Successfully cleared ${count} transactions from the ledger. Chart of Accounts and settings have been preserved.`,
+      })
+      setIsClearDialogOpen(false)
+      setTimeout(() => setStatusAlert(null), 6000)
+    },
+    onError: (err: any) => {
+      const msg = err.response?.data?.message || err.message || "Failed to clear transactions"
+      setStatusAlert({ type: "error", message: msg })
+    },
+  })
 
   const reverseMutation = useMutation({
     mutationFn: ({ ref, reason }: { ref: string; reason: string }) =>
@@ -103,6 +132,20 @@ export default function DayBook() {
         vType = "Contra"
       } else if (vNo.toUpperCase().startsWith("OB")) {
         vType = "Opening Balance"
+      } else if (vNo.toUpperCase().startsWith("TKT")) {
+        vType = "Airline Ticket"
+      } else if (vNo.toUpperCase().startsWith("SF")) {
+        vType = "School Fees"
+      } else if (vNo.toUpperCase().startsWith("PV")) {
+        vType = "Payment"
+      } else if (vNo.toUpperCase().startsWith("RV")) {
+        vType = "Receipt"
+      } else if (vNo.toUpperCase().startsWith("SV")) {
+        vType = "Sales"
+      } else if (vNo.toUpperCase().startsWith("PUV")) {
+        vType = "Purchase"
+      } else if (vNo.toUpperCase().startsWith("JV")) {
+        vType = "Journal"
       }
 
       if (items.length > 0) {
@@ -182,25 +225,64 @@ export default function DayBook() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
+      {/* Header & Tabs */}
       <div className="flex justify-between items-center flex-wrap gap-4">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight">Day Book</h2>
+          <h2 className="text-3xl font-bold tracking-tight">Day Book & Transaction Register</h2>
           <p className="text-muted-foreground mt-1">
-            Chronological register of all financial transactions and journal vouchers posted
+            Chronological register of all financial transactions, journal vouchers, and front-desk staged approvals.
           </p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={handleExportCSV} disabled={entries.length === 0}>
-            <Download className="w-4 h-4 mr-2" />
-            Export CSV
-          </Button>
-          <Button variant="outline" onClick={handlePrint}>
-            <Printer className="w-4 h-4 mr-2" />
-            Print
-          </Button>
+          {activeTab === "daybook" && (
+            <>
+              <Button
+                variant="outline"
+                onClick={() => setIsClearDialogOpen(true)}
+                className="border-destructive/40 text-destructive hover:bg-destructive/10"
+                disabled={entries.length === 0 && (apiVouchers || []).length === 0}
+              >
+                <Trash2 className="w-4 h-4 mr-2 text-destructive" />
+                Clear All Transactions
+              </Button>
+              <Button variant="outline" onClick={handleExportCSV} disabled={entries.length === 0}>
+                <Download className="w-4 h-4 mr-2" />
+                Export CSV
+              </Button>
+              <Button variant="outline" onClick={handlePrint}>
+                <Printer className="w-4 h-4 mr-2" />
+                Print
+              </Button>
+            </>
+          )}
         </div>
       </div>
+
+      {/* Mode Switcher Tabs */}
+      <div className="flex items-center justify-between border-b pb-4">
+        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)} className="w-full sm:w-auto">
+          <TabsList className="grid grid-cols-2 w-full sm:w-[420px]">
+            <TabsTrigger value="daybook" className="flex items-center gap-2">
+              <BookOpen className="w-4 h-4" />
+              Posted Journal Day Book
+            </TabsTrigger>
+            <TabsTrigger value="pos-approvals" className="flex items-center gap-2 relative">
+              <ShoppingBag className="w-4 h-4" />
+              POS Staged Approvals
+              {pendingSalesCount > 0 && (
+                <span className="ml-1.5 px-1.5 py-0.2 text-[10px] font-bold rounded-full bg-amber-500 text-white animate-pulse">
+                  {pendingSalesCount}
+                </span>
+              )}
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
+      </div>
+
+      {activeTab === "pos-approvals" ? (
+        <PosSalesApproval />
+      ) : (
+        <>
 
       {/* Date Filter & Options */}
       <Card>
@@ -329,7 +411,11 @@ export default function DayBook() {
                               entry.voucherType.toLowerCase().includes("contra") && "bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300 border-purple-300",
                               entry.voucherType.toLowerCase().includes("opening") && "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300 border-blue-300",
                               entry.voucherType.toLowerCase().includes("receipt") && "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300 border-emerald-300",
-                              entry.voucherType.toLowerCase().includes("payment") && "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 border-amber-300"
+                              entry.voucherType.toLowerCase().includes("payment") && "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 border-amber-300",
+                              entry.voucherType.toLowerCase().includes("ticket") && "bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-300 border-sky-300",
+                              entry.voucherType.toLowerCase().includes("school") && "bg-indigo-100 text-indigo-800 dark:bg-indigo-900/40 dark:text-indigo-300 border-indigo-300",
+                              entry.voucherType.toLowerCase().includes("sales") && "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300 border-emerald-300",
+                              entry.voucherType.toLowerCase().includes("purchase") && "bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-300 border-orange-300"
                             )}
                           >
                             {entry.voucherType.toLowerCase().includes("contra") && <ArrowLeftRight className="w-3 h-3" />}
@@ -416,6 +502,43 @@ export default function DayBook() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {/* Clear All Transactions Confirmation Dialog */}
+      <Dialog open={isClearDialogOpen} onOpenChange={setIsClearDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="text-destructive flex items-center gap-2">
+              <Trash2 className="w-5 h-5 text-destructive" />
+              Clear All Transactions & Vouchers
+            </DialogTitle>
+            <DialogDescription>
+              This action will reset and remove all posted journal vouchers and transaction entries for the current company, returning ledger balances to zero (Rs. 0.00).
+            </DialogDescription>
+          </DialogHeader>
+          <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg text-xs text-amber-900 dark:text-amber-300 space-y-1">
+            <strong>What will be preserved:</strong>
+            <ul className="list-disc pl-4 space-y-0.5 mt-1">
+              <li>Chart of Accounts structure & hierarchy</li>
+              <li>Custom Voucher Types & visual builder templates</li>
+              <li>Company profile, accounting periods, and user permissions</li>
+            </ul>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsClearDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={clearMutation.isPending}
+              onClick={() => clearMutation.mutate()}
+            >
+              {clearMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Trash2 className="w-4 h-4 mr-2" />}
+              Yes, Clear All Transactions
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+        </>
+      )}
     </div>
   )
 }

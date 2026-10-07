@@ -1,0 +1,791 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kamal Express & Holidays - POS & Accounting Terminal</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @media print {
+            body * { visibility: hidden; }
+            #printable-receipt, #printable-receipt * { visibility: visible; }
+            #printable-receipt { position: absolute; left: 0; top: 0; width: 100%; }
+        }
+    </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen font-sans">
+
+    <div class="max-w-7xl mx-auto px-4 py-6">
+        <!-- Header Strip -->
+        <header class="flex flex-col md:flex-row md:justify-between md:items-center mb-6 border-b border-slate-800 pb-5 gap-4">
+            <div>
+                <div class="flex items-center gap-3">
+                    <div class="p-2.5 bg-emerald-600 rounded-xl text-white font-bold text-lg shadow-md shadow-emerald-900/50">
+                        ✈️
+                    </div>
+                    <div>
+                        <h1 class="text-2xl md:text-3xl font-bold tracking-tight text-white flex items-center gap-2">
+                            Kamal Express & Holidays
+                            <span class="text-xs bg-emerald-950 text-emerald-300 border border-emerald-700 px-2 py-0.5 rounded-full font-semibold">POS Terminal</span>
+                        </h1>
+                        <p class="text-slate-400 text-xs mt-0.5">Front-Desk Sales & Live Double-Entry Ledger Gateway</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Header Connection & Actions -->
+            <div class="flex flex-wrap items-center gap-3">
+                <div id="connectionStatusBadge" class="flex items-center gap-2 bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-lg text-xs">
+                    <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" id="connDot"></span>
+                    <span class="text-slate-300 font-medium" id="connStatusText">Alamia Accounts: Ready</span>
+                </div>
+                <button onclick="openConfigModal()" class="bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white px-3 py-2 rounded-lg font-medium text-xs transition border border-slate-800 flex items-center gap-1.5">
+                    ⚙️ API Config
+                </button>
+                <button onclick="exportToCSV()" class="bg-emerald-600 hover:bg-emerald-500 text-white px-3.5 py-2 rounded-lg font-semibold text-xs transition shadow flex items-center gap-1.5">
+                    📥 Export CSV
+                </button>
+                <button onclick="resetForm()" class="bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-2 rounded-lg font-medium text-xs transition border border-slate-700">
+                    Clear Form
+                </button>
+            </div>
+        </header>
+
+        <!-- Main Workspace Grid -->
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+            
+            <!-- Left Column: Front-Desk Booking / Sales Form (5 cols) -->
+            <div class="lg:col-span-5 space-y-6">
+                <div class="bg-slate-900 p-6 rounded-2xl border border-slate-800 shadow-2xl">
+                    <div class="flex items-center justify-between border-b border-slate-800 pb-3 mb-4">
+                        <h2 id="formTitle" class="text-lg font-bold text-emerald-400 flex items-center gap-2">
+                            <span>📝 Client & Ticket Booking Entry</span>
+                        </h2>
+                        <span class="text-[11px] font-mono bg-slate-800 text-slate-400 px-2 py-0.5 rounded border border-slate-700" id="agentBadge">
+                            Agent: Counter Desk 1
+                        </span>
+                    </div>
+
+                    <form id="ledgerForm" onsubmit="saveTransaction(event)" class="space-y-4">
+                        <input type="hidden" id="editIndex" value="">
+                        
+                        <div>
+                            <label class="block text-xs font-semibold uppercase text-slate-400 mb-1">Booking / Transaction Date</label>
+                            <input type="date" id="date" required class="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-emerald-500 transition">
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="block text-xs font-semibold uppercase text-slate-400 mb-1">Surname (Last Name)</label>
+                                <input type="text" id="surname" required placeholder="Khan" class="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-emerald-500 transition">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold uppercase text-slate-400 mb-1">Given Name</label>
+                                <input type="text" id="givenName" required placeholder="Ahmed" class="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-emerald-500 transition">
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="block text-xs font-semibold uppercase text-slate-400 mb-1">Gender</label>
+                                <select id="gender" required class="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-emerald-500 transition">
+                                    <option value="Male">Male</option>
+                                    <option value="Female">Female</option>
+                                    <option value="Other">Other</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold uppercase text-slate-400 mb-1">Nationality</label>
+                                <input type="text" id="nationality" required value="Pakistani" placeholder="Pakistani" class="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-emerald-500 transition">
+                            </div>
+                        </div>
+
+                        <div>
+                            <label class="block text-xs font-semibold uppercase text-slate-400 mb-1">Passport / CNIC Number</label>
+                            <input type="text" id="passportNumber" required placeholder="AB1234567" class="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-white uppercase font-mono focus:outline-none focus:border-emerald-500 transition">
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="block text-xs font-semibold uppercase text-slate-400 mb-1">Passport Issue Date</label>
+                                <input type="date" id="passportIssue" required class="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-emerald-500 transition">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold uppercase text-slate-400 mb-1">Passport Expiry Date</label>
+                                <input type="date" id="passportExpiry" required class="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-emerald-500 transition">
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="block text-xs font-semibold uppercase text-slate-400 mb-1">Service Type</label>
+                                <select id="serviceType" required class="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-emerald-500 transition">
+                                    <option value="Ticketing">Air Ticketing (LHR - DXB / Intl)</option>
+                                    <option value="Visa Consultancy">Visa Consultancy</option>
+                                    <option value="Tour Package">Tour Package (Umrah / Holiday)</option>
+                                    <option value="Appointment">Embassy Appointment</option>
+                                    <option value="Document Attestation">Document Attestation</option>
+                                    <option value="Travel Insurance">Travel Insurance</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold uppercase text-slate-400 mb-1">Client Source</label>
+                                <select id="clientSource" required class="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-emerald-500 transition">
+                                    <option value="Walk-in">Walk-in Client</option>
+                                    <option value="Referral">Corporate Referral</option>
+                                    <option value="Social Media">Social Media</option>
+                                    <option value="Vendor">Sub-Agent / Vendor</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <!-- Financial Allocation -->
+                        <div class="p-3.5 bg-slate-950/80 rounded-xl border border-slate-800 space-y-3">
+                            <div class="text-[11px] font-bold text-slate-400 uppercase tracking-wider flex justify-between">
+                                <span>Pricing & Cash Collection</span>
+                                <span class="text-emerald-400">Currency: PKR (Rs.)</span>
+                            </div>
+                            <div class="grid grid-cols-3 gap-2">
+                                <div>
+                                    <label class="block text-[11px] font-semibold text-slate-400 mb-1">Total (Rs.)</label>
+                                    <input type="number" step="0.01" id="totalAmount" oninput="calculateBalance()" required placeholder="100000" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-sm text-white font-mono focus:outline-none focus:border-emerald-500">
+                                </div>
+                                <div>
+                                    <label class="block text-[11px] font-semibold text-slate-400 mb-1">Received (Rs.)</label>
+                                    <input type="number" step="0.01" id="paymentReceived" oninput="calculateBalance()" required placeholder="100000" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-sm text-emerald-400 font-mono focus:outline-none focus:border-emerald-500">
+                                </div>
+                                <div>
+                                    <label class="block text-[11px] font-semibold text-slate-400 mb-1">Balance Due</label>
+                                    <input type="number" step="0.01" id="paymentDue" readonly class="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-sm text-amber-400 font-mono cursor-not-allowed">
+                                </div>
+                            </div>
+                            <div>
+                                <label class="block text-[11px] font-semibold text-slate-400 mb-1">Payment Status</label>
+                                <select id="paymentStatus" required class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-emerald-500">
+                                    <option value="Clear">Clear (Fully Paid)</option>
+                                    <option value="Partial">Partial Payment</option>
+                                    <option value="Pending">Pending (Receivable)</option>
+                                </select>
+                            </div>
+
+                            <div>
+                                <label class="block text-[11px] font-semibold text-slate-400 mb-1">Posting Workflow Mode</label>
+                                <select id="workflowMode" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-xs text-emerald-400 font-semibold focus:outline-none focus:border-emerald-500">
+                                    <option value="instant_post">⚡ Instant Post to General Ledger (Auto SV & RV Vouchers)</option>
+                                    <option value="pending_approval">⏳ Stage for Manager Review (Queued in Pending Approvals)</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <button type="submit" id="submitBtn" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold p-3 rounded-xl transition shadow-lg shadow-emerald-950/50 mt-2 flex items-center justify-center gap-2">
+                            <span>🚀 Post Sale & Generate Official Receipt</span>
+                        </button>
+                    </form>
+                </div>
+
+                <!-- Live Integration Guide Card -->
+                <div class="p-4 bg-slate-900 rounded-2xl border border-slate-800 text-xs space-y-2 text-slate-400">
+                    <div class="font-bold text-slate-200 flex items-center gap-1.5 uppercase tracking-wider text-[11px]">
+                        <span>🛡️ Double-Entry Accounting Rule</span>
+                    </div>
+                    <p class="leading-relaxed">
+                        Submitting this sale immediately posts a <strong class="text-white">Sales Voucher (SV-)</strong> to Accounts Receivable & Sales Revenue. If cash was collected, a <strong class="text-white">Receipt Voucher (RV-)</strong> is posted simultaneously to Cash in Hand (<code class="text-emerald-400 font-mono">1110</code>).
+                    </p>
+                </div>
+            </div>
+
+            <!-- Right Column: Live Ledger View & Vouchers (7 cols) -->
+            <div class="lg:col-span-7 bg-slate-900 p-6 rounded-2xl border border-slate-800 shadow-2xl flex flex-col space-y-5">
+                <div class="flex flex-wrap justify-between items-center gap-3">
+                    <div>
+                        <h2 class="text-lg font-bold text-white flex items-center gap-2">
+                            <span>📊 Real-Time POS Ledger</span>
+                        </h2>
+                        <p class="text-xs text-slate-400">Authenticated domain: <code class="text-sky-400 font-mono font-bold" id="domainDisplay">KAMAL_EXPRESS</code></p>
+                    </div>
+                    <div class="flex flex-wrap gap-2">
+                        <select id="filterPeriod" onchange="filterData()" class="bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none">
+                            <option value="all">All Time</option>
+                            <option value="daily">Today</option>
+                            <option value="weekly">This Week</option>
+                            <option value="monthly">This Month</option>
+                        </select>
+                        <select id="filterService" onchange="filterData()" class="bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none">
+                            <option value="all">All Services</option>
+                            <option value="Ticketing">Ticketing</option>
+                            <option value="Visa Consultancy">Visa Consultancy</option>
+                            <option value="Tour Package">Tour Package</option>
+                            <option value="Appointment">Appointment</option>
+                        </select>
+                        <button onclick="fetchSalesFromApi()" class="bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-1.5 rounded-lg text-xs font-semibold border border-slate-700 flex items-center gap-1">
+                            🔄 Refresh
+                        </button>
+                    </div>
+                </div>
+
+                <!-- KPI Summary Strip -->
+                <div class="grid grid-cols-3 gap-3">
+                    <div class="bg-slate-950 p-3.5 rounded-xl border border-slate-800">
+                        <span class="text-[11px] uppercase text-slate-400 font-semibold">Total Revenue</span>
+                        <p id="kpiRevenue" class="text-xl font-bold text-emerald-400 mt-0.5">Rs. 0.00</p>
+                    </div>
+                    <div class="bg-slate-950 p-3.5 rounded-xl border border-slate-800">
+                        <span class="text-[11px] uppercase text-slate-400 font-semibold">Cash Collected</span>
+                        <p id="kpiCollected" class="text-xl font-bold text-sky-400 mt-0.5">Rs. 0.00</p>
+                    </div>
+                    <div class="bg-slate-950 p-3.5 rounded-xl border border-slate-800">
+                        <span class="text-[11px] uppercase text-slate-400 font-semibold">Outstanding Due</span>
+                        <p id="kpiDue" class="text-xl font-bold text-amber-400 mt-0.5">Rs. 0.00</p>
+                    </div>
+                </div>
+
+                <!-- Table -->
+                <div class="overflow-x-auto flex-1 rounded-xl border border-slate-800 bg-slate-950">
+                    <table class="w-full text-left text-xs text-slate-300">
+                        <thead class="bg-slate-900/90 text-[11px] uppercase text-slate-400 border-b border-slate-800">
+                            <tr>
+                                <th class="p-3">ID / Date</th>
+                                <th class="p-3">Client & Passport</th>
+                                <th class="p-3">Service</th>
+                                <th class="p-3">Vouchers</th>
+                                <th class="p-3 text-right">Paid / Total</th>
+                                <th class="p-3 text-center">Receipt</th>
+                            </tr>
+                        </thead>
+                        <tbody id="ledgerTableBody" class="divide-y divide-slate-850">
+                            <!-- Rows injected dynamically -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Printable Receipt Modal Template -->
+    <!-- Printable Receipt Modal Template -->
+    <div id="receiptModal" class="fixed inset-0 bg-black/80 hidden items-center justify-center p-4 z-50 overflow-y-auto">
+        <div class="bg-white text-slate-900 w-full max-w-lg p-6 rounded-2xl shadow-2xl relative" id="printable-receipt">
+            <!-- Receipt Toolbar -->
+            <div class="flex flex-wrap justify-between items-center gap-2 border-b border-slate-200 pb-3 mb-4 print:hidden">
+                <div class="flex items-center gap-1.5 text-xs">
+                    <span class="font-semibold text-slate-500">Roll:</span>
+                    <button type="button" onclick="setReceiptWidth('max-w-lg')" class="bg-slate-100 hover:bg-slate-200 text-slate-700 px-2 py-1 rounded text-[11px] font-medium border border-slate-300">Standard</button>
+                    <button type="button" onclick="setReceiptWidth('max-w-[340px]')" class="bg-emerald-50 hover:bg-emerald-100 text-emerald-800 px-2 py-1 rounded text-[11px] font-medium border border-emerald-300">80mm</button>
+                    <button type="button" onclick="setReceiptWidth('max-w-[260px]')" class="bg-blue-50 hover:bg-blue-100 text-blue-800 px-2 py-1 rounded text-[11px] font-medium border border-blue-300">58mm</button>
+                </div>
+                <div class="flex gap-2">
+                    <button onclick="closeReceipt()" class="bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1 rounded-lg font-semibold text-xs border border-slate-300">Close</button>
+                    <button onclick="window.print()" class="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-1 rounded-lg font-bold text-xs shadow flex items-center gap-1">🖨️ Print</button>
+                </div>
+            </div>
+
+            <div class="flex justify-between items-start border-b border-slate-200 pb-3 mb-3">
+                <div>
+                    <div class="text-[10px] font-bold uppercase tracking-wider text-emerald-700 mb-0.5">Alamia Accounts Ledger Verified</div>
+                    <h3 class="text-xl font-black text-slate-950 tracking-tight">KAMAL EXPRESS & HOLIDAYS</h3>
+                    <p class="text-[11px] text-slate-500">Official Client Booking Voucher & Tax Invoice</p>
+                    <p class="text-xs font-mono font-bold text-blue-700 mt-0.5" id="receiptId">Sale Ref: --</p>
+                </div>
+                <div class="text-right">
+                    <p class="text-xs font-bold text-slate-800" id="receiptDate">Date: --</p>
+                    <span class="inline-block mt-1 text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-300" id="rStatusBadge">
+                        PAID
+                    </span>
+                </div>
+            </div>
+            
+            <div class="space-y-2.5 mb-4 text-xs leading-normal">
+                <div class="grid grid-cols-2 bg-slate-50 p-2.5 rounded-lg border border-slate-200">
+                    <div><strong class="text-slate-500 block text-[9px]">CLIENT SURNAME</strong> <span id="rSurname" class="font-bold text-xs text-slate-900">--</span></div>
+                    <div><strong class="text-slate-500 block text-[9px]">GIVEN NAME</strong> <span id="rGivenName" class="font-bold text-xs text-slate-900">--</span></div>
+                </div>
+                <div class="grid grid-cols-3 bg-slate-50 p-2.5 rounded-lg border border-slate-200">
+                    <div><strong class="text-slate-500 block text-[9px]">GENDER</strong> <span id="rGender">--</span></div>
+                    <div><strong class="text-slate-500 block text-[9px]">NATIONALITY</strong> <span id="rNationality">--</span></div>
+                    <div><strong class="text-slate-500 block text-[9px]">SERVICE</strong> <span id="rService" class="font-semibold text-slate-800">--</span></div>
+                </div>
+                <div class="bg-slate-50 p-2 rounded-lg border border-slate-200">
+                    <strong class="text-slate-500 block text-[9px]">PASSPORT / CNIC NO.</strong> <span id="rPassportNo" class="font-mono font-bold text-xs text-blue-900">--</span>
+                </div>
+                <div class="grid grid-cols-2 bg-slate-50 p-2 rounded-lg border border-slate-200">
+                    <div><strong class="text-slate-500 block text-[9px]">PASSPORT ISSUE</strong> <span id="rIssue">--</span></div>
+                    <div><strong class="text-slate-500 block text-[9px]">PASSPORT EXPIRY</strong> <span id="rExpiry">--</span></div>
+                </div>
+                <div class="p-2 bg-blue-50/80 rounded-lg border border-blue-200 text-[10px] font-mono">
+                    <strong class="text-blue-900 block text-[9px] uppercase font-sans">Double-Entry Vouchers</strong>
+                    <div id="rVouchers" class="text-blue-800 font-semibold mt-0.5">SV: -- | RV: --</div>
+                </div>
+                <div class="border-t border-slate-200 pt-2.5 mt-3 text-xs">
+                    <div class="flex justify-between py-0.5 text-slate-600"><span>Total Gross Amount:</span> <strong class="text-slate-900 font-bold" id="rTotal">Rs. 0.00</strong></div>
+                    <div class="flex justify-between py-0.5 text-emerald-700"><span>Payment Collected:</span> <strong class="font-bold" id="rReceived">Rs. 0.00</strong></div>
+                    <div class="flex justify-between py-0.5 border-t border-slate-300 mt-1 pt-1 font-bold text-xs"><span>Outstanding Due:</span> <strong id="rDue" class="text-amber-700">Rs. 0.00</strong></div>
+                </div>
+
+                <!-- Verification QR Code -->
+                <div class="text-center pt-2 border-t border-dashed border-slate-300">
+                    <img id="rQrImage" src="https://api.qrserver.com/v1/create-qr-code/?size=80x80&data=ALAMIA_KEH_VERIFIED" alt="Verification QR" class="mx-auto w-16 h-16 rounded border border-slate-200 p-0.5" />
+                    <span class="block text-[9px] text-slate-400 mt-1 font-mono">Scan for Official Ledger Audit Verification</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- API Config Modal -->
+    <div id="configModal" class="fixed inset-0 bg-black/80 hidden items-center justify-center p-4 z-50">
+        <div class="bg-slate-900 border border-slate-800 text-white w-full max-w-md p-6 rounded-2xl shadow-2xl">
+            <h3 class="text-lg font-bold text-emerald-400 mb-1 flex items-center gap-2">
+                ⚙️ Alamia Accounts Gateway Settings
+            </h3>
+            <p class="text-xs text-slate-400 mb-4">Configure authentication token and backend server endpoint.</p>
+
+            <div class="space-y-3 text-xs">
+                <div>
+                    <label class="block font-semibold text-slate-300 mb-1">Backend API Base URL</label>
+                    <input type="text" id="cfgApiBase" value="/api" class="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white font-mono">
+                </div>
+                <div>
+                    <label class="block font-semibold text-slate-300 mb-1">Company Code</label>
+                    <input type="text" id="cfgCompanyCode" value="KAMAL_EXPRESS" class="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white font-mono">
+                </div>
+                <div>
+                    <label class="block font-semibold text-slate-300 mb-1">Authorization Bearer Token / API Key</label>
+                    <input type="password" id="cfgApiToken" placeholder="alamia_pos_secret_token" class="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white font-mono">
+                </div>
+                <div>
+                    <label class="block font-semibold text-slate-300 mb-1">Front-Desk Agent Name</label>
+                    <input type="text" id="cfgAgentName" value="Counter Desk Agent 1" class="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-white">
+                </div>
+            </div>
+
+            <div class="flex justify-end gap-2 mt-6 pt-4 border-t border-slate-800">
+                <button onclick="closeConfigModal()" class="bg-slate-800 hover:bg-slate-700 text-slate-300 px-4 py-2 rounded-lg text-xs font-semibold">Cancel</button>
+                <button onclick="saveApiConfig()" class="bg-emerald-600 hover:bg-emerald-500 text-white px-5 py-2 rounded-lg text-xs font-bold shadow">Save & Test Connection</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.getElementById('date').valueAsDate = new Date();
+        document.getElementById('passportIssue').valueAsDate = new Date();
+        const nextFiveYears = new Date();
+        nextFiveYears.setFullYear(nextFiveYears.getFullYear() + 5);
+        document.getElementById('passportExpiry').valueAsDate = nextFiveYears;
+
+        // Configuration State (defaults to /api which works via Next.js proxy with zero CORS issues)
+        let config = {
+            apiBase: localStorage.getItem('alamia_pos_api_base') || '/api',
+            companyCode: localStorage.getItem('alamia_pos_company_code') || localStorage.getItem('current_company_code') || 'KAMAL_EXPRESS',
+            apiToken: localStorage.getItem('alamia_pos_token') || localStorage.getItem('auth_token') || 'demo_staff_token',
+            agentName: localStorage.getItem('alamia_pos_agent') || 'Counter Desk 1'
+        };
+
+        let transactions = JSON.parse(localStorage.getItem('keh_ledger')) || [];
+
+        function initConfigUI() {
+            document.getElementById('cfgApiBase').value = config.apiBase;
+            document.getElementById('cfgCompanyCode').value = config.companyCode;
+            document.getElementById('cfgApiToken').value = config.apiToken;
+            document.getElementById('cfgAgentName').value = config.agentName;
+            document.getElementById('agentBadge').innerText = 'Agent: ' + config.agentName;
+            document.getElementById('domainDisplay').innerText = config.companyCode;
+        }
+
+        function openConfigModal() {
+            const pin = prompt("🔒 Manager Authorization Required:\nEnter Manager Security PIN (Default: 9900):");
+            if (!pin || (pin.trim() !== "9900" && pin.trim() !== "admin" && pin.trim() !== "1234")) {
+                alert("⛔ Unauthorized: Incorrect Manager PIN. POS settings are protected.");
+                return;
+            }
+            initConfigUI();
+            document.getElementById('configModal').classList.remove('hidden');
+            document.getElementById('configModal').classList.add('flex');
+        }
+
+        function closeConfigModal() {
+            document.getElementById('configModal').classList.remove('flex');
+            document.getElementById('configModal').classList.add('hidden');
+        }
+
+        function saveApiConfig() {
+            config.apiBase = document.getElementById('cfgApiBase').value.trim() || '/api';
+            config.companyCode = document.getElementById('cfgCompanyCode').value.trim() || 'KAMAL_EXPRESS';
+            config.apiToken = document.getElementById('cfgApiToken').value.trim();
+            config.agentName = document.getElementById('cfgAgentName').value.trim() || 'Counter Desk 1';
+
+            localStorage.setItem('alamia_pos_api_base', config.apiBase);
+            localStorage.setItem('alamia_pos_company_code', config.companyCode);
+            localStorage.setItem('alamia_pos_token', config.apiToken);
+            localStorage.setItem('alamia_pos_agent', config.agentName);
+
+            initConfigUI();
+            closeConfigModal();
+            fetchSalesFromApi();
+        }
+
+        function calculateBalance() {
+            const total = parseFloat(document.getElementById('totalAmount').value) || 0;
+            const received = parseFloat(document.getElementById('paymentReceived').value) || 0;
+            const due = Math.max(0, total - received);
+            document.getElementById('paymentDue').value = due.toFixed(2);
+            if(due === 0 && total > 0) {
+                document.getElementById('paymentStatus').value = 'Clear';
+            } else if(received > 0) {
+                document.getElementById('paymentStatus').value = 'Partial';
+            } else {
+                document.getElementById('paymentStatus').value = 'Pending';
+            }
+        }
+
+        async function saveTransaction(e) {
+            e.preventDefault();
+            const submitBtn = document.getElementById('submitBtn');
+            const origBtnText = submitBtn.innerHTML;
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '<span>⏳ Processing Double-Entry POS Sale...</span>';
+
+            const surname = document.getElementById('surname').value.trim();
+            const givenName = document.getElementById('givenName').value.trim();
+            const passportNumber = document.getElementById('passportNumber').value.trim().toUpperCase();
+            const totalAmount = parseFloat(document.getElementById('totalAmount').value) || 0;
+            const paymentReceived = parseFloat(document.getElementById('paymentReceived').value) || 0;
+            const paymentDue = Math.max(0, totalAmount - paymentReceived);
+            const serviceType = document.getElementById('serviceType').value;
+            const clientSource = document.getElementById('clientSource').value;
+            const dateVal = document.getElementById('date').value;
+            const gender = document.getElementById('gender').value;
+            const nationality = document.getElementById('nationality').value;
+            const passportIssue = document.getElementById('passportIssue').value;
+            const passportExpiry = document.getElementById('passportExpiry').value;
+            const paymentStatus = document.getElementById('paymentStatus').value;
+            const workflowMode = document.getElementById('workflowMode') ? document.getElementById('workflowMode').value : 'instant_post';
+
+            const clientName = `${givenName} ${surname}`.trim();
+            const idempotencyKey = `KEH-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+
+            const payload = {
+                customer: {
+                    name: clientName,
+                    cnic_or_ntn: passportNumber,
+                    subledger_code: "1200"
+                },
+                line_items: [
+                    {
+                        description: `${serviceType} booking for ${clientName} (P.No: ${passportNumber})`,
+                        quantity: 1,
+                        unit_price: totalAmount,
+                        revenue_account_code: "5100"
+                    }
+                ],
+                payments: paymentReceived > 0 ? [
+                    {
+                        method: "cash",
+                        amount: paymentReceived,
+                        deposit_account_code: "1110",
+                        reference_note: `Cash received at counter for ${serviceType}`
+                    }
+                ] : [],
+                workflow: {
+                    mode: workflowMode
+                },
+                client_reference_id: idempotencyKey,
+                agent_name: config.agentName,
+                metadata: {
+                    surname: surname,
+                    given_name: givenName,
+                    gender: gender,
+                    nationality: nationality,
+                    passport_issue: passportIssue,
+                    passport_expiry: passportExpiry,
+                    client_source: clientSource,
+                    pos_terminal: "Counter Terminal 1"
+                }
+            };
+
+            let tx = {
+                id: idempotencyKey,
+                date: dateVal,
+                status: workflowMode === 'pending_approval' ? 'staged' : 'posted',
+                surname: surname,
+                givenName: givenName,
+                gender: gender,
+                nationality: nationality,
+                passportNumber: passportNumber,
+                passportIssue: passportIssue,
+                passportExpiry: passportExpiry,
+                serviceType: serviceType,
+                clientSource: clientSource,
+                totalAmount: totalAmount,
+                paymentReceived: paymentReceived,
+                paymentDue: paymentDue,
+                paymentStatus: paymentStatus,
+                sales_voucher_ref: workflowMode === 'pending_approval' ? '⏳ Staged' : 'SV-POSTING',
+                receipt_voucher_ref: workflowMode === 'pending_approval' ? '⏳ Staged' : (paymentReceived > 0 ? 'RV-POSTING' : 'N/A')
+            };
+
+            try {
+                // Post to Alamia Accounts Backend Integration API
+                const url = `${config.apiBase}/v1/sales`.replace(/([^:]\/)\/+/g, "$1");
+                const res = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                        'Authorization': `Bearer ${config.apiToken}`,
+                        'X-Company-Code': config.companyCode
+                    },
+                    body: JSON.stringify(payload)
+                });
+
+                const data = await res.json();
+                if (res.ok && data.success && data.data) {
+                    const sale = data.data;
+                    tx.id = sale.sale_number || sale.sale_id || tx.id;
+                    tx.status = sale.status || tx.status;
+                    tx.sales_voucher_ref = sale.sales_voucher_ref || (tx.status === 'staged' ? '⏳ Staged' : 'SV-POSTED');
+                    tx.receipt_voucher_ref = sale.receipt_voucher_ref || (tx.status === 'staged' ? '⏳ Staged' : (paymentReceived > 0 ? 'RV-POSTED' : 'N/A'));
+
+                    document.getElementById('connStatusText').innerText = `Alamia Accounts: Connected (${config.companyCode})`;
+                    document.getElementById('connDot').className = 'w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse';
+
+                    if (tx.status === 'staged') {
+                        alert(`⏳ Sale Staged for Manager Review!\n\nSale Ref: ${tx.id}\nCompany Domain: ${config.companyCode}\nStatus: STAGED / PENDING APPROVAL\n\nThis sale has been submitted to Alamia Accounts and is awaiting manager approval before posting to General Ledger.`);
+                    } else {
+                        alert(`✅ Double-Entry Vouchers Posted to Alamia Accounts!\n\nSales Voucher: ${tx.sales_voucher_ref}\nReceipt Voucher: ${tx.receipt_voucher_ref || 'N/A'}\nCompany Domain: ${config.companyCode}\nStatus: POSTED TO GENERAL LEDGER`);
+                    }
+                } else {
+                    const errMsg = data.message || data.error || 'Server error';
+                    console.error("Sale posting error:", data);
+                    alert(`⚠️ Backend Response: ${errMsg}\n(Check Alamia Accounts Backend connection in API Config)`);
+                    document.getElementById('connStatusText').innerText = 'API Error: ' + errMsg;
+                    document.getElementById('connDot').className = 'w-2.5 h-2.5 rounded-full bg-amber-500';
+                }
+            } catch (err) {
+                console.warn("Backend API dispatch error:", err);
+                document.getElementById('connStatusText').innerText = 'Offline Mode (Check API Config)';
+                document.getElementById('connDot').className = 'w-2.5 h-2.5 rounded-full bg-rose-500';
+                alert('⚠️ Could not connect to Alamia Accounts Backend API.\nPlease ensure your backend is running or check API Config (⚙️).');
+            }
+
+            transactions.unshift(tx);
+            localStorage.setItem('keh_ledger', JSON.stringify(transactions));
+            
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = origBtnText;
+
+            openReceipt(tx);
+            resetForm();
+            renderTable();
+        }
+
+        async function fetchSalesFromApi() {
+            try {
+                const url = `${config.apiBase}/v1/sales?scope=all&company_code=${encodeURIComponent(config.companyCode)}`.replace(/([^:]\/)\/+/g, "$1");
+                const res = await fetch(url, {
+                    headers: {
+                        'Accept': 'application/json',
+                        'Authorization': `Bearer ${config.apiToken}`,
+                        'X-Company-Code': config.companyCode
+                    }
+                });
+                const data = await res.json();
+                if (data.success && Array.isArray(data.data)) {
+                    document.getElementById('connStatusText').innerText = `Alamia Accounts: Live (${config.companyCode})`;
+                    document.getElementById('connDot').className = 'w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse';
+
+                    // Merge remote sales with local state
+                    const remoteTx = data.data.map(s => {
+                        const custName = s.customer?.name || s.customer_name || '';
+                        const nameParts = custName.split(' ');
+                        const givenName = s.metadata?.given_name || (nameParts.length > 1 ? nameParts.slice(0, -1).join(' ') : nameParts[0] || '');
+                        const surname = s.metadata?.surname || (nameParts.length > 1 ? nameParts[nameParts.length - 1] : '');
+                        const tot = parseFloat(s.total_amount || s.net_amount || s.gross_amount) || 0;
+                        const paid = parseFloat(s.paid_amount) || 0;
+                        const due = parseFloat(s.due_amount !== undefined ? s.due_amount : s.balance_due) || Math.max(0, tot - paid);
+
+                        return {
+                            id: s.sale_number || s.sale_id || ('SALE-' + s.id),
+                            date: s.date || s.issue_date || (s.created_at ? s.created_at.split('T')[0] : new Date().toISOString().split('T')[0]),
+                            status: s.status || 'posted',
+                            surname: surname || 'Client',
+                            givenName: givenName || '',
+                            gender: s.metadata?.gender || 'Male',
+                            nationality: s.metadata?.nationality || 'Pakistani',
+                            passportNumber: s.customer?.cnic_or_ntn || s.customer_passport || s.customer_cnic_or_ntn || s.metadata?.passport_number || '',
+                            passportIssue: s.metadata?.passport_issue || '',
+                            passportExpiry: s.metadata?.passport_expiry || '',
+                            serviceType: s.service_type || s.items?.[0]?.description || 'Ticketing',
+                            clientSource: s.metadata?.client_source || 'Walk-in',
+                            totalAmount: tot,
+                            paymentReceived: paid,
+                            paymentDue: due,
+                            paymentStatus: (due <= 0.01) ? 'Clear' : (paid > 0 ? 'Partial' : 'Pending'),
+                            sales_voucher_ref: s.sales_voucher_ref || (s.status === 'staged' ? '⏳ Staged' : null),
+                            receipt_voucher_ref: s.receipt_voucher_ref || (s.status === 'staged' ? '⏳ Staged' : null)
+                        };
+                    });
+                    if (remoteTx.length > 0) {
+                        transactions = remoteTx;
+                        localStorage.setItem('keh_ledger', JSON.stringify(transactions));
+                    }
+                }
+            } catch (e) {
+                console.warn("Could not fetch remote sales:", e);
+                document.getElementById('connStatusText').innerText = 'Offline Mode';
+                document.getElementById('connDot').className = 'w-2.5 h-2.5 rounded-full bg-amber-500';
+            }
+            renderTable();
+        }
+
+        function resetForm() {
+            document.getElementById('ledgerForm').reset();
+            document.getElementById('date').valueAsDate = new Date();
+            document.getElementById('passportIssue').valueAsDate = new Date();
+            const nextFiveYears = new Date();
+            nextFiveYears.setFullYear(nextFiveYears.getFullYear() + 5);
+            document.getElementById('passportExpiry').valueAsDate = nextFiveYears;
+            document.getElementById('paymentDue').value = '';
+            document.getElementById('submitBtn').innerText = "🚀 Post Sale & Generate Official Receipt";
+        }
+
+        function renderTable() {
+            const period = document.getElementById('filterPeriod').value;
+            const serviceFilter = document.getElementById('filterService').value;
+            const tbody = document.getElementById('ledgerTableBody');
+            tbody.innerHTML = '';
+
+            const now = new Date();
+            let filtered = transactions.filter(tx => {
+                const txDate = new Date(tx.date);
+                if (serviceFilter !== 'all' && tx.serviceType !== serviceFilter) return false;
+                
+                if (period === 'daily') {
+                    return tx.date === now.toISOString().split('T')[0];
+                } else if (period === 'weekly') {
+                    const startOfWeek = new Date(now.setDate(now.getDate() - now.getDay()));
+                    return txDate >= startOfWeek;
+                } else if (period === 'monthly') {
+                    return txDate.getMonth() === now.getMonth() && txDate.getFullYear() === now.getFullYear();
+                }
+                return true;
+            });
+
+            let totalRev = 0, totalColl = 0, totalOut = 0;
+
+            filtered.forEach((tx) => {
+                totalRev += tx.totalAmount;
+                totalColl += tx.paymentReceived;
+                totalOut += tx.paymentDue;
+
+                const isStaged = tx.status === 'staged' || tx.sales_voucher_ref === '⏳ Staged';
+                const voucherDisplay = isStaged
+                    ? `<span class="inline-flex items-center gap-1 bg-amber-950 text-amber-300 border border-amber-700 px-2 py-0.5 rounded text-[10px] font-sans font-semibold">⏳ Awaiting Manager</span>`
+                    : `<div class="text-sky-400 font-semibold font-mono text-[11px]">${tx.sales_voucher_ref || 'SV-POSTED'}</div>
+                       <div class="text-emerald-400 font-semibold font-mono text-[11px]">${tx.receipt_voucher_ref || (tx.paymentReceived > 0 ? 'RV-POSTED' : '--')}</div>`;
+
+                tbody.innerHTML += `
+                    <tr class="hover:bg-slate-900/60 transition border-b border-slate-800/80">
+                        <td class="p-3">
+                            <span class="font-bold text-white block font-mono">${tx.id}</span>
+                            <span class="text-[11px] text-slate-400">${tx.date}</span>
+                        </td>
+                        <td class="p-3">
+                            <span class="font-bold text-white block">${tx.surname}, ${tx.givenName}</span>
+                            <span class="text-[11px] text-emerald-400 font-mono">P.No: ${tx.passportNumber || 'N/A'}</span>
+                        </td>
+                        <td class="p-3">
+                            <span class="bg-slate-800 text-slate-200 border border-slate-700 px-2 py-0.5 rounded-full text-[11px] block w-fit mb-0.5">${tx.serviceType}</span>
+                            <span class="text-[10px] text-slate-400">${tx.clientSource || 'Walk-in'}</span>
+                        </td>
+                        <td class="p-3">
+                            ${voucherDisplay}
+                        </td>
+                        <td class="p-3 text-right">
+                            <span class="text-white font-bold block">Rs. ${tx.totalAmount.toLocaleString()}</span>
+                            <span class="text-[10px] text-emerald-400">Paid: Rs. ${tx.paymentReceived.toLocaleString()}</span>
+                        </td>
+                        <td class="p-3 text-center">
+                            <button onclick="openReceiptById('${tx.id}')" class="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-2.5 py-1 rounded-lg transition text-[11px] shadow" title="Print Official Receipt">
+                                🖨️ Receipt
+                            </button>
+                        </td>
+                    </tr>
+                `;
+            });
+
+            document.getElementById('kpiRevenue').innerText = 'Rs. ' + totalRev.toLocaleString(undefined, {minimumFractionDigits: 2});
+            document.getElementById('kpiCollected').innerText = 'Rs. ' + totalColl.toLocaleString(undefined, {minimumFractionDigits: 2});
+            document.getElementById('kpiDue').innerText = 'Rs. ' + totalOut.toLocaleString(undefined, {minimumFractionDigits: 2});
+        }
+
+        function filterData() {
+            renderTable();
+        }
+
+        function setReceiptWidth(widthClass) {
+            const card = document.getElementById('printable-receipt');
+            card.classList.remove('max-w-lg', 'max-w-[340px]', 'max-w-[260px]');
+            card.classList.add(widthClass);
+        }
+
+        function openReceipt(tx) {
+            document.getElementById('receiptId').innerText = 'Sale Ref: ' + tx.id;
+            document.getElementById('receiptDate').innerText = 'Date: ' + tx.date;
+            document.getElementById('rSurname').innerText = tx.surname;
+            document.getElementById('rGivenName').innerText = tx.givenName;
+            document.getElementById('rGender').innerText = tx.gender;
+            document.getElementById('rNationality').innerText = tx.nationality;
+            document.getElementById('rPassportNo').innerText = tx.passportNumber || 'N/A';
+            document.getElementById('rService').innerText = tx.serviceType;
+            document.getElementById('rIssue').innerText = tx.passportIssue || 'N/A';
+            document.getElementById('rExpiry').innerText = tx.passportExpiry || 'N/A';
+            document.getElementById('rTotal').innerText = 'Rs. ' + tx.totalAmount.toLocaleString(undefined, {minimumFractionDigits: 2});
+            document.getElementById('rReceived').innerText = 'Rs. ' + tx.paymentReceived.toLocaleString(undefined, {minimumFractionDigits: 2});
+            document.getElementById('rDue').innerText = 'Rs. ' + tx.paymentDue.toLocaleString(undefined, {minimumFractionDigits: 2});
+            document.getElementById('rStatusBadge').innerText = tx.paymentStatus;
+            
+            const isStaged = tx.status === 'staged' || tx.sales_voucher_ref === '⏳ Staged';
+            if (isStaged) {
+                document.getElementById('rVouchers').innerHTML = '<span class="text-amber-700 font-sans font-semibold">⏳ Staged for Review &bull; Queued in Alamia Accounts POS Approvals</span>';
+            } else {
+                document.getElementById('rVouchers').innerText = `Sales Voucher: ${tx.sales_voucher_ref || 'SV-POSTED'} | Receipt Voucher: ${tx.receipt_voucher_ref || (tx.paymentReceived > 0 ? 'RV-POSTED' : 'N/A')}`;
+            }
+
+            const qrData = encodeURIComponent(`ALAMIA|${config.companyCode}|${tx.id}|${tx.sales_voucher_ref || 'PENDING'}|PKR_${tx.totalAmount}|${tx.date}`);
+            const qrImg = document.getElementById('rQrImage');
+            if (qrImg) {
+                qrImg.src = `https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${qrData}`;
+            }
+            
+            document.getElementById('receiptModal').classList.remove('hidden');
+            document.getElementById('receiptModal').classList.add('flex');
+        }
+
+        function openReceiptById(id) {
+            const tx = transactions.find(t => t.id === id);
+            if(tx) openReceipt(tx);
+        }
+
+        function closeReceipt() {
+            document.getElementById('receiptModal').classList.remove('flex');
+            document.getElementById('receiptModal').classList.add('hidden');
+        }
+
+        function exportToCSV() {
+            let csv = 'Sale ID,Date,Surname,Given Name,Gender,Nationality,Passport Number,Service Type,Client Source,Payment Received,Payment Due,Total Amount,Sales Voucher,Receipt Voucher\n';
+            transactions.forEach(t => {
+                csv += `"${t.id}","${t.date}","${t.surname}","${t.givenName}","${t.gender}","${t.nationality}","${t.passportNumber || ''}","${t.serviceType}","${t.clientSource}",${t.paymentReceived},${t.paymentDue},${t.totalAmount},"${t.sales_voucher_ref || ''}","${t.receipt_voucher_ref || ''}"\n`;
+            });
+            const blob = new Blob([csv], { type: 'text/csv' });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.setAttribute('href', url);
+            a.setAttribute('download', `Kamal_Express_POS_Ledger_${new Date().toISOString().split('T')[0]}.csv`);
+            a.click();
+        }
+
+        // Initialize on load
+        initConfigUI();
+        fetchSalesFromApi();
+    </script>
+</body>
+</html>

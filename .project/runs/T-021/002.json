@@ -1,0 +1,8 @@
+{
+  "task_id": "T-021",
+  "run_id": "002",
+  "timestamp": "2026-10-07T11:13:30.194Z",
+  "action": "FINISH",
+  "git_commit": "e9a94d4",
+  "evidence": "Updated VoucherController and VoucherService to dynamically default currency to the active company's configured default currency from LedgerDomain/DomainContext, normalized incoming lineItems/details into entries format, and enabled custom_fields and custom voucher types in extra metadata. Verified with automated integration tests (HTTP 201 pass, metadata persistence pass)."
+}

@@ -1,0 +1,7 @@
+{
+  "task_id": "T-012",
+  "run_id": "001",
+  "timestamp": "2026-10-07T09:18:51.753Z",
+  "action": "PAUSE",
+  "reason": "Paused until Kamal Express production pilot is stable"
+}

@@ -202,6 +202,7 @@ PROMPT;
             'general.help' => 'HELP',
             'alerts.list' => 'LIST_SITUATIONS',
             'report.trial_balance', 'report.profit_loss', 'report.balance_sheet' => 'INQUIRE_REPORT',
+            'diagnostics.balance_sheet_imbalance' => 'DIAGNOSE_BALANCE_SHEET',
             'voucher.draft' => 'DRAFT_VOUCHER',
             'voucher.reverse', 'voucher.action', 'voucher.correct_amount' => 'VOUCHER_ACTION',
             'voucher.lookup' => 'INQUIRE_VOUCHER',
@@ -412,7 +413,22 @@ PROMPT;
             ]);
         }
 
-        // 5. Financial Statements & Reports
+        // 5. Financial Statements & Balance Sheet Diagnostics
+        if (
+            str_contains($promptLower, 'why is my balance sheet not balanced') ||
+            str_contains($promptLower, 'why balance sheet is not balanced') ||
+            str_contains($promptLower, 'why is the balance sheet not balanced') ||
+            str_contains($promptLower, 'why it is not balanced') ||
+            str_contains($promptLower, 'why not balanced') ||
+            str_contains($promptLower, 'balance sheet is not balanced') ||
+            str_contains($promptLower, 'balance sheet not balanced') ||
+            str_contains($promptLower, 'balance sheet imbalance') ||
+            str_contains($promptLower, 'diagnose balance sheet') ||
+            str_contains($promptLower, 'analyze balance sheet') ||
+            (str_contains($promptLower, 'balance sheet') && (str_contains($promptLower, 'unbalanced') || str_contains($promptLower, 'difference') || str_contains($promptLower, 'error') || str_contains($promptLower, 'issue') || str_contains($promptLower, 'fix') || str_contains($promptLower, 'correct') || str_contains($promptLower, 'anomaly') || str_contains($promptLower, 'anomalies') || str_contains($promptLower, 'discrepancy')))
+        ) {
+            return $this->normalizeSemanticOutput(['capability' => 'diagnostics.balance_sheet_imbalance', 'confidence' => 0.98]);
+        }
         if (str_contains($promptLower, 'trial balance') || str_contains($promptLower, 'tb')) {
             return $this->normalizeSemanticOutput(['capability' => 'report.trial_balance', 'confidence' => 0.95]);
         }

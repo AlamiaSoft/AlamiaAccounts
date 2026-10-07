@@ -25,7 +25,9 @@ class DatabaseSeeder extends Seeder
 
         $this->call([
             \AlamiaSoft\AlamiaAccounts\Database\Seeders\LedgerInitializationSeeder::class,
-            // \AlamiaSoft\AlamiaAccounts\Database\Seeders\ChartOfAccountsSeeder::class,
+            StandardErpKnowledgeSeeder::class,
+            KamalExpressPilotSeeder::class,
+            KamalExpressCustomVoucherSeeder::class,
         ]);
     }
 }

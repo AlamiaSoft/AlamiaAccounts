@@ -25,6 +25,8 @@ import {
   RotateCcw,
   Building2,
   Layers,
+  AlertTriangle,
+  Wrench,
 } from "lucide-react"
 
 interface Message {
@@ -137,7 +139,11 @@ export default function CopilotWidget({ companyCode }: { companyCode?: string })
       }
     }
     window.addEventListener("copilot:open", handleOpen)
-    return () => window.removeEventListener("copilot:open", handleOpen)
+    window.addEventListener("copilot:ask", handleOpen)
+    return () => {
+      window.removeEventListener("copilot:open", handleOpen)
+      window.removeEventListener("copilot:ask", handleOpen)
+    }
   }, [companyCode])
 
   const handleActionClick = (actionItem: any) => {
@@ -580,6 +586,93 @@ export default function CopilotWidget({ companyCode }: { companyCode?: string })
                           </div>
                         </div>
                       ))}
+                    </div>
+                  )}
+
+                  {/* 8. Balance Sheet Forensic Diagnostics Card */}
+                  {m.cardType === "balance_sheet_diagnostics" && m.data && (
+                    <div className="mt-2.5 p-3 bg-background border border-border rounded-xl text-foreground text-xs space-y-2.5 shadow-xs">
+                      <div className="flex justify-between items-center font-semibold text-[11px] text-muted-foreground uppercase border-b border-border pb-1.5">
+                        <span className="flex items-center gap-1.5">
+                          <Wrench className="w-3.5 h-3.5 text-primary" /> Forensic Balance Sheet Audit
+                        </span>
+                        {m.data.is_balanced ? (
+                          <span className="text-emerald-600 flex items-center gap-1 font-bold">
+                            <CheckCircle2 className="w-3 h-3" /> Balanced ✓
+                          </span>
+                        ) : (
+                          <span className="text-destructive flex items-center gap-1 font-bold">
+                            <AlertTriangle className="w-3 h-3 animate-pulse" /> Out of Balance (PKR {Number(m.data.discrepancy || 0).toLocaleString()})
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Totals Summary */}
+                      <div className="grid grid-cols-2 gap-2 text-center">
+                        <div className="p-2 rounded-lg bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/40">
+                          <div className="text-[10px] text-muted-foreground uppercase font-medium">Total Assets</div>
+                          <div className="text-xs font-bold font-mono text-emerald-700 dark:text-emerald-300">
+                            PKR {Number(m.data.total_assets || 0).toLocaleString()}
+                          </div>
+                        </div>
+                        <div className="p-2 rounded-lg bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800/40">
+                          <div className="text-[10px] text-muted-foreground uppercase font-medium">Liabilities & Equity</div>
+                          <div className="text-xs font-bold font-mono text-blue-700 dark:text-blue-300">
+                            PKR {Number(m.data.total_liabilities_and_equity || 0).toLocaleString()}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Detected Root Causes */}
+                      {m.data.anomalies && m.data.anomalies.length > 0 ? (
+                        <div className="space-y-1.5 pt-1">
+                          <p className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider">
+                            Identified Root Cause Anomalies ({m.data.anomalies.length}):
+                          </p>
+                          <div className="space-y-2 max-h-48 overflow-y-auto">
+                            {m.data.anomalies.map((anom: any, aIdx: number) => (
+                              <div
+                                key={aIdx}
+                                className={`p-2.5 rounded-lg border text-[11px] space-y-1 ${
+                                  anom.severity === "critical"
+                                    ? "bg-destructive/5 border-destructive/30 text-destructive dark:text-red-300"
+                                    : "bg-amber-500/5 border-amber-500/30 text-amber-900 dark:text-amber-200"
+                                }`}
+                              >
+                                <div className="flex items-center justify-between font-bold">
+                                  <span>{anom.title}</span>
+                                  <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-background border border-current">
+                                    Impact: PKR {Number(anom.impact_amount || 0).toLocaleString()}
+                                  </span>
+                                </div>
+                                <p className="text-[10px] text-muted-foreground font-normal leading-relaxed">
+                                  {anom.description}
+                                </p>
+                                {anom.suggested_fix && (
+                                  <div className="pt-1 text-[10px] font-medium text-foreground flex flex-wrap items-center justify-between gap-1.5">
+                                    <div className="flex-1">
+                                      <span className="font-bold text-primary">Suggested Fix:</span> {anom.suggested_fix.replace(/\s*\(\?page=[^)]+\)/gi, "")}
+                                    </div>
+                                    {anom.fix_target_page && (
+                                      <button
+                                        type="button"
+                                        onClick={() => handleActionClick({ action: "navigate_page", payload: { page: anom.fix_target_page } })}
+                                        className="px-2 py-0.5 rounded bg-primary/10 hover:bg-primary/20 text-primary text-[10px] font-bold transition-colors cursor-pointer shrink-0"
+                                      >
+                                        Go to {anom.fix_target_page === "coa" ? "Chart of Accounts" : (anom.fix_target_page === "daybook" ? "Day Book" : (anom.fix_target_page === "ledger" ? "General Ledger" : "Journal Entry"))} →
+                                      </button>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="p-2 rounded-lg bg-muted/40 border border-border text-[11px] text-muted-foreground text-center">
+                          Zero structural anomalies found. System accounts & vouchers satisfy double-entry criteria.
+                        </div>
+                      )}
                     </div>
                   )}
 

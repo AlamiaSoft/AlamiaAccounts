@@ -54,7 +54,7 @@ export default function VoucherEntry({ selectedVoucher, onClearSelection, defaul
   const [voucherNumber, setVoucherNumber] = useState<string>(() => {
     const p = getPrefix(getInitialVoucherType())
     const yr = new Date().getFullYear()
-    return `${p}-${yr}-001`
+    return `${p}-${yr}-${String(Math.floor(100 + Math.random() * 900))}`
   })
   const [date, setDate] = useState<string>(new Date().toISOString().split("T")[0])
   const [referenceNumber, setReferenceNumber] = useState<string>("")
@@ -63,16 +63,16 @@ export default function VoucherEntry({ selectedVoucher, onClearSelection, defaul
   const [lineItems, setLineItems] = useState<LineItem[]>([
     {
       id: "1",
-      account: "1110",
-      accountName: "Cash",
+      account: "",
+      accountName: "",
       debit: 0,
       credit: 0,
       description: "",
     },
     {
       id: "2",
-      account: "2100",
-      accountName: "Accounts Payable",
+      account: "",
+      accountName: "",
       debit: 0,
       credit: 0,
       description: "",
@@ -81,25 +81,53 @@ export default function VoucherEntry({ selectedVoucher, onClearSelection, defaul
   const [isEditingExisting, setIsEditingExisting] = useState(false)
 
   useEffect(() => {
-    if (defaultVoucherType && !selectedVoucher) {
-      setVoucherType(defaultVoucherType)
-      const p = getPrefix(defaultVoucherType)
-      const yr = new Date().getFullYear()
-      setVoucherNumber(`${p}-${yr}-${String(Math.floor(100 + Math.random() * 900))}`)
-    }
-  }, [defaultVoucherType, selectedVoucher])
-
-  useEffect(() => {
     if (selectedVoucher) {
       setVoucherType(selectedVoucher.type || selectedVoucher.voucher_type || "journal")
       setVoucherNumber(selectedVoucher.number || selectedVoucher.reference)
-      setDate(selectedVoucher.date)
-      setReferenceNumber(selectedVoucher.reference)
-      setNarration(selectedVoucher.narration || selectedVoucher.description)
-      setLineItems(selectedVoucher.lineItems || selectedVoucher.line_items || [])
+      setDate(selectedVoucher.date || new Date().toISOString().split("T")[0])
+      setReferenceNumber(selectedVoucher.reference || "")
+      setNarration(selectedVoucher.narration || selectedVoucher.description || "")
+      setLineItems(
+        (selectedVoucher.lineItems || selectedVoucher.line_items || []).map((item: any, idx: number) => ({
+          id: item.id || String(idx + 1),
+          account: item.account || item.account_code || "",
+          accountName: item.accountName || item.account_name || "",
+          debit: Number(item.debit) || 0,
+          credit: Number(item.credit) || 0,
+          description: item.description || item.memo || "",
+        }))
+      )
       setIsEditingExisting(true)
+    } else {
+      const type = defaultVoucherType || "general"
+      setVoucherType(type)
+      const p = getPrefix(type)
+      const yr = new Date().getFullYear()
+      setVoucherNumber(`${p}-${yr}-${String(Math.floor(100 + Math.random() * 900))}`)
+      setDate(new Date().toISOString().split("T")[0])
+      setReferenceNumber("")
+      setNarration("")
+      setLineItems([
+        {
+          id: "1",
+          account: "",
+          accountName: "",
+          debit: 0,
+          credit: 0,
+          description: "",
+        },
+        {
+          id: "2",
+          account: "",
+          accountName: "",
+          debit: 0,
+          credit: 0,
+          description: "",
+        },
+      ])
+      setIsEditingExisting(false)
     }
-  }, [selectedVoucher])
+  }, [defaultVoucherType, selectedVoucher])
 
   const addLineItem = () => {
     const newItem: LineItem = {
@@ -223,24 +251,27 @@ export default function VoucherEntry({ selectedVoucher, onClearSelection, defaul
   }
 
   const handleCreateNew = () => {
-    setVoucherType(defaultVoucherType || "general")
-    setVoucherNumber("V-2025-001")
+    const type = defaultVoucherType || "general"
+    setVoucherType(type)
+    const p = getPrefix(type)
+    const yr = new Date().getFullYear()
+    setVoucherNumber(`${p}-${yr}-${String(Math.floor(100 + Math.random() * 900))}`)
     setDate(new Date().toISOString().split("T")[0])
     setReferenceNumber("")
     setNarration("")
     setLineItems([
       {
         id: "1",
-        account: "1110",
-        accountName: "Cash",
+        account: "",
+        accountName: "",
         debit: 0,
         credit: 0,
         description: "",
       },
       {
         id: "2",
-        account: "2100",
-        accountName: "Accounts Payable",
+        account: "",
+        accountName: "",
         debit: 0,
         credit: 0,
         description: "",

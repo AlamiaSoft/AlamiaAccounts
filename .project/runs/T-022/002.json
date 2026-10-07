@@ -1,0 +1,8 @@
+{
+  "task_id": "T-022",
+  "run_id": "002",
+  "timestamp": "2026-10-07T11:17:33.558Z",
+  "action": "FINISH",
+  "git_commit": "e9a94d4",
+  "evidence": "Created DomainContext::getDefaultCurrency() and CompanyService::getDefaultCurrency() to fully encapsulate company currency lookups. Eliminated direct Abivia kernel domain queries from VoucherController. All tests passing (14/14 custom voucher, 11/11 sales integration, custom voucher submission HTTP 201)."
+}

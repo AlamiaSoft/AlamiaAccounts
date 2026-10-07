@@ -170,4 +170,62 @@ class ReportController extends Controller
 
         return response()->json(['data' => $report]);
     }
+
+    /**
+     * Get Bank Book Report (Banking transactions, inflows, outflows, running balances)
+     */
+    public function bankBook(Request $request)
+    {
+        $validated = $request->validate([
+            'account' => 'nullable|string',
+            'from_date' => 'nullable|date',
+            'to_date' => 'nullable|date',
+            'currency' => 'nullable|string|size:3',
+        ]);
+
+        $account = $validated['account'] ?? 'ALL';
+        $fromDate = $validated['from_date'] ?? '2024-01-01';
+        $toDate = $validated['to_date'] ?? date('Y-m-d');
+        $currency = $validated['currency'] ?? 'PKR';
+
+        $report = $this->reportService->getBankBook($account, $fromDate, $toDate, $currency);
+
+        return response()->json(['data' => $report]);
+    }
+
+    /**
+     * Diagnose Balance Sheet Imbalances and Anomaly Vectors
+     */
+    public function balanceSheetDiagnostics(Request $request, \AlamiaSoft\AlamiaAccounts\Services\AccountingDiagnosticService $diagnosticService)
+    {
+        $validated = $request->validate([
+            'as_of_date' => 'nullable|date',
+            'currency' => 'nullable|string|size:3',
+        ]);
+
+        $asOfDate = $validated['as_of_date'] ?? date('Y-m-d');
+        $currency = $validated['currency'] ?? 'PKR';
+
+        $diagnostics = $diagnosticService->diagnoseBalanceSheet($asOfDate, $currency);
+
+        return response()->json(['data' => $diagnostics]);
+    }
+
+    /**
+     * Audit Ledger Integrity and Forensic Health (for balanced ledgers)
+     */
+    public function ledgerIntegrityAudit(Request $request, \AlamiaSoft\AlamiaAccounts\Services\AccountingDiagnosticService $diagnosticService)
+    {
+        $validated = $request->validate([
+            'as_of_date' => 'nullable|date',
+            'currency' => 'nullable|string|size:3',
+        ]);
+
+        $asOfDate = $validated['as_of_date'] ?? date('Y-m-d');
+        $currency = $validated['currency'] ?? 'PKR';
+
+        $audit = $diagnosticService->auditLedgerIntegrity($asOfDate, $currency);
+
+        return response()->json(['data' => $audit]);
+    }
 }

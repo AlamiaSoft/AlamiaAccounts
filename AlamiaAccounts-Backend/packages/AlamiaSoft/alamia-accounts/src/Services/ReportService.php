@@ -6,6 +6,7 @@ use Abivia\Ledger\Models\LedgerAccount;
 use Abivia\Ledger\Models\LedgerDomain;
 use Abivia\Ledger\Models\JournalEntry as JournalEntryModel;
 use AlamiaSoft\AlamiaAccounts\Models\DomainLedgerAccount;
+use AlamiaSoft\AlamiaAccounts\Enums\AccountClass;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Exception;
@@ -89,6 +90,23 @@ class ReportService
     }
 
     /**
+     * Resolve the strongly-typed formal accounting class enum
+     * by delegating to AccountService domain logic.
+     */
+    public function getAccountClassEnum(LedgerAccount $account, $allAccountsMap = null): AccountClass
+    {
+        return app(AccountService::class)->getAccountClassEnum($account, $allAccountsMap);
+    }
+
+    /**
+     * Resolve the formal accounting class key (asset, liability, equity, revenue, expense).
+     */
+    public function getAccountClass(LedgerAccount $account, $allAccountsMap = null): string
+    {
+        return $this->getAccountClassEnum($account, $allAccountsMap)->value;
+    }
+
+    /**
      * Get Profit and Loss Statement for a period.
      */
     public function getProfitAndLoss(string $fromDate, string $toDate, string $currency = 'PKR'): array
@@ -96,13 +114,13 @@ class ReportService
         $currentDomain = $this->getCurrentDomain();
         $accountUuids = DomainLedgerAccount::getAccountUuidsForDomain($currentDomain->domainUuid);
 
-        // Fetch leaf accounts
-        $accounts = LedgerAccount::whereIn('ledgerUuid', $accountUuids)
-            ->where('category', false)
-            ->where('code', '!=', '')
+        // Fetch leaf accounts and full account map for hierarchy traversal
+        $allAccountsMap = LedgerAccount::whereIn('ledgerUuid', $accountUuids)
             ->with('names')
-            ->orderBy('code')
-            ->get();
+            ->get()
+            ->keyBy('ledgerUuid');
+
+        $accounts = $allAccountsMap->where('category', false)->where('code', '!=', '');
 
         $income = [];
         $totalIncome = 0.0;
@@ -118,12 +136,9 @@ class ReportService
             }
 
             $name = $account->names->first()->name ?? $account->code;
+            $class = $this->getAccountClassEnum($account, $allAccountsMap);
 
-            // Revenue: Credit accounts (excluding Liabilities 2xxx and Equity 51xx/52xx/53xx)
-            $isEquity = str_starts_with($account->code, '51') || str_starts_with($account->code, '52') || str_starts_with($account->code, '53') || $account->code === '3000';
-            $isLiability = str_starts_with($account->code, '2');
-
-            if ($account->credit && !$isEquity && !$isLiability) {
+            if ($class === AccountClass::REVENUE) {
                 $amount = abs($balance);
                 $totalIncome += $amount;
                 $income[] = [
@@ -131,9 +146,7 @@ class ReportService
                     'account_name' => $name,
                     'amount' => round($amount, 2),
                 ];
-            }
-            // Expenses: Debit accounts starting with 4
-            elseif ($account->debit && str_starts_with($account->code, '4')) {
+            } elseif ($class === AccountClass::EXPENSE) {
                 $amount = abs($balance);
                 $totalExpenses += $amount;
                 $expenses[] = [
@@ -167,12 +180,12 @@ class ReportService
         $currentDomain = $this->getCurrentDomain();
         $accountUuids = DomainLedgerAccount::getAccountUuidsForDomain($currentDomain->domainUuid);
 
-        $accounts = LedgerAccount::whereIn('ledgerUuid', $accountUuids)
-            ->where('category', false)
-            ->where('code', '!=', '')
+        $allAccountsMap = LedgerAccount::whereIn('ledgerUuid', $accountUuids)
             ->with('names')
-            ->orderBy('code')
-            ->get();
+            ->get()
+            ->keyBy('ledgerUuid');
+
+        $accounts = $allAccountsMap->where('category', false)->where('code', '!=', '');
 
         $assets = [];
         $totalAssets = 0.0;
@@ -191,9 +204,9 @@ class ReportService
             }
 
             $name = $account->names->first()->name ?? $account->code;
+            $class = $this->getAccountClassEnum($account, $allAccountsMap);
 
-            // Assets (1xxx)
-            if (str_starts_with($account->code, '1')) {
+            if ($class === AccountClass::ASSET) {
                 $amt = $balance;
                 $totalAssets += $amt;
                 $assets[] = [
@@ -201,9 +214,7 @@ class ReportService
                     'account_name' => $name,
                     'amount' => round($amt, 2),
                 ];
-            }
-            // Liabilities (2xxx)
-            elseif (str_starts_with($account->code, '2')) {
+            } elseif ($class === AccountClass::LIABILITY) {
                 $amt = abs($balance);
                 $totalLiabilities += $amt;
                 $liabilities[] = [
@@ -211,9 +222,7 @@ class ReportService
                     'account_name' => $name,
                     'amount' => round($amt, 2),
                 ];
-            }
-            // Equity (5xxx)
-            elseif (str_starts_with($account->code, '5')) {
+            } elseif ($class === AccountClass::EQUITY) {
                 $amt = -$balance;
                 $totalEquity += $amt;
                 $equity[] = [
@@ -528,6 +537,7 @@ class ReportService
         $totalDebit = 0.0;
         $totalCredit = 0.0;
         $totalBalance = 0.0;
+        $totalAging = ['days_0_30' => 0.0, 'days_31_60' => 0.0, 'days_61_90' => 0.0, 'days_over_90' => 0.0];
 
         foreach ($customers as $cust) {
             $name = $cust->names->first() ? $cust->names->first()->name : $cust->code;
@@ -555,6 +565,7 @@ class ReportService
                 ->sum(DB::raw('ABS(journal_details.amount)')) ?? 0.0);
 
             $balance = round($debitMovements - $creditMovements, 2);
+            $aging = $this->computeAgingBuckets($cust->ledgerUuid, $asOfDate, true, $currency);
 
             $rows[] = [
                 'code' => $cust->code,
@@ -562,11 +573,16 @@ class ReportService
                 'total_debit' => round($debitMovements, 2),
                 'total_credit' => round($creditMovements, 2),
                 'balance' => $balance,
+                'aging' => $aging,
             ];
 
             $totalDebit += $debitMovements;
             $totalCredit += $creditMovements;
             $totalBalance += $balance;
+            $totalAging['days_0_30'] += $aging['days_0_30'];
+            $totalAging['days_31_60'] += $aging['days_31_60'];
+            $totalAging['days_61_90'] += $aging['days_61_90'];
+            $totalAging['days_over_90'] += $aging['days_over_90'];
         }
 
         return [
@@ -577,6 +593,16 @@ class ReportService
             'total_credit' => round($totalCredit, 2),
             'total_balance' => round($totalBalance, 2),
             'total_receivables' => round($totalBalance, 2),
+            'aging_summary' => [
+                'days_0_30' => round($totalAging['days_0_30'], 2),
+                'days_31_60' => round($totalAging['days_31_60'], 2),
+                'days_61_90' => round($totalAging['days_61_90'], 2),
+                'days_over_90' => round($totalAging['days_over_90'], 2),
+                'current_0_30' => round($totalAging['days_0_30'], 2),
+                'aging_31_60' => round($totalAging['days_31_60'], 2),
+                'aging_61_90' => round($totalAging['days_61_90'], 2),
+                'aging_90_plus' => round($totalAging['days_over_90'], 2),
+            ],
         ];
     }
 
@@ -608,6 +634,7 @@ class ReportService
         $totalDebit = 0.0;
         $totalCredit = 0.0;
         $totalBalance = 0.0;
+        $totalAging = ['days_0_30' => 0.0, 'days_31_60' => 0.0, 'days_61_90' => 0.0, 'days_over_90' => 0.0];
 
         foreach ($suppliers as $sup) {
             $name = $sup->names->first() ? $sup->names->first()->name : $sup->code;
@@ -636,6 +663,7 @@ class ReportService
 
             // Payable balance: Credit (Owed) - Debit (Paid)
             $balance = round($creditMovements - $debitMovements, 2);
+            $aging = $this->computeAgingBuckets($sup->ledgerUuid, $asOfDate, false, $currency);
 
             $rows[] = [
                 'code' => $sup->code,
@@ -643,21 +671,277 @@ class ReportService
                 'total_debit' => round($debitMovements, 2),
                 'total_credit' => round($creditMovements, 2),
                 'balance' => $balance,
+                'aging' => $aging,
             ];
 
             $totalDebit += $debitMovements;
             $totalCredit += $creditMovements;
             $totalBalance += $balance;
+            $totalAging['days_0_30'] += $aging['days_0_30'];
+            $totalAging['days_31_60'] += $aging['days_31_60'];
+            $totalAging['days_61_90'] += $aging['days_61_90'];
+            $totalAging['days_over_90'] += $aging['days_over_90'];
         }
 
         return [
             'as_of_date' => $asOfDate,
             'currency' => $currency,
             'suppliers' => $rows,
+            'vendors' => $rows,
             'total_debit' => round($totalDebit, 2),
-            'total_credit' => round($creditMovements, 2),
+            'total_credit' => round($totalCredit, 2),
             'total_balance' => round($totalBalance, 2),
             'total_payables' => round($totalBalance, 2),
+            'aging_summary' => [
+                'days_0_30' => round($totalAging['days_0_30'], 2),
+                'days_31_60' => round($totalAging['days_31_60'], 2),
+                'days_61_90' => round($totalAging['days_61_90'], 2),
+                'days_over_90' => round($totalAging['days_over_90'], 2),
+                'current_0_30' => round($totalAging['days_0_30'], 2),
+                'aging_31_60' => round($totalAging['days_31_60'], 2),
+                'aging_61_90' => round($totalAging['days_61_90'], 2),
+                'aging_90_plus' => round($totalAging['days_over_90'], 2),
+            ],
+        ];
+    }
+
+    /**
+     * Compute 4-bracket aging breakdown for a subledger account.
+     */
+    protected function computeAgingBuckets(string $ledgerUuid, string $asOfDate, bool $isReceivable = true, string $currency = 'PKR'): array
+    {
+        $currentDomain = $this->getCurrentDomain();
+        $dateObj = Carbon::parse($asOfDate);
+        $d30 = $dateObj->copy()->subDays(30)->startOfDay();
+        $d60 = $dateObj->copy()->subDays(60)->startOfDay();
+        $d90 = $dateObj->copy()->subDays(90)->startOfDay();
+
+        $rows = DB::table('journal_details')
+            ->join('journal_entries', 'journal_details.journalEntryId', '=', 'journal_entries.journalEntryId')
+            ->join('domain_journal_entries', 'journal_entries.journalEntryId', '=', 'domain_journal_entries.journalEntryId')
+            ->where('domain_journal_entries.domainUuid', $currentDomain->domainUuid)
+            ->where('journal_entries.currency', $currency)
+            ->where('journal_details.ledgerUuid', $ledgerUuid)
+            ->where('journal_entries.transDate', '<=', $dateObj->endOfDay())
+            ->select('journal_details.amount', 'journal_entries.transDate')
+            ->get();
+
+        $b0_30 = 0.0;
+        $b31_60 = 0.0;
+        $b61_90 = 0.0;
+        $bOver90 = 0.0;
+
+        foreach ($rows as $r) {
+            $amt = (float)$r->amount;
+            $tDate = Carbon::parse($r->transDate);
+            $signedAmt = $isReceivable ? $amt : -$amt;
+
+            if ($tDate >= $d30) {
+                $b0_30 += $signedAmt;
+            } elseif ($tDate >= $d60) {
+                $b31_60 += $signedAmt;
+            } elseif ($tDate >= $d90) {
+                $b61_90 += $signedAmt;
+            } else {
+                $bOver90 += $signedAmt;
+            }
+        }
+
+        return [
+            'days_0_30' => round($b0_30, 2),
+            'days_31_60' => round($b31_60, 2),
+            'days_61_90' => round($b61_90, 2),
+            'days_over_90' => round($bOver90, 2),
+            'current_0_30' => round($b0_30, 2),
+            'aging_31_60' => round($b31_60, 2),
+            'aging_61_90' => round($b61_90, 2),
+            'aging_90_plus' => round($bOver90, 2),
+        ];
+    }
+
+    /**
+     * Bank Book Report: Chronological statement of banking transactions, inflows, outflows, and running balances.
+     */
+    public function getBankBook(string $accountCode = 'ALL', string $fromDate = '2024-01-01', string $toDate = '2099-12-31', string $currency = 'PKR'): array
+    {
+        $currentDomain = $this->getCurrentDomain();
+        $accountUuids = DomainLedgerAccount::getAccountUuidsForDomain($currentDomain->domainUuid);
+
+        // 1. Discover all active bank accounts in domain
+        $bankParent = LedgerAccount::where('code', '1120')
+            ->whereIn('ledgerUuid', $accountUuids)
+            ->first();
+
+        $allBankAccounts = LedgerAccount::whereIn('ledgerUuid', $accountUuids)
+            ->where('category', false)
+            ->where(function ($q) use ($bankParent) {
+                $q->where('code', '1120')
+                  ->orWhere('code', 'like', '112%')
+                  ->orWhere('code', 'like', '113%');
+                if ($bankParent) {
+                    $q->orWhere('parentUuid', $bankParent->ledgerUuid);
+                }
+            })
+            ->with('names')
+            ->orderBy('code')
+            ->get();
+
+        $bankAccountsList = [];
+        foreach ($allBankAccounts as $bAcc) {
+            $curBal = $this->getAccountBalance($bAcc->code, $toDate, $currency);
+            $bankAccountsList[] = [
+                'code' => $bAcc->code,
+                'name' => $bAcc->names->first() ? $bAcc->names->first()->name : $bAcc->code,
+                'current_balance' => round($curBal, 2),
+            ];
+        }
+
+        // 2. Determine target bank account UUIDs
+        $targetBankUuids = [];
+        $selectedAccountInfo = null;
+
+        if ($accountCode !== 'ALL' && !empty($accountCode)) {
+            $matched = $allBankAccounts->firstWhere('code', $accountCode) ?? LedgerAccount::where('code', $accountCode)->whereIn('ledgerUuid', $accountUuids)->with('names')->first();
+            if ($matched) {
+                $targetBankUuids = [$matched->ledgerUuid];
+                $selectedAccountInfo = [
+                    'code' => $matched->code,
+                    'name' => $matched->names->first() ? $matched->names->first()->name : $matched->code,
+                ];
+            }
+        }
+
+        if (empty($targetBankUuids)) {
+            $targetBankUuids = $allBankAccounts->pluck('ledgerUuid')->toArray();
+            $selectedAccountInfo = [
+                'code' => 'ALL',
+                'name' => 'All Bank Accounts',
+            ];
+        }
+
+        // 3. Compute opening balance before $fromDate
+        $asOfDateForOpening = Carbon::parse($fromDate)->subDay()->toDateString();
+        $openingBalance = 0.0;
+        if ($selectedAccountInfo['code'] === 'ALL') {
+            foreach ($allBankAccounts as $bAcc) {
+                $openingBalance += $this->getAccountBalance($bAcc->code, $asOfDateForOpening, $currency);
+            }
+        } else {
+            $openingBalance = $this->getAccountBalance($selectedAccountInfo['code'], $asOfDateForOpening, $currency);
+        }
+
+        // 4. Fetch bank transactions within period
+        $transactions = DB::table('journal_details')
+            ->join('journal_entries', 'journal_details.journalEntryId', '=', 'journal_entries.journalEntryId')
+            ->join('domain_journal_entries', 'journal_entries.journalEntryId', '=', 'domain_journal_entries.journalEntryId')
+            ->join('ledger_accounts', 'journal_details.ledgerUuid', '=', 'ledger_accounts.ledgerUuid')
+            ->where('domain_journal_entries.domainUuid', $currentDomain->domainUuid)
+            ->where('journal_entries.currency', $currency)
+            ->whereIn('journal_details.ledgerUuid', $targetBankUuids)
+            ->where('journal_entries.transDate', '>=', Carbon::parse($fromDate)->startOfDay())
+            ->where('journal_entries.transDate', '<=', Carbon::parse($toDate)->endOfDay())
+            ->select(
+                'journal_entries.journalEntryId',
+                'journal_entries.transDate as date',
+                'journal_entries.description',
+                'journal_entries.extra',
+                'journal_details.amount',
+                'ledger_accounts.code as bank_account_code'
+            )
+            ->orderBy('journal_entries.transDate')
+            ->orderBy('journal_entries.journalEntryId')
+            ->get();
+
+        // Pre-fetch all other legs of these entries to identify opposing accounts
+        $entryIds = $transactions->pluck('journalEntryId')->unique()->toArray();
+        $entryLegs = [];
+        if (!empty($entryIds)) {
+            $rawLegs = DB::table('journal_details')
+                ->join('ledger_accounts', 'journal_details.ledgerUuid', '=', 'ledger_accounts.ledgerUuid')
+                ->leftJoin('ledger_names', 'ledger_accounts.ledgerUuid', '=', 'ledger_names.ownerUuid')
+                ->whereIn('journal_details.journalEntryId', $entryIds)
+                ->select(
+                    'journal_details.journalEntryId',
+                    'journal_details.ledgerUuid',
+                    'journal_details.amount',
+                    'ledger_accounts.code as account_code',
+                    'ledger_names.name as account_name'
+                )
+                ->get();
+            foreach ($rawLegs as $leg) {
+                $entryLegs[$leg->journalEntryId][] = $leg;
+            }
+        }
+
+        $entries = [];
+        $runningBalance = $openingBalance;
+        $totalInflow = 0.0;
+        $totalOutflow = 0.0;
+
+        foreach ($transactions as $tx) {
+            $amount = (float)$tx->amount;
+            $runningBalance += $amount;
+
+            $extra = json_decode($tx->extra ?? '', true) ?? [];
+            $reference = $extra['reference'] ?? $extra['voucher_number'] ?? "JE-{$tx->journalEntryId}";
+            $voucherType = $extra['voucher_type'] ?? null;
+
+            // Find opposing account from other legs
+            $legs = $entryLegs[$tx->journalEntryId] ?? [];
+            $opposingAccounts = [];
+            foreach ($legs as $l) {
+                if (!in_array($l->ledgerUuid, $targetBankUuids)) {
+                    $opposingAccounts[] = ($l->account_name ? $l->account_name : $l->account_code) . " ({$l->account_code})";
+                }
+            }
+            $opposingText = !empty($opposingAccounts) ? implode(', ', array_unique($opposingAccounts)) : 'General Ledger';
+
+            if (!$voucherType) {
+                $refUpper = strtoupper($reference);
+                if (str_starts_with($refUpper, 'CV') || str_starts_with($refUpper, 'CONTRA')) {
+                    $voucherType = 'contra';
+                } elseif (str_starts_with($refUpper, 'OB')) {
+                    $voucherType = 'opening';
+                } elseif (str_starts_with($refUpper, 'PV') || str_starts_with($refUpper, 'PAY')) {
+                    $voucherType = 'payment';
+                } elseif (str_starts_with($refUpper, 'RV') || str_starts_with($refUpper, 'REC')) {
+                    $voucherType = 'receipt';
+                } else {
+                    $voucherType = $amount > 0 ? 'receipt' : 'payment';
+                }
+            }
+
+            $inflow = $amount > 0 ? $amount : 0.0;
+            $outflow = $amount < 0 ? abs($amount) : 0.0;
+
+            $totalInflow += $inflow;
+            $totalOutflow += $outflow;
+
+            $entries[] = [
+                'journal_entry_id' => $tx->journalEntryId,
+                'date' => Carbon::parse($tx->date)->toDateString(),
+                'reference' => $reference,
+                'voucher_type' => $voucherType,
+                'bank_account_code' => $tx->bank_account_code,
+                'particulars' => $opposingText,
+                'description' => $tx->description,
+                'deposit' => round($inflow, 2),
+                'withdrawal' => round($outflow, 2),
+                'balance' => round($runningBalance, 2),
+            ];
+        }
+
+        return [
+            'selected_account' => $selectedAccountInfo,
+            'bank_accounts' => $bankAccountsList,
+            'from_date' => $fromDate,
+            'to_date' => $toDate,
+            'currency' => $currency,
+            'opening_balance' => round($openingBalance, 2),
+            'entries' => $entries,
+            'total_inflow' => round($totalInflow, 2),
+            'total_outflow' => round($totalOutflow, 2),
+            'closing_balance' => round($runningBalance, 2),
         ];
     }
 }

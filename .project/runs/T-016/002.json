@@ -1,0 +1,8 @@
+{
+  "task_id": "T-016",
+  "run_id": "002",
+  "timestamp": "2026-10-07T09:52:53.275Z",
+  "action": "FINISH",
+  "git_commit": "e9a94d4",
+  "evidence": "Fixed Docker container networking and dual-stack fallback in app/api/[...proxy]/route.ts and docker-compose.yml. Verified GET and POST /api/v1/sales succeed through Next.js proxy with live double-entry voucher generation."
+}

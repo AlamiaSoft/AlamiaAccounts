@@ -110,6 +110,7 @@ class CopilotService
             'refusal.untracked' => $this->handleUntrackedDataRefusal($prompt),
             'alerts.list' => $this->handleAlertsList($copilotActor),
             'report.trial_balance', 'report.profit_loss', 'report.balance_sheet' => $this->handleFinancialReport($semantic['capability'], $copilotActor, $prompt, $context ?? []),
+            'diagnostics.balance_sheet_imbalance' => $this->handleBalanceSheetDiagnostics($semantic, $prompt, $context ?? []),
             'voucher.draft' => $this->handleVoucherDraft($semantic, $prompt, $copilotActor),
             'voucher.reverse' => $this->handleVoucherReverse($semantic),
             'voucher.correct_amount' => $this->handleVoucherCorrectAmount($semantic, $prompt, $copilotActor),
@@ -729,6 +730,98 @@ class CopilotService
                 ['label' => '⚖️ Open Trial Balance', 'action' => 'navigate_page', 'payload' => ['page' => 'trial-balance']],
                 ['label' => '📄 View Daybook', 'action' => 'navigate_page', 'payload' => ['page' => 'daybook']],
             ]
+        ];
+    }
+
+    /**
+     * Capability: diagnostics.balance_sheet_imbalance
+     * Diagnoses Balance Sheet discrepancies, detects offending vectors, and provides step-by-step guidance.
+     */
+    protected function handleBalanceSheetDiagnostics(array $semantic, string $prompt = '', array $context = []): array
+    {
+        $diagnosticService = app(\AlamiaSoft\AlamiaAccounts\Services\AccountingDiagnosticService::class);
+        $asOfDate = date('Y-m-d');
+        $currency = 'PKR';
+
+        $diag = $diagnosticService->diagnoseBalanceSheet($asOfDate, $currency);
+
+        if ($diag['is_balanced']) {
+            $message = "### ⚖️ Balance Sheet is in Perfect Equilibrium\n\n"
+                . "Total Assets (**PKR " . number_format($diag['total_assets'], 2) . "**) exactly match Total Liabilities & Equity (**PKR " . number_format($diag['total_liabilities_and_equity'], 2) . "**). Zero mathematical or structural variance detected.";
+
+            return [
+                'sender' => 'Taliya',
+                'intent' => 'diagnose_balance_sheet',
+                'message' => $message,
+                'data' => [
+                    'type' => 'balance_sheet_diagnostics',
+                    'is_balanced' => true,
+                    'discrepancy' => 0,
+                    'total_assets' => $diag['total_assets'],
+                    'total_liabilities_and_equity' => $diag['total_liabilities_and_equity'],
+                    'anomalies' => [],
+                    'raw' => $diag,
+                ],
+                'card_type' => 'balance_sheet_diagnostics',
+                'actions' => [
+                    ['label' => '⚖️ View Balance Sheet', 'action' => 'navigate_page', 'payload' => ['page' => 'balance-sheet']],
+                    ['label' => '📊 Trial Balance', 'action' => 'navigate_page', 'payload' => ['page' => 'trial-balance']],
+                ],
+            ];
+        }
+
+        $diffFormatted = number_format($diag['discrepancy'], 2);
+        $assetsFormatted = number_format($diag['total_assets'], 2);
+        $liabEqFormatted = number_format($diag['total_liabilities_and_equity'], 2);
+
+        $dirText = $diag['direction'] === 'assets_exceed'
+            ? "Total Assets exceed Liabilities + Equity by **PKR {$diffFormatted}**."
+            : "Liabilities + Equity exceed Total Assets by **PKR {$diffFormatted}**.";
+
+        $anomaliesList = "";
+        foreach ($diag['anomalies'] as $idx => $anom) {
+            $num = $idx + 1;
+            $severityIcon = $anom['severity'] === 'critical' ? '🔴' : ($anom['severity'] === 'warning' ? '🟡' : 'ℹ️');
+            $anomaliesList .= "\n{$num}. {$severityIcon} **{$anom['title']}** (Impact: PKR " . number_format($anom['impact_amount'], 2) . ")\n   {$anom['description']}\n   *Fix*: {$anom['suggested_fix']}\n";
+        }
+
+        $guidanceList = "";
+        foreach ($diag['step_by_step_guidance'] as $step) {
+            $guidanceList .= "- {$step}\n";
+        }
+
+        $message = "### ⚠️ Balance Sheet Forensic Diagnosis\n\n"
+            . "**Discrepancy: PKR {$diffFormatted}**\n\n"
+            . "- **Total Assets**: PKR {$assetsFormatted}\n"
+            . "- **Total Liabilities & Equity**: PKR {$liabEqFormatted}\n"
+            . "- **Imbalance Status**: {$dirText}\n\n"
+            . ($diag['anomalies_count'] > 0
+                ? "#### 🔍 Detected Root-Cause Anomalies ({$diag['anomalies_count']}):\n{$anomaliesList}\n#### 🛠️ Recommended Corrective Steps:\n{$guidanceList}"
+                : "No single-legged vouchers or unclassified accounts were found. This variance typically occurs when net income has not been mapped dynamically to retained earnings, or direct entries were made into Capital/Equity.");
+
+        $actions = [
+            ['label' => '⚖️ Inspect Balance Sheet', 'action' => 'navigate_page', 'payload' => ['page' => 'balance-sheet']],
+            ['label' => '📖 Chart of Accounts', 'action' => 'navigate_page', 'payload' => ['page' => 'coa']],
+            ['label' => '📄 View Daybook', 'action' => 'navigate_page', 'payload' => ['page' => 'daybook']],
+        ];
+
+        return [
+            'sender' => 'Taliya',
+            'intent' => 'diagnose_balance_sheet',
+            'message' => $message,
+            'data' => [
+                'type' => 'balance_sheet_diagnostics',
+                'is_balanced' => false,
+                'discrepancy' => $diag['discrepancy'],
+                'total_assets' => $diag['total_assets'],
+                'total_liabilities_and_equity' => $diag['total_liabilities_and_equity'],
+                'anomalies_count' => $diag['anomalies_count'],
+                'anomalies' => $diag['anomalies'],
+                'step_by_step_guidance' => $diag['step_by_step_guidance'],
+                'raw' => $diag,
+            ],
+            'card_type' => 'balance_sheet_diagnostics',
+            'actions' => $actions,
         ];
     }
 

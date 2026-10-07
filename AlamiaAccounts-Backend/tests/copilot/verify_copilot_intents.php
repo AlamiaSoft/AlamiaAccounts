@@ -36,6 +36,64 @@ $kernel->bootstrap();
 $classifier = app(App\Copilot\IntentClassifierService::class);
 $copilot = app(App\Copilot\CopilotService::class);
 
+// Clean and Seed OB-2026-001 and SV-2026-112 test fixtures via VoucherService wrapper
+$voucherService = app(\AlamiaSoft\AlamiaAccounts\Services\VoucherService::class);
+foreach (['ALAMIASOFT', 'MAIN'] as $dCode) {
+    try {
+        \AlamiaSoft\AlamiaAccounts\Services\DomainContext::set($dCode);
+        $domain = \Abivia\Ledger\Models\LedgerDomain::where('code', $dCode)->first();
+        if ($domain) {
+            $domainEntryIds = \AlamiaSoft\AlamiaAccounts\Models\DomainJournalEntry::getEntryIdsForDomain($domain->domainUuid);
+            $existingEntries = \Abivia\Ledger\Models\JournalEntry::whereIn('journalEntryId', $domainEntryIds)
+                ->where(function($q) {
+                    $q->where('extra', 'like', '%OB-2026-001%')
+                      ->orWhere('extra', 'like', '%SV-2026-112%')
+                      ->orWhere('extra', 'like', '%GT-SALES-01%')
+                      ->orWhere('extra', 'like', '%GT-RENT-01%');
+                })->get();
+            foreach ($existingEntries as $entry) {
+                \Abivia\Ledger\Models\JournalDetail::where('journalEntryId', $entry->journalEntryId)->delete();
+                \AlamiaSoft\AlamiaAccounts\Models\DomainJournalEntry::where('journalEntryId', $entry->journalEntryId)->delete();
+                $entry->delete();
+            }
+        }
+
+        $voucherService->createJournalEntry([
+            'reference' => 'OB-2026-001',
+            'voucher_number' => 'OB-2026-001',
+            'voucher_type' => 'opening',
+            'description' => 'Opening Balance Position for Fiscal Year 2026',
+            'date' => '2026-01-01',
+            'currency' => 'PKR',
+            'entries' => [
+                ['account_code' => '1130', 'amount' => 500000, 'type' => 'debit'], // Meezan Bank
+                ['account_code' => '1110', 'amount' => 100000, 'type' => 'debit'], // Cash
+                ['account_code' => '3100', 'amount' => 600000, 'type' => 'credit'], // Capital / Equity (3100)
+            ]
+        ], $dCode);
+    } catch (\Throwable $e) {
+        // Fallback
+    }
+
+    try {
+        \AlamiaSoft\AlamiaAccounts\Services\DomainContext::set($dCode);
+        $voucherService->createJournalEntry([
+            'reference' => 'SV-2026-112',
+            'voucher_number' => 'SV-2026-112',
+            'voucher_type' => 'sales',
+            'description' => 'Web Development project for IZOC',
+            'date' => '2026-02-15',
+            'currency' => 'PKR',
+            'entries' => [
+                ['account_code' => '1200', 'amount' => 100000, 'type' => 'debit'],
+                ['account_code' => '5100', 'amount' => 100000, 'type' => 'credit'],
+            ]
+        ], $dCode);
+    } catch (\Throwable $e) {
+        // Fallback
+    }
+}
+
 echo "\n========================================================================\n";
 echo " ALAMIA ACCOUNTS - COPILOT BEHAVIORAL CONTRACT & SAFETY SUITE\n";
 echo "========================================================================\n\n";
@@ -1056,7 +1114,7 @@ try {
         'reference' => 'GT-SALES-01',
         'entries' => [
             ['account_code' => '1110', 'amount' => 100000, 'type' => 'debit'],
-            ['account_code' => '3100', 'amount' => 100000, 'type' => 'credit'],
+            ['account_code' => '5100', 'amount' => 100000, 'type' => 'credit'],
         ],
     ]);
     $voucherService->createJournalEntry([

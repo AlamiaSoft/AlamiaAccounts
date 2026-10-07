@@ -1,10 +1,9 @@
-"use client"
-
-import { useState } from "react"
-import { Home, BarChart3, BookOpen, Wallet, Settings, LogOut, ChevronDown, PieChart, Activity } from "lucide-react"
+import { useState, useMemo } from "react"
+import { Home, BarChart3, BookOpen, Wallet, Settings, LogOut, ChevronDown, PieChart, Activity, Sparkles, PlusCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import CompanySwitcher, { type Company } from "./company-switcher"
+import { useVoucherTypes } from "@/hooks/use-voucher-types"
 
 interface SidebarProps {
   currentPage: string
@@ -25,71 +24,99 @@ export default function Sidebar({
   onCompanyChange,
   onAddCompany,
 }: SidebarProps) {
-  const [expandedMenu, setExpandedMenu] = useState<string | null>("masters")
+  const [expandedMenu, setExpandedMenu] = useState<string | null>("custom-vouchers")
+  const { voucherTypes } = useVoucherTypes(currentCompany?.code)
 
-  const menuItems = [
-    { id: "dashboard", label: "Dashboard", icon: Home },
-    {
-      id: "masters",
-      label: "Masters",
-      icon: Settings,
-      submenu: [
-        { id: "coa", label: "Chart of Accounts" },
-        { id: "periods", label: "Accounting Periods" },
-        { id: "users", label: "Users & Roles" },
-        { id: "companies", label: "Companies" },
-        { id: "custom-voucher-types", label: "Custom Voucher Types" },
-        { id: "voucher-builder", label: "Voucher Builder", badge: "Experimental" },
-        { id: "print-templates", label: "Print Templates" },
-      ],
-    },
-    {
-      id: "vouchers",
-      label: "Vouchers",
-      icon: Wallet,
-      submenu: [
-        { id: "voucher-payment", label: "Payment Voucher" },
-        { id: "voucher-receipt", label: "Receipt Voucher" },
-        { id: "voucher-journal", label: "Journal Voucher" },
-        { id: "voucher-contra", label: "Contra Voucher" },
-        { id: "voucher-sales", label: "Sales Voucher" },
-        { id: "voucher-purchase", label: "Purchase Voucher" },
-      ],
-    },
-    {
-      id: "transactions",
-      label: "Transactions",
-      icon: BookOpen,
-      submenu: [
-        { id: "cashbook", label: "Cashbook" },
-        { id: "daybook", label: "Day Book" },
-      ],
-    },
-    {
-      id: "accounts",
-      label: "Accounts",
-      icon: BarChart3,
-      submenu: [
-        { id: "ledger", label: "General Ledger" },
-        { id: "trial-balance", label: "Trial Balance" },
-      ],
-    },
-    {
-      id: "reports",
-      label: "Reports",
-      icon: PieChart,
-      submenu: [
-        { id: "balance-sheet", label: "Balance Sheet" },
-        { id: "profit-loss", label: "Profit & Loss" },
-        { id: "cash-flow", label: "Cash Flow" },
-      ],
-    },
-    {
-      id: "diagnostics",
-      label: "System Diagnostics",
-      icon: Activity,
-    },
-  ]
+  const menuItems = useMemo(() => {
+    const customVoucherItems = (voucherTypes || []).map((vt: any) => ({
+      id: `custom-voucher-${vt.id}`,
+      label: vt.name,
+      badge: vt.prefix,
+    }))
+
+    return [
+      { id: "dashboard", label: "Dashboard", icon: Home },
+      {
+        id: "custom-vouchers",
+        label: "Custom Vouchers",
+        icon: Sparkles,
+        badge: customVoucherItems.length > 0 ? String(customVoucherItems.length) : undefined,
+        submenu: [
+          ...customVoucherItems,
+          { id: "voucher-builder", label: "+ Build New Voucher", badge: "Builder" },
+        ],
+      },
+      {
+        id: "vouchers",
+        label: "Standard Vouchers",
+        icon: Wallet,
+        submenu: [
+          { id: "voucher-payment", label: "Payment Voucher" },
+          { id: "voucher-receipt", label: "Receipt Voucher" },
+          { id: "voucher-journal", label: "Journal Voucher" },
+          { id: "voucher-contra", label: "Contra Voucher" },
+          { id: "voucher-sales", label: "Sales Voucher" },
+          { id: "voucher-purchase", label: "Purchase Voucher" },
+        ],
+      },
+      {
+        id: "masters",
+        label: "Masters",
+        icon: Settings,
+        submenu: [
+          { id: "coa", label: "Chart of Accounts" },
+          { id: "periods", label: "Accounting Periods" },
+          { id: "users", label: "Users & Roles" },
+          { id: "companies", label: "Companies" },
+          { id: "custom-voucher-types", label: "Custom Voucher Types" },
+          { id: "voucher-builder", label: "Voucher Builder", badge: "Visual" },
+          { id: "print-templates", label: "Print Templates" },
+        ],
+      },
+      {
+        id: "transactions",
+        label: "Transactions",
+        icon: BookOpen,
+        submenu: [
+          { id: "cashbook", label: "Cashbook" },
+          { id: "bankbook", label: "Bank Book" },
+          { id: "daybook", label: "Day Book" },
+          { id: "pos-sales", label: "POS Sales & Approvals" },
+        ],
+      },
+      {
+        id: "accounts",
+        label: "Accounts",
+        icon: BarChart3,
+        submenu: [
+          { id: "ledger", label: "General Ledger" },
+          { id: "subledger-ar", label: "Accounts Receivable (AR)" },
+          { id: "subledger-ap", label: "Accounts Payable (AP)" },
+          { id: "trial-balance", label: "Trial Balance" },
+        ],
+      },
+      {
+        id: "reports",
+        label: "Reports",
+        icon: PieChart,
+        submenu: [
+          { id: "balance-sheet", label: "Balance Sheet" },
+          { id: "profit-loss", label: "Profit & Loss" },
+          { id: "cash-flow", label: "Cash Flow" },
+        ],
+      },
+      {
+        id: "manual",
+        label: "User Manual & Help",
+        icon: BookOpen,
+      },
+      {
+        id: "diagnostics",
+        label: "System Diagnostics",
+        icon: Activity,
+      },
+    ]
+  }, [voucherTypes])
 
   return (
     <aside className="w-64 bg-sidebar border-r border-sidebar-border h-screen flex flex-col">

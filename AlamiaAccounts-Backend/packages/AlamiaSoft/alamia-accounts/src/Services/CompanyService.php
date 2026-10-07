@@ -202,6 +202,14 @@ class CompanyService
     }
 
     /**
+     * Get a company by code (alias for getDomain).
+     */
+    public function getCompanyByCode(string $code): ?LedgerDomain
+    {
+        return $this->getDomain($code);
+    }
+
+    /**
      * List all domains.
      */
     public function listDomains(): Collection
@@ -281,6 +289,14 @@ class CompanyService
         }
         
         DomainContext::set($code);
+    }
+
+    /**
+     * Get default currency for a company (or active company).
+     */
+    public function getDefaultCurrency(?string $companyCode = null): string
+    {
+        return DomainContext::getDefaultCurrency($companyCode);
     }
 
     /**

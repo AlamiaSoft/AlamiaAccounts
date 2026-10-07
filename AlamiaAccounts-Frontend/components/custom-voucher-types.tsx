@@ -12,6 +12,10 @@ import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { useVoucherTypes } from "@/hooks/use-voucher-types"
+import { useAccounts } from "@/hooks/use-accounts"
+import { useToast } from "@/hooks/use-toast"
+import { Loader2 } from "lucide-react"
 
 interface CustomField {
   id: string
@@ -70,7 +74,10 @@ interface CustomVoucherType {
   id: string
   name: string
   prefix: string
+  company_code?: string
   description: string
+  defaultDebitAccount?: string
+  defaultCreditAccount?: string
   customFields: CustomField[]
   accountRules: AccountRule[]
   validationRules: ValidationRule[]
@@ -82,42 +89,67 @@ interface CustomVoucherType {
 }
 
 export default function CustomVoucherTypes() {
-  const [voucherTypes, setVoucherTypes] = useState<CustomVoucherType[]>([
-    {
-      id: "1",
-      name: "School Fees Voucher",
-      prefix: "SF",
-      description: "Custom voucher for school fee collection",
-      customFields: [
-        { id: "1", name: "Student ID", type: "text", required: true },
-        { id: "2", name: "Class/Grade", type: "dropdown", required: true, options: ["Grade 1", "Grade 2", "Grade 3"] },
-        { id: "3", name: "Term", type: "dropdown", required: true, options: ["Term 1", "Term 2", "Term 3"] },
-      ],
-      accountRules: [
-        { id: "1", side: "debit", accountGroups: ["Cash", "Bank Accounts"] },
-        { id: "2", side: "credit", accountGroups: ["Fee Income"] },
-      ],
-      validationRules: [{ id: "1", fieldName: "Student ID", type: "required", message: "Student ID is mandatory" }],
-      autoCalculationRules: [],
-      defaultValueRules: [],
-      approvalRules: [{ id: "1", condition: "amount > 10000", approverRole: "Principal", minAmount: 10000 }],
-      numberingScheme: {
-        startingNumber: 1,
-        padding: 4,
-        separator: "-",
-        includeYear: true,
-        includeMonth: false,
-        resetPeriod: "yearly",
-      },
-      active: true,
+  const { voucherTypes: apiVoucherTypes, isLoading, createVoucherType, updateVoucherType, deleteVoucherType } = useVoucherTypes()
+  const { accounts } = useAccounts()
+  const { toast } = useToast()
+
+  const voucherTypes = (apiVoucherTypes || []).map((vt: any) => ({
+    id: String(vt.id),
+    name: vt.name,
+    prefix: vt.prefix,
+    company_code: vt.company_code,
+    description: vt.description || "",
+    defaultDebitAccount: vt.default_debit_account || "",
+    defaultCreditAccount: vt.default_credit_account || "",
+    customFields: Array.isArray(vt.custom_fields) ? vt.custom_fields.map((f: any) => ({
+      id: String(f.id || Math.random()),
+      name: f.name,
+      type: f.type || "text",
+      required: Boolean(f.required),
+      options: f.options,
+    })) : [],
+    accountRules: Array.isArray(vt.account_rules) ? vt.account_rules.map((r: any) => ({
+      id: String(r.id || Math.random()),
+      side: r.side,
+      accountGroups: Array.isArray(r.account_groups) ? r.account_groups : (typeof r.account_groups === 'string' ? JSON.parse(r.account_groups || '[]') : []),
+    })) : [],
+    validationRules: Array.isArray(vt.validation_rules) ? vt.validation_rules.map((v: any) => ({
+      id: String(v.id || Math.random()),
+      fieldName: v.field_name || v.fieldName || "",
+      type: v.type,
+      value: v.value,
+      message: v.message,
+    })) : [],
+    autoCalculationRules: Array.isArray(vt.auto_calculation_rules) ? vt.auto_calculation_rules : [],
+    defaultValueRules: Array.isArray(vt.default_value_rules) ? vt.default_value_rules : [],
+    approvalRules: Array.isArray(vt.approval_rules) ? vt.approval_rules : [],
+    numberingScheme: vt.numbering_scheme ? {
+      startingNumber: vt.numbering_scheme.starting_number || 1,
+      padding: vt.numbering_scheme.padding || 4,
+      separator: vt.numbering_scheme.separator || "-",
+      includeYear: Boolean(vt.numbering_scheme.include_year),
+      includeMonth: Boolean(vt.numbering_scheme.include_month),
+      resetPeriod: vt.numbering_scheme.reset_period || "never",
+    } : {
+      startingNumber: 1,
+      padding: 4,
+      separator: "-",
+      includeYear: false,
+      includeMonth: false,
+      resetPeriod: "never",
     },
-  ])
+    active: Boolean(vt.active),
+  }))
+
   const [isCreating, setIsCreating] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
+  const [isSaving, setIsSaving] = useState(false)
   const [formData, setFormData] = useState<Partial<CustomVoucherType>>({
     name: "",
     prefix: "",
     description: "",
+    defaultDebitAccount: "",
+    defaultCreditAccount: "",
     customFields: [],
     accountRules: [],
     validationRules: [],
@@ -149,40 +181,105 @@ export default function CustomVoucherTypes() {
 
   const approverRoles = ["Manager", "Accountant", "Director", "Principal", "CFO", "CEO"]
 
-  const handleSave = () => {
-    if (editingId) {
-      setVoucherTypes(
-        voucherTypes.map((vt) => (vt.id === editingId ? ({ ...formData, id: editingId } as CustomVoucherType) : vt)),
-      )
-    } else {
-      const newVoucherType: CustomVoucherType = {
-        ...formData,
-        id: Date.now().toString(),
-      } as CustomVoucherType
-      setVoucherTypes([...voucherTypes, newVoucherType])
+  const handleSave = async () => {
+    if (!formData.name?.trim()) {
+      toast({
+        title: "Validation Error",
+        description: "Voucher Type Name is required.",
+        variant: "destructive",
+      })
+      return
     }
-    setIsCreating(false)
-    setEditingId(null)
-    setFormData({
-      name: "",
-      prefix: "",
-      description: "",
-      customFields: [],
-      accountRules: [],
-      validationRules: [],
-      autoCalculationRules: [],
-      defaultValueRules: [],
-      approvalRules: [],
-      numberingScheme: {
-        startingNumber: 1,
-        padding: 4,
-        separator: "-",
-        includeYear: false,
-        includeMonth: false,
-        resetPeriod: "never",
-      },
-      active: true,
-    })
+    if (!formData.prefix?.trim()) {
+      toast({
+        title: "Validation Error",
+        description: "Prefix is required.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    setIsSaving(true)
+    try {
+      const payload = {
+        name: formData.name.trim(),
+        prefix: formData.prefix.trim().toUpperCase(),
+        description: formData.description?.trim() || "",
+        default_debit_account: formData.defaultDebitAccount || null,
+        default_credit_account: formData.defaultCreditAccount || null,
+        active: formData.active ?? true,
+        custom_fields: (formData.customFields || []).map((f) => ({
+          name: f.name,
+          type: f.type,
+          required: Boolean(f.required),
+          options: f.options || null,
+        })),
+        account_rules: (formData.accountRules || []).map((r) => ({
+          side: r.side,
+          account_groups: r.accountGroups || [],
+        })),
+        validation_rules: (formData.validationRules || []).map((v) => ({
+          field_name: v.fieldName,
+          type: v.type,
+          value: v.value,
+          message: v.message,
+        })),
+        numbering_scheme: formData.numberingScheme ? {
+          starting_number: formData.numberingScheme.startingNumber,
+          padding: formData.numberingScheme.padding,
+          separator: formData.numberingScheme.separator,
+          include_year: formData.numberingScheme.includeYear,
+          include_month: formData.numberingScheme.includeMonth,
+          reset_period: formData.numberingScheme.resetPeriod,
+        } : null,
+      }
+
+      if (editingId) {
+        await updateVoucherType.mutateAsync({ id: parseInt(editingId), data: payload })
+        toast({
+          title: "Voucher Type Updated",
+          description: `Custom Voucher "${formData.name}" has been updated.`,
+        })
+      } else {
+        await createVoucherType.mutateAsync(payload)
+        toast({
+          title: "Voucher Type Created 🎉",
+          description: `Custom Voucher "${formData.name}" has been created and saved.`,
+        })
+      }
+
+      setIsCreating(false)
+      setEditingId(null)
+      setFormData({
+        name: "",
+        prefix: "",
+        description: "",
+        customFields: [],
+        accountRules: [],
+        validationRules: [],
+        autoCalculationRules: [],
+        defaultValueRules: [],
+        approvalRules: [],
+        numberingScheme: {
+          startingNumber: 1,
+          padding: 4,
+          separator: "-",
+          includeYear: false,
+          includeMonth: false,
+          resetPeriod: "never",
+        },
+        active: true,
+      })
+    } catch (err: any) {
+      console.error("Save custom voucher type error:", err)
+      toast({
+        title: "Save Failed",
+        description: err?.response?.data?.error || err?.message || "Failed to save custom voucher type.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsSaving(false)
+    }
   }
 
   const handleEdit = (voucherType: CustomVoucherType) => {
@@ -191,8 +288,20 @@ export default function CustomVoucherTypes() {
     setIsCreating(true)
   }
 
-  const handleDelete = (id: string) => {
-    setVoucherTypes(voucherTypes.filter((vt) => vt.id !== id))
+  const handleDelete = async (id: string) => {
+    try {
+      await deleteVoucherType.mutateAsync(parseInt(id))
+      toast({
+        title: "Voucher Type Deleted",
+        description: "Custom voucher type has been removed.",
+      })
+    } catch (err: any) {
+      toast({
+        title: "Delete Failed",
+        description: err?.message || "Failed to delete voucher type.",
+        variant: "destructive",
+      })
+    }
   }
 
   const addCustomField = () => {
@@ -383,8 +492,8 @@ export default function CustomVoucherTypes() {
               <X className="w-4 h-4 mr-2" />
               Cancel
             </Button>
-            <Button onClick={handleSave}>
-              <Save className="w-4 h-4 mr-2" />
+            <Button onClick={handleSave} disabled={isSaving} className="min-w-[150px]">
+              {isSaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
               Save Voucher Type
             </Button>
           </div>
@@ -421,6 +530,48 @@ export default function CustomVoucherTypes() {
                 value={formData.description}
                 onChange={(e) => setFormData({ ...formData, description: e.target.value })}
               />
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-3 border-t">
+              <div className="space-y-2">
+                <Label className="font-semibold text-xs uppercase text-primary">Default Debit (Dr) Account</Label>
+                <Select
+                  value={formData.defaultDebitAccount || ""}
+                  onValueChange={(val) => setFormData({ ...formData, defaultDebitAccount: val })}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select Default Debit Account" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(accounts || []).filter((a: any) => !a.category).map((a: any) => (
+                      <SelectItem key={a.code} value={a.code}>
+                        [{a.code}] {a.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-[11px] text-muted-foreground">Default account debited upon voucher creation</p>
+              </div>
+
+              <div className="space-y-2">
+                <Label className="font-semibold text-xs uppercase text-primary">Default Credit (Cr) Account</Label>
+                <Select
+                  value={formData.defaultCreditAccount || ""}
+                  onValueChange={(val) => setFormData({ ...formData, defaultCreditAccount: val })}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select Default Credit Account" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(accounts || []).filter((a: any) => !a.category).map((a: any) => (
+                      <SelectItem key={a.code} value={a.code}>
+                        [{a.code}] {a.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-[11px] text-muted-foreground">Default account credited upon voucher creation</p>
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -1065,6 +1216,7 @@ export default function CustomVoucherTypes() {
                 <TableHead>Name</TableHead>
                 <TableHead>Prefix</TableHead>
                 <TableHead>Description</TableHead>
+                <TableHead>Default Posting Accounts</TableHead>
                 <TableHead>Custom Fields</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
@@ -1078,6 +1230,24 @@ export default function CustomVoucherTypes() {
                     <Badge variant="outline">{voucherType.prefix}</Badge>
                   </TableCell>
                   <TableCell className="max-w-xs truncate">{voucherType.description}</TableCell>
+                  <TableCell>
+                    {voucherType.defaultDebitAccount || voucherType.defaultCreditAccount ? (
+                      <div className="text-xs space-y-0.5 font-mono">
+                        {voucherType.defaultDebitAccount && (
+                          <div className="text-emerald-700 dark:text-emerald-400">
+                            Dr: [{voucherType.defaultDebitAccount}]
+                          </div>
+                        )}
+                        {voucherType.defaultCreditAccount && (
+                          <div className="text-blue-700 dark:text-blue-400">
+                            Cr: [{voucherType.defaultCreditAccount}]
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <span className="text-xs text-muted-foreground italic">None configured</span>
+                    )}
+                  </TableCell>
                   <TableCell>{voucherType.customFields.length} fields</TableCell>
                   <TableCell>
                     <Badge variant={voucherType.active ? "default" : "secondary"}>

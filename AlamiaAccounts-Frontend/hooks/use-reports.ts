@@ -53,6 +53,18 @@ export function useLedger(accountCode: string, fromDate: string, toDate: string,
     })
 }
 
+export function useBankBook(bankAccount?: string, fromDate?: string, toDate?: string, currency: string = 'PKR') {
+    const company = getCompanyCode()
+    return useQuery({
+        queryKey: ['report', 'bank-book', company, bankAccount || 'ALL', fromDate, toDate, currency],
+        queryFn: async () => {
+            const response = await reportApi.bankBook(bankAccount, fromDate, toDate, currency)
+            return response.data.data
+        },
+        enabled: !!fromDate && !!toDate,
+    })
+}
+
 export function useReceivables(asOfDate: string, currency: string = 'PKR') {
     const company = getCompanyCode()
     return useQuery({
@@ -76,3 +88,16 @@ export function usePayables(asOfDate: string, currency: string = 'PKR') {
         enabled: !!asOfDate,
     })
 }
+
+export function useBalanceSheetDiagnostics(asOfDate?: string, currency: string = 'PKR') {
+    const company = getCompanyCode()
+    return useQuery({
+        queryKey: ['report', 'balance-sheet-diagnostics', company, asOfDate, currency],
+        queryFn: async () => {
+            const response = await reportApi.balanceSheetDiagnostics(asOfDate, currency)
+            return response.data.data
+        },
+        enabled: !!asOfDate,
+    })
+}
+

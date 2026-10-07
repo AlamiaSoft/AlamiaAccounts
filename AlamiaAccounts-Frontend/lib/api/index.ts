@@ -47,6 +47,7 @@ export const voucherApi = {
     delete: (reference: string) => apiClient.delete(`/vouchers/${reference}`),
     reverse: (reference: string, data?: { date?: string; reason?: string }) =>
         apiClient.post(`/vouchers/${reference}/reverse`, data || {}),
+    clearAll: () => apiClient.post('/vouchers/clear-all'),
 }
 
 // Accounting Periods API
@@ -124,8 +125,23 @@ export const reportApi = {
         apiClient.get('/reports/balance-sheet', { params: { as_of_date: asOfDate, currency } }),
     ledger: (accountCode: string, fromDate: string, toDate: string, currency: string) =>
         apiClient.get('/reports/ledger', { params: { account_code: accountCode, from_date: fromDate, to_date: toDate, currency } }),
+    bankBook: (bankAccount?: string, fromDate?: string, toDate?: string, currency: string = 'PKR') =>
+        apiClient.get('/reports/bank-book', { params: { bank_account: bankAccount, from_date: fromDate, to_date: toDate, currency } }),
     receivables: (asOfDate: string, currency: string = 'PKR') =>
         apiClient.get('/reports/receivables', { params: { as_of_date: asOfDate, currency } }),
     payables: (asOfDate: string, currency: string = 'PKR') =>
         apiClient.get('/reports/payables', { params: { as_of_date: asOfDate, currency } }),
+    balanceSheetDiagnostics: (asOfDate?: string, currency: string = 'PKR') =>
+        apiClient.get('/reports/balance-sheet-diagnostics', { params: { as_of_date: asOfDate, currency } }),
+}
+
+// Front-Office Sales & POS API
+export const salesApi = {
+    getAll: (params?: any) => apiClient.get('/v1/sales', { params }),
+    getOne: (id: number | string) => apiClient.get(`/v1/sales/${id}`),
+    create: (data: any) => apiClient.post('/v1/sales', data),
+    approve: (id: number | string, data?: { approver_name?: string }) =>
+        apiClient.post(`/v1/sales/${id}/approve`, data || {}),
+    reconcileShift: (params?: any) => apiClient.get('/v1/sales/reconcile-shift', { params }),
+    getReceiptUrl: (id: number | string) => `/api/v1/receipts/${id}/print`,
 }

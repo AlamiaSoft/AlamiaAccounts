@@ -28,10 +28,11 @@ class CustomVoucherTypeController extends Controller
      * )
      */
 
-    public function index()
+    public function index(Request $request)
     {
         try {
-            $types = $this->voucherTypeService->getAllVoucherTypes();
+            $companyCode = $request->header('X-Company-Code') ?? $request->query('company_code');
+            $types = $this->voucherTypeService->getAllVoucherTypes($companyCode);
             
             return response()->json([
                 'data' => $types
@@ -93,22 +94,37 @@ class CustomVoucherTypeController extends Controller
      */
     public function store(Request $request)
     {
-        $validated = $request->validate([
+        $input = $request->all();
+        if (empty($input['company_code'])) {
+            $input['company_code'] = $request->header('X-Company-Code') ?? $request->query('company_code');
+        }
+
+        $validated = validator($input, [
             'name' => 'required|string|max:255',
             'prefix' => 'required|string|max:10',
+            'company_code' => 'nullable|string|max:50',
             'description' => 'nullable|string',
+            'default_debit_account' => 'nullable|string|max:50',
+            'default_credit_account' => 'nullable|string|max:50',
             'active' => 'boolean',
             'custom_fields' => 'array',
             'custom_fields.*.name' => 'required|string',
             'custom_fields.*.type' => 'required|string',
             'custom_fields.*.required' => 'boolean',
-            'custom_fields.*.options' => 'array',
+            'custom_fields.*.options' => 'nullable|array',
+            'custom_fields.*.formula' => 'nullable|string',
+            'custom_fields.*.width' => 'nullable|string',
+            'custom_fields.*.section' => 'nullable|string',
+            'custom_fields.*.helpText' => 'nullable|string',
             'account_rules' => 'array',
             'validation_rules' => 'array',
             'auto_calculation_rules' => 'array',
             'default_value_rules' => 'array',
             'approval_rules' => 'array',
-        ]);
+            'numbering_scheme' => 'nullable|array',
+            'sections' => 'nullable|array',
+            'permissions' => 'nullable|array',
+        ])->validate();
 
         try {
             $type = $this->voucherTypeService->createVoucherType($validated);
@@ -129,10 +145,18 @@ class CustomVoucherTypeController extends Controller
      */
     public function update(Request $request, $id)
     {
-        $validated = $request->validate([
+        $input = $request->all();
+        if (empty($input['company_code'])) {
+            $input['company_code'] = $request->header('X-Company-Code') ?? $request->query('company_code');
+        }
+
+        $validated = validator($input, [
             'name' => 'required|string|max:255',
             'prefix' => 'required|string|max:10',
+            'company_code' => 'nullable|string|max:50',
             'description' => 'nullable|string',
+            'default_debit_account' => 'nullable|string|max:50',
+            'default_credit_account' => 'nullable|string|max:50',
             'active' => 'boolean',
             'custom_fields' => 'array',
             'account_rules' => 'array',
@@ -140,10 +164,13 @@ class CustomVoucherTypeController extends Controller
             'auto_calculation_rules' => 'array',
             'default_value_rules' => 'array',
             'approval_rules' => 'array',
-        ]);
+            'numbering_scheme' => 'nullable|array',
+            'sections' => 'nullable|array',
+            'permissions' => 'nullable|array',
+        ])->validate();
 
         try {
-            $type = $this->voucherTypeService->updateVoucherType($id, $validated);
+            $type = $this->voucherTypeService->updateVoucherType((int)$id, $validated);
             
             return response()->json([
                 'data' => $type,

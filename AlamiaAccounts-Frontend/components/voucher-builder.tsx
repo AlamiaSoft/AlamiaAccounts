@@ -32,6 +32,10 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Separator } from "@/components/ui/separator"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { useVoucherTypes } from "@/hooks/use-voucher-types"
+import { useAccounts } from "@/hooks/use-accounts"
+import { useToast } from "@/hooks/use-toast"
+import { Loader2 } from "lucide-react"
 
 interface VoucherField {
   id: string
@@ -87,6 +91,8 @@ export default function VoucherBuilder() {
   const [voucherName, setVoucherName] = useState("")
   const [voucherPrefix, setVoucherPrefix] = useState("")
   const [description, setDescription] = useState("")
+  const [defaultDebitAccount, setDefaultDebitAccount] = useState("")
+  const [defaultCreditAccount, setDefaultCreditAccount] = useState("")
 
   const [fields, setFields] = useState<VoucherField[]>([])
   const [sections, setSections] = useState<FieldSection[]>([
@@ -106,6 +112,112 @@ export default function VoucherBuilder() {
 
   const [draggedField, setDraggedField] = useState<VoucherField | null>(null)
   const [previewMode, setPreviewMode] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
+
+  // Numbering scheme states
+  const [startingNumber, setStartingNumber] = useState(1)
+  const [padding, setPadding] = useState(4)
+  const [resetPeriod, setResetPeriod] = useState<"never" | "yearly" | "monthly" | "quarterly">("yearly")
+  const [includeYear, setIncludeYear] = useState(true)
+
+  const { createVoucherType } = useVoucherTypes()
+  const { accounts } = useAccounts()
+  const { toast } = useToast()
+
+  const handleSave = async () => {
+    if (!voucherName.trim()) {
+      toast({
+        title: "Validation Error",
+        description: "Please enter a Voucher Type Name before saving.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    if (!voucherPrefix.trim()) {
+      toast({
+        title: "Validation Error",
+        description: "Please enter a Prefix (e.g., TKT, SF, EXP).",
+        variant: "destructive",
+      })
+      return
+    }
+
+    setIsSaving(true)
+    try {
+      const payload = {
+        name: voucherName.trim(),
+        prefix: voucherPrefix.trim().toUpperCase(),
+        description: description.trim(),
+        default_debit_account: defaultDebitAccount,
+        default_credit_account: defaultCreditAccount,
+        active: true,
+        custom_fields: fields.map((f) => ({
+          name: f.name,
+          type: f.type,
+          required: Boolean(f.required),
+          options: f.options || null,
+          formula: f.formula || null,
+          width: f.width || "full",
+          section: f.section || "default",
+          helpText: f.helpText || null,
+        })),
+        account_rules: [
+          { side: "debit", account_groups: ["Cash", "Bank Accounts", "Accounts Receivable"] },
+          { side: "credit", account_groups: ["Revenue", "Fee Income", "Accounts Payable"] },
+        ],
+        numbering_scheme: {
+          starting_number: startingNumber,
+          padding: padding,
+          separator: "-",
+          include_year: includeYear,
+          include_month: false,
+          reset_period: resetPeriod,
+        },
+        sections: sections,
+        permissions: permissions,
+      }
+
+      await createVoucherType.mutateAsync(payload)
+
+      toast({
+        title: "Voucher Type Saved Successfully! 🎉",
+        description: `Custom Voucher "${voucherName}" (${voucherPrefix.toUpperCase()}) is now active and accessible under Vouchers in the sidebar.`,
+      })
+    } catch (err: any) {
+      console.error("Failed to save voucher template:", err)
+      toast({
+        title: "Failed to Save Voucher Type",
+        description: err?.response?.data?.error || err?.response?.data?.message || err?.message || "Server error while saving voucher type.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  const loadKamalExpressPreset = () => {
+    setVoucherName("Airline Ticket Booking")
+    setVoucherPrefix("TKT")
+    setDescription("Kamal Express counter ticket booking voucher with PNR, passenger info, and revenue ledger integration.")
+    setDefaultDebitAccount("1110")
+    setDefaultCreditAccount("3100")
+    setFields([
+      { id: "1", name: "Passenger Name", type: "text", required: true, width: "half", section: "default" },
+      { id: "2", name: "Passport / CNIC", type: "text", required: true, width: "half", section: "default" },
+      { id: "3", name: "PNR", type: "text", required: true, width: "half", section: "default" },
+      { id: "4", name: "Airline", type: "dropdown", required: true, width: "half", section: "default", options: ["PIA", "Saudia", "Emirates", "Qatar Airways", "Airblue", "Fly Jinnah", "Gulf Air"] },
+      { id: "5", name: "Sector / Route", type: "text", required: true, width: "half", section: "default" },
+      { id: "6", name: "Ticket Number", type: "text", required: false, width: "half", section: "default" },
+      { id: "7", name: "Gross Fare", type: "number", required: true, width: "half", section: "default" },
+      { id: "8", name: "Agent Commission", type: "number", required: false, width: "half", section: "default" },
+      { id: "9", name: "Payment Mode", type: "dropdown", required: true, width: "half", section: "default", options: ["Cash", "Bank Transfer", "Credit Card", "Customer Receivable"] },
+    ])
+    toast({
+      title: "Preset Loaded",
+      description: "Kamal Express Airline Ticket Booking preset loaded into builder canvas.",
+    })
+  }
 
   const fieldTypes = [
     { type: "text", label: "Text", icon: "T" },
@@ -251,6 +363,10 @@ export default function VoucherBuilder() {
           <p className="text-muted-foreground mt-1">Design custom voucher types with drag-and-drop</p>
         </div>
         <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={loadKamalExpressPreset} className="border-primary/40 text-primary hover:bg-primary/10">
+            <Zap className="w-4 h-4 mr-2 text-amber-500" />
+            Kamal Express Preset
+          </Button>
           <Button variant="outline" size="sm" onClick={exportTemplate}>
             <Download className="w-4 h-4 mr-2" />
             Export
@@ -264,8 +380,8 @@ export default function VoucherBuilder() {
             {previewMode ? <EyeOff className="w-4 h-4 mr-2" /> : <Eye className="w-4 h-4 mr-2" />}
             {previewMode ? "Edit Mode" : "Preview"}
           </Button>
-          <Button>
-            <Save className="w-4 h-4 mr-2" />
+          <Button onClick={handleSave} disabled={isSaving} className="min-w-[140px]">
+            {isSaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
             Save Template
           </Button>
         </div>
@@ -299,6 +415,38 @@ export default function VoucherBuilder() {
             <div className="space-y-2">
               <Label>Prefix</Label>
               <Input placeholder="e.g., SF" value={voucherPrefix} onChange={(e) => setVoucherPrefix(e.target.value)} />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>Default Debit Account</Label>
+              <Select value={defaultDebitAccount} onValueChange={setDefaultDebitAccount}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select Debit Account" />
+                </SelectTrigger>
+                <SelectContent>
+                  {accounts.map((acc: any) => (
+                    <SelectItem key={acc.code} value={acc.code}>
+                      {acc.code} - {acc.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Default Credit Account</Label>
+              <Select value={defaultCreditAccount} onValueChange={setDefaultCreditAccount}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select Credit Account" />
+                </SelectTrigger>
+                <SelectContent>
+                  {accounts.map((acc: any) => (
+                    <SelectItem key={acc.code} value={acc.code}>
+                      {acc.code} - {acc.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           </div>
           <div className="space-y-2">
@@ -570,44 +718,55 @@ export default function VoucherBuilder() {
                     <div className="grid grid-cols-2 gap-4">
                       <div className="space-y-2">
                         <Label>Starting Number</Label>
-                        <Input type="number" defaultValue="1" />
+                        <Input
+                          type="number"
+                          value={startingNumber}
+                          min={1}
+                          onChange={(e) => setStartingNumber(parseInt(e.target.value) || 1)}
+                        />
                       </div>
                       <div className="space-y-2">
                         <Label>Number Padding</Label>
-                        <Input type="number" defaultValue="4" min="0" max="10" />
+                        <Input
+                          type="number"
+                          value={padding}
+                          min={1}
+                          max={10}
+                          onChange={(e) => setPadding(Math.max(1, parseInt(e.target.value) || 4))}
+                        />
                       </div>
                     </div>
                     <div className="grid grid-cols-2 gap-4">
                       <div className="space-y-2">
-                        <Label>Branch Code (Optional)</Label>
-                        <Input placeholder="e.g., HQ, BR01" />
+                        <Label>Include Year in Numbering</Label>
+                        <div className="flex items-center gap-2 pt-2">
+                          <Checkbox
+                            checked={includeYear}
+                            onCheckedChange={(checked) => setIncludeYear(Boolean(checked))}
+                          />
+                          <Label className="text-sm font-normal">Include current fiscal year (e.g. 2026)</Label>
+                        </div>
                       </div>
                       <div className="space-y-2">
-                        <Label>Department Code (Optional)</Label>
-                        <Input placeholder="e.g., ACC, FIN" />
+                        <Label>Reset Period</Label>
+                        <Select value={resetPeriod} onValueChange={(v: any) => setResetPeriod(v)}>
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="never">Never</SelectItem>
+                            <SelectItem value="yearly">Financial Year</SelectItem>
+                            <SelectItem value="monthly">Monthly</SelectItem>
+                            <SelectItem value="quarterly">Quarterly</SelectItem>
+                          </SelectContent>
+                        </Select>
                       </div>
                     </div>
-                    <div className="space-y-2">
-                      <Label>Reset Period</Label>
-                      <Select defaultValue="yearly">
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="never">Never</SelectItem>
-                          <SelectItem value="yearly">Financial Year</SelectItem>
-                          <SelectItem value="monthly">Monthly</SelectItem>
-                          <SelectItem value="quarterly">Quarterly</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Checkbox defaultChecked />
-                      <Label>Draft vouchers use temporary numbering</Label>
-                    </div>
                     <div className="p-3 bg-muted rounded-md">
-                      <Label className="text-sm font-medium">Preview:</Label>
-                      <p className="text-sm text-muted-foreground mt-1">{voucherPrefix || "SF"}-HQ-2024-0001</p>
+                      <Label className="text-sm font-medium">Voucher Number Preview:</Label>
+                      <p className="text-sm font-mono font-semibold text-primary mt-1">
+                        {voucherPrefix || "TKT"}{includeYear ? `-${new Date().getFullYear()}` : ""}-{String(startingNumber).padStart(padding, "0")}
+                      </p>
                     </div>
                   </CardContent>
                 </Card>

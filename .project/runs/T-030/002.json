@@ -1,0 +1,8 @@
+{
+  "task_id": "T-030",
+  "run_id": "002",
+  "timestamp": "2026-10-07T15:30:41.953Z",
+  "action": "FINISH",
+  "git_commit": "e9a94d4",
+  "evidence": "Implemented BankBook component with multi-bank filter, running balances, Tally keyboard navigation, CSV export, and registered ?page=bankbook in sidebar and app routing."
+}

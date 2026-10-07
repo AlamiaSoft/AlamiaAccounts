@@ -87,7 +87,10 @@ class VoucherService
         // Verify non-zero amounts (NEG-004) and collect accounts
         $accountCodes = [];
         foreach ($entries as $item) {
-            $amt = (float)($item['amount'] ?? $item['debit'] ?? $item['credit'] ?? 0);
+            $amt = (float)($item['amount'] ?? 0);
+            if ($amt <= 0) {
+                $amt = max((float)($item['debit'] ?? 0), (float)($item['credit'] ?? 0));
+            }
             if ($amt <= 0) {
                 throw new Exception("Voucher line item amount must be greater than zero");
             }
@@ -157,11 +160,18 @@ class VoucherService
                 }
             }
 
-            $message->extra = json_encode([
+            $extraData = [
                 'reference' => $data['reference'] ?? null,
                 'voucher_number' => $data['voucher_number'] ?? null,
                 'voucher_type' => $voucherType,
-            ]);
+            ];
+            if (!empty($data['custom_fields'])) {
+                $extraData['custom_fields'] = $data['custom_fields'];
+            }
+            if (!empty($data['type'])) {
+                $extraData['type'] = $data['type'];
+            }
+            $message->extra = json_encode($extraData);
         }
 
         $details = [];
@@ -171,13 +181,16 @@ class VoucherService
             $detail->account = new EntityRef($accountCode);
 
             $rawAmount = (float)($item['amount'] ?? 0);
+            if ($rawAmount <= 0) {
+                $rawAmount = max((float)($item['debit'] ?? 0), (float)($item['credit'] ?? 0));
+            }
             $isCredit = false;
             if (isset($item['type'])) {
                 $isCredit = strtolower($item['type']) === 'credit';
-            } elseif (isset($item['credit']) && $item['credit']) {
+            } elseif (isset($item['credit']) && (float)$item['credit'] > 0) {
                 $isCredit = true;
-            } elseif (isset($item['debit']) && !$item['debit']) {
-                $isCredit = true;
+            } elseif (isset($item['debit']) && (float)$item['debit'] > 0) {
+                $isCredit = false;
             }
 
             // In Abivia: debit is positive, credit is negative
@@ -277,6 +290,8 @@ class VoucherService
 
             $ref = 'JV-' . $entry->journalEntryId;
             $voucherType = 'Journal';
+            $customFields = null;
+            $rawType = null;
             if (!empty($entry->extra)) {
                 if (is_string($entry->extra) && str_starts_with(trim($entry->extra), '{')) {
                     $decoded = json_decode($entry->extra, true);
@@ -284,6 +299,8 @@ class VoucherService
                     if (!empty($decoded['voucher_type'])) {
                         $voucherType = ucfirst($decoded['voucher_type']);
                     }
+                    $customFields = $decoded['custom_fields'] ?? null;
+                    $rawType = $decoded['type'] ?? null;
                 } else {
                     $ref = (string) $entry->extra;
                 }
@@ -322,6 +339,8 @@ class VoucherService
                 'amount' => $details->where('debit', '>', 0)->sum('debit'),
                 'line_items' => $details,
                 'details' => $details,
+                'custom_fields' => $customFields,
+                'custom_voucher_type' => $voucherType,
             ];
         });
     }
@@ -556,5 +575,54 @@ class VoucherService
                 ]
             ],
         ]);
+    }
+
+    /**
+     * Clear / Reset all transactions and vouchers for the current tenant domain.
+     * Preserves Chart of Accounts, settings, custom voucher types, and periods.
+     *
+     * @param string|null $domainCode
+     * @return int Count of deleted journal entries
+     */
+    public function clearAllTransactions(?string $domainCode = null): int
+    {
+        $domain = $domainCode
+            ? LedgerDomain::where('code', $domainCode)->first()
+            : $this->getCurrentDomain();
+
+        if (!$domain) {
+            $domain = $this->getCurrentDomain();
+        }
+
+        $entryIds = DomainJournalEntry::where('domainUuid', $domain->domainUuid)
+            ->pluck('journalEntryId')
+            ->toArray();
+
+        $count = count($entryIds);
+
+        if ($count > 0) {
+            DB::transaction(function () use ($domain, $entryIds, $count) {
+                // Delete details from journal_details
+                DB::table('journal_details')->whereIn('journalEntryId', $entryIds)->delete();
+                // Delete entries from journal_entries
+                DB::table('journal_entries')->whereIn('journalEntryId', $entryIds)->delete();
+                // Delete domain association
+                DomainJournalEntry::where('domainUuid', $domain->domainUuid)->delete();
+
+                // Record administrative audit trail
+                AccountingAuditTrail::record(
+                    $domain->domainUuid,
+                    'RESET_ALL_TRANSACTIONS',
+                    'system',
+                    'ALL',
+                    [
+                        'cleared_vouchers_count' => $count,
+                        'reason' => 'Administrator reset all tenant transactions'
+                    ]
+                );
+            });
+        }
+
+        return $count;
     }
 }

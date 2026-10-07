@@ -20,12 +20,18 @@ import UserView from "@/components/user-view"
 import LedgerDetailView from "@/components/ledger-detail-view"
 import PrintTemplateSettings, { type PrintSettings } from "@/components/print-template-settings"
 import Cashbook from "@/components/cashbook"
+import BankBook from "@/components/bank-book"
 import DayBook from "@/components/daybook"
+import SubledgerAR from "@/components/subledger-ar"
+import SubledgerAP from "@/components/subledger-ap"
 import CustomVoucherTypes from "@/components/custom-voucher-types"
 import VoucherBuilder from "@/components/voucher-builder"
 import PeriodManagement from "@/components/period-management"
 import CopilotWidget from "@/components/copilot-widget"
 import SystemDiagnostics from "@/components/system-diagnostics"
+import UserManual from "@/components/user-manual"
+import PosSalesApproval from "@/components/pos-sales-approval"
+import CustomVoucherEntry from "@/components/custom-voucher-entry"
 import { useCompanies } from "@/hooks/use-companies"
 import { useVouchers } from "@/hooks/use-vouchers"
 import { Loader2 } from "lucide-react"
@@ -52,10 +58,36 @@ function HomeContent() {
   // Sync if URL search params change externally (such as browser back/forward)
   useEffect(() => {
     setCurrentPage(pageFromUrl)
+    if (pageFromUrl !== "voucher-view") {
+      setSelectedVoucher(null)
+      setVoucherViewMode("create")
+    }
+    if (pageFromUrl !== "account-view") {
+      setSelectedAccount(null)
+    }
+    if (pageFromUrl !== "user-view") {
+      setSelectedUser(null)
+    }
+    if (pageFromUrl !== "ledger-detail-view") {
+      setSelectedLedgerAccount(null)
+    }
   }, [pageFromUrl])
 
   const handlePageChange = (page: string) => {
     setCurrentPage(page)
+    if (page !== "voucher-view") {
+      setSelectedVoucher(null)
+      setVoucherViewMode("create")
+    }
+    if (page !== "account-view") {
+      setSelectedAccount(null)
+    }
+    if (page !== "user-view") {
+      setSelectedUser(null)
+    }
+    if (page !== "ledger-detail-view") {
+      setSelectedLedgerAccount(null)
+    }
     if (typeof window !== "undefined") {
       localStorage.setItem("current_page", page)
       const url = new URL(window.location.href)
@@ -434,8 +466,13 @@ function HomeContent() {
                 setSelectedVoucher(null)
               }}
               onEdit={() => {
-                const voucherTypePage = `voucher-${selectedVoucher.type}` as any
-                setCurrentPage(voucherTypePage)
+                const vType = (selectedVoucher.type || "journal").toLowerCase()
+                const standardTypes = ["payment", "receipt", "journal", "contra", "sales", "purchase", "general"]
+                if (standardTypes.includes(vType)) {
+                  setCurrentPage(`voucher-${vType}`)
+                } else {
+                  setCurrentPage(`custom-voucher-${vType}`)
+                }
               }}
             />
           )
@@ -485,10 +522,34 @@ function HomeContent() {
                 setCurrentPage("ledger")
                 setSelectedLedgerAccount(null)
               }}
+              onNavigateToVoucher={(ref) => {
+                handleSearchResultClick({
+                  id: ref,
+                  type: "voucher",
+                  title: `Voucher ${ref}`,
+                })
+              }}
+              onSelectAccount={(acc) => {
+                setSelectedLedgerAccount(acc)
+              }}
             />
           )
         }
-        return <LedgerView />
+        return (
+          <LedgerView
+            onNavigateToVoucher={(ref) => {
+              handleSearchResultClick({
+                id: ref,
+                type: "voucher",
+                title: `Voucher ${ref}`,
+              })
+            }}
+            onSelectAccount={(acc) => {
+              setSelectedLedgerAccount(acc)
+              setCurrentPage("ledger-detail-view")
+            }}
+          />
+        )
       case "voucher-payment":
       case "voucher-receipt":
       case "voucher-journal":
@@ -508,10 +569,70 @@ function HomeContent() {
         )
       case "cashbook":
         return <Cashbook />
+      case "bankbook":
+      case "bank-book":
+        return (
+          <BankBook
+            onNavigateToVoucher={(ref) => {
+              handleSearchResultClick({
+                id: ref,
+                type: "voucher",
+                title: `Voucher ${ref}`,
+              })
+            }}
+            onBack={() => setCurrentPage("dashboard")}
+          />
+        )
       case "daybook":
         return <DayBook />
+      case "pos-sales":
+      case "pos-approvals":
+      case "sales":
+        return <PosSalesApproval />
       case "ledger":
-        return <LedgerView />
+        return (
+          <LedgerView
+            onNavigateToVoucher={(ref) => {
+              handleSearchResultClick({
+                id: ref,
+                type: "voucher",
+                title: `Voucher ${ref}`,
+              })
+            }}
+            onSelectAccount={(acc) => {
+              setSelectedLedgerAccount(acc)
+              setCurrentPage("ledger-detail-view")
+            }}
+          />
+        )
+      case "subledger-ar":
+      case "receivables":
+        return (
+          <SubledgerAR
+            onNavigateToVoucher={(ref) => {
+              handleSearchResultClick({
+                id: ref,
+                type: "voucher",
+                title: `Voucher ${ref}`,
+              })
+            }}
+            onBack={() => setCurrentPage("dashboard")}
+          />
+        )
+      case "subledger-ap":
+      case "payables":
+        return (
+          <SubledgerAP
+            onNavigateToVoucher={(ref) => {
+              handleSearchResultClick({
+                id: ref,
+                type: "voucher",
+                title: `Voucher ${ref}`,
+              })
+            }}
+            onBack={() => setCurrentPage("dashboard")}
+          />
+        )
       case "trial-balance":
       case "balance-sheet":
       case "profit-loss":
@@ -530,7 +651,29 @@ function HomeContent() {
       case "diagnostics":
       case "system-diagnostics":
         return <SystemDiagnostics />
+      case "manual":
+      case "user-manual":
+      case "help":
+        return <UserManual />
       default:
+        if (currentPage.startsWith("custom-voucher-")) {
+          const typeId = currentPage.replace("custom-voucher-", "")
+          return (
+            <CustomVoucherEntry
+              voucherTypeId={typeId}
+              currentCompany={currentCompany || companies[0]}
+              onBack={() => setCurrentPage("dashboard")}
+              onSuccessNavigate={(voucher) => {
+                handleSearchResultClick({
+                  id: voucher.reference || voucher.number,
+                  type: "voucher",
+                  title: `Voucher ${voucher.reference || voucher.number}`,
+                  rawItem: voucher,
+                })
+              }}
+            />
+          )
+        }
         return <Dashboard />
     }
   }

@@ -219,8 +219,9 @@ class AccountService
 
     /**
      * Get all accounts formatted with parent_code, balances, and types for UI/API.
+     * Optionally filtered by voucher_type, side ('debit'/'credit'), allowed groups, or posting_only.
      */
-    public function getChartOfAccountsFormatted(): array
+    public function getChartOfAccountsFormatted(?array $filters = null): array
     {
         $currentDomain = $this->getCurrentDomain();
         $accountUuids = DomainLedgerAccount::getAccountUuidsForDomain($currentDomain->domainUuid);
@@ -284,7 +285,147 @@ class AccountService
             ];
         }
 
-        return $result;
+        // Apply parametric server-side filtering if requested
+        if (!empty($filters)) {
+            $result = $this->applyAccountFilters($result, $filters);
+        }
+
+        return array_values($result);
+    }
+
+    /**
+     * Check whether an account satisfies an account group name.
+     */
+    public function isAccountInGroup(array $account, string $groupName): bool
+    {
+        $g = strtolower(trim($groupName));
+        $name = strtolower($account['name'] ?? '');
+        $code = (string)($account['code'] ?? '');
+        $type = strtolower($account['type'] ?? '');
+        $groupId = strtolower($account['groupId'] ?? '');
+        $parentCode = (string)($account['parent_code'] ?? '');
+
+        if ($g === 'cash') {
+            return str_contains($name, 'cash') || str_starts_with($code, '111');
+        }
+        if ($g === 'bank accounts' || $g === 'bank' || $g === 'banks') {
+            return str_contains($name, 'bank') || str_starts_with($code, '112') || str_starts_with($code, '113');
+        }
+        if ($g === 'accounts receivable' || $g === 'receivable' || $g === 'receivables' || $g === 'debtors') {
+            return str_contains($name, 'receivable') || str_starts_with($code, '12');
+        }
+        if ($g === 'accounts payable' || $g === 'payable' || $g === 'payables' || $g === 'creditors') {
+            return str_contains($name, 'payable') || str_starts_with($code, '21');
+        }
+        if ($g === 'fixed assets' || $g === 'non-current assets') {
+            return ($type === 'asset' || $groupId === 'asset') && (
+                str_starts_with($code, '15') ||
+                str_starts_with($code, '16') ||
+                str_contains($name, 'fixed') ||
+                str_contains($name, 'equipment') ||
+                str_contains($name, 'vehicle') ||
+                str_contains($name, 'building') ||
+                str_contains($name, 'land') ||
+                str_contains($name, 'furniture') ||
+                str_contains($name, 'machinery')
+            );
+        }
+        if ($g === 'expenses' || $g === 'expense') {
+            return $type === 'expense' || $groupId === 'expense' || str_starts_with($code, '4');
+        }
+        if ($g === 'cost of goods sold' || $g === 'cogs') {
+            return str_starts_with($code, '41') || str_contains($name, 'cost of goods') || str_contains($name, 'cogs');
+        }
+        if ($g === 'revenue' || $g === 'income' || $g === 'sales') {
+            return $type === 'income' || $groupId === 'income' || str_starts_with($code, '50') || str_contains($name, 'revenue') || str_contains($name, 'sales');
+        }
+        if ($g === 'fee income') {
+            return ($type === 'income' || $groupId === 'income') && str_contains($name, 'fee');
+        }
+        if ($g === 'capital' || $g === 'equity') {
+            return $type === 'capital' || $type === 'equity' || $groupId === 'capital' || $groupId === 'equity' || str_starts_with($code, '51') || str_starts_with($code, '52') || str_starts_with($code, '53') || str_starts_with($code, '3');
+        }
+
+        return str_contains($name, $g) || str_contains($type, $g) || str_contains($groupId, $g) || $parentCode === $g;
+    }
+
+    /**
+     * Helper to apply parametric filters to formatted accounts.
+     */
+    protected function applyAccountFilters(array $accounts, array $filters): array
+    {
+        $allowedGroups = [];
+
+        // 1. Resolve allowed groups from custom voucher type if specified
+        if (!empty($filters['voucher_type_id']) || !empty($filters['voucher_type'])) {
+            $vtId = $filters['voucher_type_id'] ?? null;
+            $vtPrefixOrName = $filters['voucher_type'] ?? null;
+            $side = $filters['side'] ?? null;
+
+            if (\Illuminate\Support\Facades\DB::getSchemaBuilder()->hasTable('custom_voucher_types')) {
+                $query = \Illuminate\Support\Facades\DB::table('custom_voucher_types');
+                if ($vtId) {
+                    $query->where('id', $vtId);
+                } elseif ($vtPrefixOrName) {
+                    $query->where('prefix', strtoupper($vtPrefixOrName))->orWhere('name', $vtPrefixOrName);
+                }
+                $vt = $query->first();
+
+                if ($vt) {
+                    $ruleQuery = \Illuminate\Support\Facades\DB::table('voucher_account_rules')
+                        ->where('voucher_type_id', $vt->id);
+                    if ($side && in_array(strtolower($side), ['debit', 'credit'])) {
+                        $ruleQuery->where('side', strtolower($side));
+                    }
+                    $rules = $ruleQuery->get();
+
+                    foreach ($rules as $rule) {
+                        $groups = is_string($rule->account_groups) ? json_decode($rule->account_groups, true) : ($rule->account_groups ?? []);
+                        if (is_array($groups)) {
+                            foreach ($groups as $g) {
+                                if ($g && !in_array($g, $allowedGroups)) {
+                                    $allowedGroups[] = $g;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 2. Add any direct groups filter (e.g. ?groups=Cash,Bank)
+        if (!empty($filters['groups'])) {
+            $raw = is_array($filters['groups']) ? $filters['groups'] : explode(',', (string)$filters['groups']);
+            foreach ($raw as $g) {
+                $g = trim($g);
+                if ($g && !in_array($g, $allowedGroups)) {
+                    $allowedGroups[] = $g;
+                }
+            }
+        }
+
+        // 3. Filter accounts
+        return array_filter($accounts, function($acc) use ($filters, $allowedGroups) {
+            if (!empty($filters['posting_only']) && $acc['category']) {
+                return false;
+            }
+
+            if (!empty($allowedGroups)) {
+                if ($acc['category']) {
+                    return false;
+                }
+                $matchesGroup = false;
+                foreach ($allowedGroups as $g) {
+                    if ($this->isAccountInGroup($acc, $g)) {
+                        $matchesGroup = true;
+                        break;
+                    }
+                }
+                return $matchesGroup;
+            }
+
+            return true;
+        });
     }
 
     /**

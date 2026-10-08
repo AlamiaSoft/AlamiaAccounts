@@ -12,6 +12,7 @@
     "require": {
         "php": "^8.2",
         "abivia/ledger": "^1.11",
+        "alamia/alamia-360": "^1.0 || @dev",
         "darkaonline/l5-swagger": "^8.0 || ^9.0 || ^10.0",
         "spatie/laravel-permission": "^5.0 || ^6.0"
     },

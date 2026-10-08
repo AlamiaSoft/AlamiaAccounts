@@ -165,6 +165,11 @@ class AlamiaAccountsServiceProvider extends ServiceProvider
         // Register route middleware alias
         $router->aliasMiddleware('sales.auth', AuthenticateSalesOrSanctum::class);
 
+        // Auto-register accounting domain entities, capabilities, and copilot actor in Alamia360
+        if (class_exists(\Alamia360\Facades\Alamia360::class)) {
+            \AlamiaSoft\AlamiaAccounts\Copilot\AccountsCopilotBridge::register();
+        }
+
         // Register console commands
         if ($this->app->runningInConsole()) {
             $this->commands([

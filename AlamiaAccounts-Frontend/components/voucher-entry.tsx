@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { Plus, Calendar, FileText } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -14,6 +14,7 @@ import { useVouchers } from "@/hooks/use-vouchers"
 import { useToast } from "@/hooks/use-toast"
 import { Loader2 } from "lucide-react"
 import type { Voucher } from "@/lib/sample-data"
+import type { AccountRule } from "@/lib/account-rules-helper"
 
 interface LineItem {
   id: string
@@ -51,6 +52,34 @@ export default function VoucherEntry({ selectedVoucher, onClearSelection, defaul
   }
 
   const [voucherType, setVoucherType] = useState<string>(getInitialVoucherType())
+
+  const standardRules = useMemo<AccountRule[]>(() => {
+    switch (voucherType?.toLowerCase()) {
+      case "contra":
+        return [
+          { side: "debit", accountGroups: ["Cash", "Bank Accounts"] },
+          { side: "credit", accountGroups: ["Cash", "Bank Accounts"] },
+        ]
+      case "payment":
+        return [
+          { side: "credit", accountGroups: ["Cash", "Bank Accounts"] },
+        ]
+      case "receipt":
+        return [
+          { side: "debit", accountGroups: ["Cash", "Bank Accounts"] },
+        ]
+      case "sales":
+        return [
+          { side: "credit", accountGroups: ["Revenue", "Fee Income", "Sales"] },
+        ]
+      case "purchase":
+        return [
+          { side: "debit", accountGroups: ["Expenses", "Cost of Goods Sold", "Fixed Assets"] },
+        ]
+      default:
+        return []
+    }
+  }, [voucherType])
   const [voucherNumber, setVoucherNumber] = useState<string>(() => {
     const p = getPrefix(getInitialVoucherType())
     const yr = new Date().getFullYear()
@@ -419,7 +448,13 @@ export default function VoucherEntry({ selectedVoucher, onClearSelection, defaul
             <CardDescription>Add debit and credit entries to balance the voucher</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <VoucherLineItems lineItems={lineItems} onUpdate={updateLineItem} onRemove={removeLineItem} />
+            <VoucherLineItems
+              lineItems={lineItems}
+              onUpdate={updateLineItem}
+              onRemove={removeLineItem}
+              currency={currency}
+              accountRules={standardRules}
+            />
 
             <Button
               type="button"

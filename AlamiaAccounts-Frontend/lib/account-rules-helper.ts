@@ -107,12 +107,13 @@ export function getFilteredAccountsByRules(
   side: "debit" | "credit" | "all"
 ): AccountOption[] {
   if (!rules || rules.length === 0) {
-    return accounts
+    return accounts.filter((a) => !a.category)
   }
 
   const matchingRules = rules.filter((r) => side === "all" || r.side === side)
   if (matchingRules.length === 0) {
-    return accounts
+    // If no rules restrict this specific side, allow all posting accounts
+    return accounts.filter((a) => !a.category)
   }
 
   const allowedGroups: string[] = []
@@ -130,9 +131,9 @@ export function getFilteredAccountsByRules(
     })
   })
 
-  // If rules exist but no specific groups specified, allow all accounts
+  // If rules exist but no specific groups specified, allow all posting accounts
   if (allowedGroups.length === 0) {
-    return accounts
+    return accounts.filter((a) => !a.category)
   }
 
   return accounts.filter((acc) => {

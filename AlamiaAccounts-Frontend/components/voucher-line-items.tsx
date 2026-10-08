@@ -162,10 +162,9 @@ export default function VoucherLineItems({
                 : "all"
 
             const rowAccounts = getFilteredAccountsByRules(accountList, accountRules, rowSide)
+            const hasRules = Boolean(accountRules && accountRules.length > 0)
             const isAllowedByRule =
-              !accountRules ||
-              accountRules.length === 0 ||
-              rowAccounts.length === 0 ||
+              !hasRules ||
               rowAccounts.some((a) => a.code.toLowerCase() === item.account.trim().toLowerCase())
 
             const isValidPosting = matchedAccount && !matchedAccount.category && isAllowedByRule
@@ -222,7 +221,7 @@ export default function VoucherLineItems({
                 {/* 2. Searchable Account Name Combobox */}
                 <td className="py-2.5 px-3 align-top">
                   <AccountCombobox
-                    accounts={rowAccounts.length > 0 ? rowAccounts : accountList}
+                    accounts={hasRules ? rowAccounts : accountList.filter((a) => !a.category)}
                     selectedCode={item.account}
                     selectedName={item.accountName}
                     onSelect={(selected) => handleAccountSelect(item.id, selected)}

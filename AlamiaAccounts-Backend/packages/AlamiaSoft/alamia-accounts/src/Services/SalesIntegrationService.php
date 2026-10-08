@@ -664,7 +664,8 @@ class SalesIntegrationService
      */
     public function renderThermalReceiptHtml(OperationalSale $sale, string $paperWidth = '80mm'): string
     {
-        $domain = \Abivia\Ledger\Models\LedgerDomain::where('code', $sale->company_code)->first();
+        $companyService = app(\AlamiaSoft\AlamiaAccounts\Services\CompanyService::class);
+        $domain = $companyService->getDomain($sale->company_code);
         $companyName = $domain ? ($domain->name ?? $sale->company_code) : $sale->company_code;
         $formattedDate = $sale->created_at ? $sale->created_at->format('d M Y, h:i A') : date('d M Y, h:i A');
         $rcpNo = 'RCP-' . str_pad((string)$sale->id, 5, '0', STR_PAD_LEFT);
@@ -674,7 +675,7 @@ class SalesIntegrationService
         $taxAmt = (float)($sale->tax_amount ?? 0.0);
         $grossAmt = (float)($sale->gross_amount ?? $totalAmt);
 
-        return view('receipts.thermal', [
+        $viewData = [
             'sale' => $sale,
             'companyName' => $companyName,
             'formattedDate' => $formattedDate,
@@ -685,6 +686,12 @@ class SalesIntegrationService
             'taxAmt' => $taxAmt,
             'grossAmt' => $grossAmt,
             'paperWidth' => $paperWidth,
-        ])->render();
+        ];
+
+        if (view()->exists('alamia-accounts::receipts.thermal')) {
+            return view('alamia-accounts::receipts.thermal', $viewData)->render();
+        }
+
+        return view('receipts.thermal', $viewData)->render();
     }
 }

@@ -143,5 +143,40 @@ export const salesApi = {
     approve: (id: number | string, data?: { approver_name?: string }) =>
         apiClient.post(`/v1/sales/${id}/approve`, data || {}),
     reconcileShift: (params?: any) => apiClient.get('/v1/sales/reconcile-shift', { params }),
-    getReceiptUrl: (id: number | string) => `/api/v1/receipts/${id}/print`,
+    getReceiptUrl: (id: number | string) => {
+        const base = (process.env.NEXT_PUBLIC_API_URL || '/api').replace(/\/api\/?$/, '')
+        return `${base}/api/v1/receipts/${id}/print`
+    },
+}
+
+// AI Copilot & Telemetry Diagnostics API
+export const copilotApi = {
+    chat: (data: { prompt: string; company_code?: string; context?: any }) =>
+        apiClient.post('/copilot/chat', data),
+    getCapabilities: () => apiClient.get('/copilot/capabilities'),
+    getSituations: () => apiClient.get('/copilot/situations'),
+    executeCapability: (capability: string, data: any) =>
+        apiClient.post(`/copilot/capabilities/${encodeURIComponent(capability)}/execute`, data),
+    getDiagnostics: (params?: any) => apiClient.get('/copilot/diagnostics', { params }),
+    getDiagnosticTrace: (id: number) => apiClient.get(`/copilot/diagnostics/${id}`),
+    updateFeedback: (id: number, rating: number, notes?: string) =>
+        apiClient.patch(`/copilot/diagnostics/${id}/feedback`, { rating, notes }),
+    promoteToGuidance: (id: number, data: any) =>
+        apiClient.post(`/copilot/diagnostics/${id}/promote-to-guidance`, data),
+    pruneDiagnostics: (params?: any) => apiClient.delete('/copilot/diagnostics', { params }),
+    getKnowledge: (companyCode?: string) =>
+        apiClient.get('/copilot/knowledge', { params: { company_code: companyCode } }),
+    createKnowledge: (data: any) => apiClient.post('/copilot/knowledge', data),
+    deleteKnowledge: (id: number) => apiClient.delete(`/copilot/knowledge/${id}`),
+    exportDiagnosticsUrl: (companyCode?: string, format: string = 'json') => {
+        const base = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'
+        const code = companyCode || (typeof window !== 'undefined' ? localStorage.getItem('current_company_code') || 'MAIN' : 'MAIN')
+        return `${base}/copilot/diagnostics/export?company_code=${encodeURIComponent(code)}&format=${encodeURIComponent(format)}`
+    },
+}
+
+// User Manual API
+export const manualApi = {
+    getManual: (companyCode?: string) =>
+        apiClient.get('/manual', { params: { company_code: companyCode } }),
 }

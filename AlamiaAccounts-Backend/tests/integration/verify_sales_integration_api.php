@@ -235,7 +235,7 @@ $assertCondition(
 );
 
 // 8. Security Gate: Valid Tenant API Key Access Permitted via Middleware
-$middleware = new \App\Http\Middleware\AuthenticateSalesOrSanctum();
+$middleware = new \AlamiaSoft\AlamiaAccounts\Http\Middleware\AuthenticateSalesOrSanctum();
 
 $reqValid = \Illuminate\Http\Request::create('/api/v1/sales', 'POST', ['company_code' => 'KAMAL_EXPRESS']);
 $reqValid->headers->set('X-POS-Key', 'demo_kamal_token');

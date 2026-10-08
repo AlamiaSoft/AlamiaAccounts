@@ -204,6 +204,7 @@ class VoucherService
         $transDateStr = $message->transDate instanceof Carbon ? $message->transDate->toDateString() : (string)$message->transDate;
         $periodService = app(PeriodService::class);
         $periodService->validatePostingDate($domain->domainUuid, $transDateStr);
+        $voucherType = $data['voucher_type'] ?? 'journal';
 
         // Create entry and domain association atomically inside DB::transaction
         return DB::transaction(function () use ($message, $domain, $data, $entries, $voucherType, $transDateStr) {

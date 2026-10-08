@@ -3,75 +3,107 @@
 namespace AlamiaSoft\AlamiaAccounts;
 
 use Illuminate\Support\ServiceProvider;
-use AlamiaSoft\AlamiaAccounts\Services\{AccountService, VoucherService, ReportService, CompanyService, CustomVoucherTypeService, VoucherNumberingService, SearchService, PrintService, AutomationService, PermissionService};
+use Illuminate\Routing\Router;
+use AlamiaSoft\AlamiaAccounts\Services\{
+    AccountService,
+    VoucherService,
+    ReportService,
+    CompanyService,
+    CustomVoucherTypeService,
+    VoucherNumberingService,
+    SearchService,
+    PrintService,
+    AutomationService,
+    PermissionService,
+    SalesIntegrationService,
+    AccountingDiagnosticService,
+    AccountingIntegrityGuard,
+    OpeningBalanceService,
+    PeriodService
+};
+use AlamiaSoft\AlamiaAccounts\Copilot\{
+    CopilotService,
+    ConversationContextService,
+    CopilotDiagnosticsService,
+    GuidanceKnowledgeService,
+    IntentClassifierService,
+    ParlantClient
+};
+use AlamiaSoft\AlamiaAccounts\Http\Middleware\AuthenticateSalesOrSanctum;
+use AlamiaSoft\AlamiaAccounts\Console\Commands\SyncCopilotKnowledgeCommand;
 
 class AlamiaAccountsServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
-        // Register core services
-        $this->app->singleton(CompanyService::class, function ($app) {
-            return new CompanyService();
-        });
+        // Core accounting services
+        $this->app->singleton(CompanyService::class);
+        $this->app->singleton(AccountService::class);
+        $this->app->singleton(VoucherService::class);
+        $this->app->singleton(ReportService::class);
+        $this->app->singleton(OpeningBalanceService::class);
+        $this->app->singleton(PeriodService::class);
+        
+        // Extended voucher & automation services
+        $this->app->singleton(CustomVoucherTypeService::class);
+        $this->app->singleton(VoucherNumberingService::class);
+        $this->app->singleton(PrintService::class);
+        $this->app->singleton(AutomationService::class);
+        $this->app->singleton(PermissionService::class);
 
-        $this->app->singleton(AccountService::class, function ($app) {
-            return new AccountService();
-        });
+        // Sales POS integration & forensic diagnostics
+        $this->app->singleton(SalesIntegrationService::class);
+        $this->app->singleton(AccountingDiagnosticService::class);
+        $this->app->singleton(AccountingIntegrityGuard::class);
+        $this->app->singleton(SearchService::class);
 
-        $this->app->singleton(VoucherService::class, function ($app) {
-            return new VoucherService();
-        });
-
-        $this->app->singleton(ReportService::class, function ($app) {
-            return new ReportService();
-        });
-        
-        // Register new services
-        $this->app->singleton(CustomVoucherTypeService::class, function ($app) {
-            return new CustomVoucherTypeService();
-        });
-        
-        $this->app->singleton(VoucherNumberingService::class, function ($app) {
-            return new VoucherNumberingService();
-        });
-        
-        $this->app->singleton(SearchService::class, function ($app) {
-            return new SearchService(
-                $app->make(VoucherService::class),
-                $app->make(AccountService::class)
-            );
-        });
-        
-        $this->app->singleton(PrintService::class, function ($app) {
-            return new PrintService();
-        });
-        
-        $this->app->singleton(AutomationService::class, function ($app) {
-            return new AutomationService();
-        });
-        
-        $this->app->singleton(PermissionService::class, function ($app) {
-            return new PermissionService();
-        });
+        // AI Copilot Services
+        $this->app->singleton(ConversationContextService::class);
+        $this->app->singleton(CopilotDiagnosticsService::class);
+        $this->app->singleton(GuidanceKnowledgeService::class);
+        $this->app->singleton(IntentClassifierService::class);
+        $this->app->singleton(ParlantClient::class);
+        $this->app->singleton(CopilotService::class);
 
         // Merge config
         $this->mergeConfigFrom(__DIR__.'/../config/alamia-accounts.php', 'alamia-accounts');
     }
 
-    public function boot()
+    public function boot(Router $router): void
     {
+        // Register API routes
         \Illuminate\Support\Facades\Route::prefix('api')
             ->middleware('api')
             ->group(function () {
                 $this->loadRoutesFrom(__DIR__.'/../routes/api.php');
             });
 
+        // Load database migrations
         $this->loadMigrationsFrom(__DIR__.'/../database/migrations');
 
+        // Load package Blade views
+        $this->loadViewsFrom(__DIR__.'/../resources/views', 'alamia-accounts');
+
+        // Register route middleware alias
+        $router->aliasMiddleware('sales.auth', AuthenticateSalesOrSanctum::class);
+
+        // Register console commands
         if ($this->app->runningInConsole()) {
+            $this->commands([
+                SyncCopilotKnowledgeCommand::class,
+            ]);
+
             $this->publishes([
                 __DIR__ . '/../config/alamia-accounts.php' => config_path('alamia-accounts.php'),
             ], 'alamia-accounts-config');
+
+            $this->publishes([
+                __DIR__ . '/../database/migrations' => database_path('migrations'),
+            ], 'alamia-accounts-migrations');
+
+            $this->publishes([
+                __DIR__ . '/../resources/views' => resource_path('views/vendor/alamia-accounts'),
+            ], 'alamia-accounts-views');
         }
     }
 }

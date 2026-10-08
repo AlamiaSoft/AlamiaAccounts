@@ -14,7 +14,10 @@ use AlamiaSoft\AlamiaAccounts\Http\Controllers\Api\UserController;
 use AlamiaSoft\AlamiaAccounts\Http\Controllers\Api\PeriodController;
 use AlamiaSoft\AlamiaAccounts\Http\Controllers\Api\OpeningBalanceController;
 use AlamiaSoft\AlamiaAccounts\Http\Controllers\Api\AuditTrailController;
-use App\Http\Controllers\Api\CopilotController;
+use AlamiaSoft\AlamiaAccounts\Http\Controllers\Api\CopilotController;
+use AlamiaSoft\AlamiaAccounts\Http\Controllers\Api\ManualController;
+use AlamiaSoft\AlamiaAccounts\Http\Controllers\Api\V1\SalesIntegrationController;
+use AlamiaSoft\AlamiaAccounts\Http\Middleware\AuthenticateSalesOrSanctum;
 
 // Public routes
 Route::post('/login', [AuthController::class, 'login']);
@@ -25,6 +28,7 @@ Route::post('/copilot/chat-public', [CopilotController::class, 'chat']);
 Route::get('/copilot/capabilities-public', [CopilotController::class, 'capabilities']);
 Route::post('/copilot/capabilities-public/{capability}/execute', [CopilotController::class, 'executeCapability']);
 Route::post('/alamia-360/capabilities-public/{capability}/execute', [CopilotController::class, 'executeCapability']);
+Route::get('/manual', [ManualController::class, 'index']);
 
 // Protected routes
 Route::middleware('auth:sanctum')->group(function () {
@@ -76,6 +80,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/reports/payables', [ReportController::class, 'payables']);
     Route::get('/reports/balance-sheet-diagnostics', [ReportController::class, 'balanceSheetDiagnostics']);
     Route::get('/reports/ledger-integrity-audit', [ReportController::class, 'ledgerIntegrityAudit']);
+    
     // Periods & Fiscal Controls
     Route::get('/periods', [PeriodController::class, 'index']);
     Route::post('/periods/{id}/close', [PeriodController::class, 'close']);
@@ -109,22 +114,21 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::delete('/copilot/knowledge/{id}', [CopilotController::class, 'knowledgeDelete']);
 
     // Accountant Help & User Manual Portal API
-    Route::get('/manual', [\App\Http\Controllers\Api\ManualController::class, 'index']);
+    Route::get('/manual', [ManualController::class, 'index']);
 });
 
 // Front-Office & Sales POS Integration API (v1) - Dual Sanctum User & Machine POS Gateway Authentication
-Route::middleware([\App\Http\Middleware\AuthenticateSalesOrSanctum::class])->group(function () {
-    Route::post('/v1/sales', [\App\Http\Controllers\Api\V1\SalesIntegrationController::class, 'store']);
-    Route::get('/v1/sales', [\App\Http\Controllers\Api\V1\SalesIntegrationController::class, 'index']);
-    Route::get('/v1/sales/{id}', [\App\Http\Controllers\Api\V1\SalesIntegrationController::class, 'show']);
-    Route::post('/v1/sales/{id}/approve', [\App\Http\Controllers\Api\V1\SalesIntegrationController::class, 'approve']);
-    Route::post('/v1/sales/reconcile', [\App\Http\Controllers\Api\V1\SalesIntegrationController::class, 'reconcileShift']);
-    Route::get('/v1/receipts/{id}/print', [\App\Http\Controllers\Api\V1\SalesIntegrationController::class, 'printReceipt']);
+Route::middleware([AuthenticateSalesOrSanctum::class])->group(function () {
+    Route::post('/v1/sales', [SalesIntegrationController::class, 'store']);
+    Route::get('/v1/sales', [SalesIntegrationController::class, 'index']);
+    Route::get('/v1/sales/{id}', [SalesIntegrationController::class, 'show'])->whereNumber('id');
+    Route::post('/v1/sales/{id}/approve', [SalesIntegrationController::class, 'approve'])->whereNumber('id');
+    Route::post('/v1/sales/reconcile', [SalesIntegrationController::class, 'reconcileShift']);
+    Route::get('/v1/sales/reconcile-shift', [SalesIntegrationController::class, 'reconcileShift']);
+    Route::get('/v1/receipts/{id}/print', [SalesIntegrationController::class, 'printReceipt']);
 });
 
-Route::get('/manual', [\App\Http\Controllers\Api\ManualController::class, 'index']);
-
-// Public testing routes
+// Public testing / development routes
 Route::get('/copilot/diagnostics-public', [CopilotController::class, 'diagnostics']);
 Route::get('/copilot/diagnostics-public/export', [CopilotController::class, 'exportDiagnostics']);
 Route::get('/copilot/diagnostics-public/{id}', [CopilotController::class, 'diagnosticTrace']);
@@ -134,5 +138,3 @@ Route::delete('/copilot/diagnostics-public', [CopilotController::class, 'pruneDi
 Route::get('/copilot/knowledge-public', [CopilotController::class, 'knowledgeList']);
 Route::post('/copilot/knowledge-public', [CopilotController::class, 'knowledgeStore']);
 Route::delete('/copilot/knowledge-public/{id}', [CopilotController::class, 'knowledgeDelete']);
-
-

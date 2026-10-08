@@ -78,6 +78,19 @@ class AlamiaAccountsServiceProvider extends ServiceProvider
                 $this->loadRoutesFrom(__DIR__.'/../routes/api.php');
             });
 
+        // Register turnkey web route for embedded SPA UI
+        \Illuminate\Support\Facades\Route::middleware('web')->get('/alamia-accounts/{any?}', function () {
+            $distPath = public_path('vendor/alamia-accounts/index.html');
+            if (file_exists($distPath)) {
+                return response()->file($distPath);
+            }
+            $pkgPath = __DIR__.'/../dist/index.html';
+            if (file_exists($pkgPath)) {
+                return response()->file($pkgPath);
+            }
+            return response("Alamia Accounts UI bundle not published. Run 'php artisan vendor:publish --tag=alamia-accounts-ui'", 404);
+        })->where('any', '.*');
+
         // Load database migrations
         $this->loadMigrationsFrom(__DIR__.'/../database/migrations');
 
@@ -104,6 +117,10 @@ class AlamiaAccountsServiceProvider extends ServiceProvider
             $this->publishes([
                 __DIR__ . '/../resources/views' => resource_path('views/vendor/alamia-accounts'),
             ], 'alamia-accounts-views');
+
+            $this->publishes([
+                __DIR__ . '/../dist' => public_path('vendor/alamia-accounts'),
+            ], 'alamia-accounts-ui');
         }
     }
 }

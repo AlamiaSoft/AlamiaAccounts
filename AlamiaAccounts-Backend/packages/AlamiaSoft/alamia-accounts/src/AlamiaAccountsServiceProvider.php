@@ -78,24 +78,50 @@ class AlamiaAccountsServiceProvider extends ServiceProvider
                 $this->loadRoutesFrom(__DIR__.'/../routes/api.php');
             });
 
-        // Register turnkey web route for embedded SPA UI
-        \Illuminate\Support\Facades\Route::middleware('web')->get('/alamia-accounts/{any?}', function (?string $any = null) {
-            if ($any === 'login' || $any === 'login/') {
+        // Register turnkey web routes for embedded SPA UI
+        \Illuminate\Support\Facades\Route::middleware('web')->group(function () {
+            \Illuminate\Support\Facades\Route::get('/login', function () {
                 $loginPath = public_path('vendor/alamia-accounts/login.html');
                 if (file_exists($loginPath)) {
                     return response()->file($loginPath);
                 }
-            }
-            $distPath = public_path('vendor/alamia-accounts/index.html');
-            if (file_exists($distPath)) {
-                return response()->file($distPath);
-            }
-            $pkgPath = __DIR__.'/../dist/index.html';
-            if (file_exists($pkgPath)) {
-                return response()->file($pkgPath);
-            }
-            return response("Alamia Accounts UI bundle not published. Run 'php artisan vendor:publish --tag=alamia-accounts-ui'", 404);
-        })->where('any', '.*');
+                $pkgPath = __DIR__.'/../dist/login.html';
+                if (file_exists($pkgPath)) {
+                    return response()->file($pkgPath);
+                }
+                return redirect('/alamia-accounts');
+            });
+
+            \Illuminate\Support\Facades\Route::get('/ke-pos', function () {
+                $posPath = public_path('vendor/alamia-accounts/ke-pos.html');
+                if (file_exists($posPath)) {
+                    return response()->file($posPath);
+                }
+                $pkgPath = __DIR__.'/../dist/ke-pos.html';
+                if (file_exists($pkgPath)) {
+                    return response()->file($pkgPath);
+                }
+                return redirect('/alamia-accounts');
+            });
+
+            \Illuminate\Support\Facades\Route::get('/alamia-accounts/{any?}', function (?string $any = null) {
+                if ($any === 'login' || $any === 'login/') {
+                    $loginPath = public_path('vendor/alamia-accounts/login.html');
+                    if (file_exists($loginPath)) {
+                        return response()->file($loginPath);
+                    }
+                }
+                $distPath = public_path('vendor/alamia-accounts/index.html');
+                if (file_exists($distPath)) {
+                    return response()->file($distPath);
+                }
+                $pkgPath = __DIR__.'/../dist/index.html';
+                if (file_exists($pkgPath)) {
+                    return response()->file($pkgPath);
+                }
+                return response("Alamia Accounts UI bundle not published. Run 'php artisan vendor:publish --tag=alamia-accounts-ui'", 404);
+            })->where('any', '.*');
+        });
 
         // Route static assets for embedded Next.js UI
         \Illuminate\Support\Facades\Route::get('/_next/{any}', function (string $any) {

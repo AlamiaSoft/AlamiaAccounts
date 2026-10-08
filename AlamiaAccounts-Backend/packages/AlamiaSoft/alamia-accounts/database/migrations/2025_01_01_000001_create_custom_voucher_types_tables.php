@@ -12,11 +12,12 @@ return new class extends Migration
             $table->id();
             $table->string('name');
             $table->string('prefix', 10);
+            $table->string('company_code', 50)->nullable()->index();
             $table->text('description')->nullable();
             $table->boolean('active')->default(true);
             $table->timestamps();
             
-            $table->unique('prefix');
+            $table->unique(['company_code', 'prefix']);
         });
         
         Schema::create('custom_voucher_fields', function (Blueprint $table) {
@@ -34,6 +35,7 @@ return new class extends Migration
             $table->foreignId('voucher_type_id')->constrained('custom_voucher_types')->onDelete('cascade');
             $table->enum('side', ['debit', 'credit']);
             $table->json('account_groups'); // array of allowed account groups
+            $table->string('default_account', 50)->nullable();
             $table->timestamps();
         });
         

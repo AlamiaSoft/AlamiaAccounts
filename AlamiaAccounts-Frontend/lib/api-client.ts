@@ -1,14 +1,14 @@
 import axios from 'axios'
 
-const getInitialBaseUrl = () => {
+export const getApiBaseUrl = () => {
     if (typeof window !== 'undefined') {
-        return process.env.NEXT_PUBLIC_API_URL || `${window.location.origin}/api`
+        return `${window.location.origin}/api`
     }
     return process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'
 }
 
 const apiClient = axios.create({
-    baseURL: getInitialBaseUrl(),
+    baseURL: getApiBaseUrl(),
     headers: {
         'Content-Type': 'application/json',
         'Accept': 'application/json',
@@ -19,9 +19,7 @@ const apiClient = axios.create({
 // Add auth token, current company code, and dynamic origin to requests
 apiClient.interceptors.request.use((config) => {
     if (typeof window !== 'undefined') {
-        if (!process.env.NEXT_PUBLIC_API_URL) {
-            config.baseURL = `${window.location.origin}/api`
-        }
+        config.baseURL = `${window.location.origin}/api`
         const token = localStorage.getItem('auth_token')
         if (token) {
             config.headers.Authorization = `Bearer ${token}`

@@ -138,7 +138,7 @@ export default function PosSalesApproval() {
   }
 
   const handlePrintReceipt = (id: number | string) => {
-    const rawBase = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api").trim()
+    const rawBase = typeof window !== 'undefined' ? window.location.origin : (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api").trim()
     const apiBase = rawBase.replace(/\/+api\/?$/i, "").replace(/\/+$/, "")
     window.open(`${apiBase}/api/v1/receipts/${id}/print`, "_blank", "width=850,height=900")
   }

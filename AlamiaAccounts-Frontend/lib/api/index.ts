@@ -144,7 +144,7 @@ export const salesApi = {
         apiClient.post(`/v1/sales/${id}/approve`, data || {}),
     reconcileShift: (params?: any) => apiClient.get('/v1/sales/reconcile-shift', { params }),
     getReceiptUrl: (id: number | string) => {
-        const base = (process.env.NEXT_PUBLIC_API_URL || '/api').replace(/\/api\/?$/, '')
+        const base = typeof window !== 'undefined' ? window.location.origin : (process.env.NEXT_PUBLIC_API_URL || '').replace(/\/api\/?$/, '')
         return `${base}/api/v1/receipts/${id}/print`
     },
 }
@@ -169,7 +169,7 @@ export const copilotApi = {
     createKnowledge: (data: any) => apiClient.post('/copilot/knowledge', data),
     deleteKnowledge: (id: number) => apiClient.delete(`/copilot/knowledge/${id}`),
     exportDiagnosticsUrl: (companyCode?: string, format: string = 'json') => {
-        const base = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'
+        const base = typeof window !== 'undefined' ? `${window.location.origin}/api` : (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api')
         const code = companyCode || (typeof window !== 'undefined' ? localStorage.getItem('current_company_code') || 'MAIN' : 'MAIN')
         return `${base}/copilot/diagnostics/export?company_code=${encodeURIComponent(code)}&format=${encodeURIComponent(format)}`
     },

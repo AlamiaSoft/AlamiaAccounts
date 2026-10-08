@@ -79,7 +79,13 @@ class AlamiaAccountsServiceProvider extends ServiceProvider
             });
 
         // Register turnkey web route for embedded SPA UI
-        \Illuminate\Support\Facades\Route::middleware('web')->get('/alamia-accounts/{any?}', function () {
+        \Illuminate\Support\Facades\Route::middleware('web')->get('/alamia-accounts/{any?}', function (?string $any = null) {
+            if ($any === 'login' || $any === 'login/') {
+                $loginPath = public_path('vendor/alamia-accounts/login.html');
+                if (file_exists($loginPath)) {
+                    return response()->file($loginPath);
+                }
+            }
             $distPath = public_path('vendor/alamia-accounts/index.html');
             if (file_exists($distPath)) {
                 return response()->file($distPath);
@@ -90,6 +96,39 @@ class AlamiaAccountsServiceProvider extends ServiceProvider
             }
             return response("Alamia Accounts UI bundle not published. Run 'php artisan vendor:publish --tag=alamia-accounts-ui'", 404);
         })->where('any', '.*');
+
+        // Route static assets for embedded Next.js UI
+        \Illuminate\Support\Facades\Route::get('/_next/{any}', function (string $any) {
+            $path = public_path('vendor/alamia-accounts/_next/' . $any);
+            if (file_exists($path)) {
+                $ext = strtolower(pathinfo($path, PATHINFO_EXTENSION));
+                $mime = match ($ext) {
+                    'js' => 'application/javascript',
+                    'css' => 'text/css',
+                    'json' => 'application/json',
+                    'woff2' => 'font/woff2',
+                    'woff' => 'font/woff',
+                    'png' => 'image/png',
+                    'jpg', 'jpeg' => 'image/jpeg',
+                    'svg' => 'image/svg+xml',
+                    default => 'application/octet-stream',
+                };
+                return response()->file($path, ['Content-Type' => $mime]);
+            }
+            return response('Asset not found', 404);
+        })->where('any', '.*');
+
+        // Route static icons/logos requested from root by embedded UI
+        \Illuminate\Support\Facades\Route::get('/{asset}', function (string $asset) {
+            $allowed = ['alamia-logo.png', 'apple-icon.png', 'favicon.ico', 'icon-dark-32x32.png', 'icon-light-32x32.png', 'placeholder-logo.png', 'placeholder-logo.svg', 'placeholder-user.jpg', 'placeholder.jpg', 'placeholder.svg'];
+            if (in_array($asset, $allowed, true)) {
+                $path = public_path('vendor/alamia-accounts/' . $asset);
+                if (file_exists($path)) {
+                    return response()->file($path);
+                }
+            }
+            return response('Not found', 404);
+        })->where('asset', '.*\.(png|svg|ico|jpg|jpeg)');
 
         // Load database migrations
         $this->loadMigrationsFrom(__DIR__.'/../database/migrations');

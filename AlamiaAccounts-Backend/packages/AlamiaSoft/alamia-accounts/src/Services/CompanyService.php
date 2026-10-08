@@ -114,29 +114,32 @@ class CompanyService
             throw new Exception("Parent domain {$parentCode} not found");
         }
 
-        $domainData = [
-            'code' => $code,
-            'names' => [
-                ['name' => $name, 'language' => 'en']
-            ],
-            'currency' => $config['currency'] ?? 'PKR',
-            'extra' => json_encode(array_merge([
-                'name' => $name,
-                'type' => $type,
-                'parent_code' => $parentCode,
-                'level' => $parentCode ? 1 : 0,
-                'industry' => $config['industry'] ?? 'General',
-            ], $config['extra'] ?? [])),
-        ];
-
-        $message = Domain::fromArray($domainData);
-        
         try {
-            $domain = $this->domainController->add($message);
-            return $domain;
-        } catch (\Abivia\Ledger\Exceptions\Breaker $b) {
-            $errors = $b->getErrors();
-            throw new Exception(!empty($errors) ? implode(', ', $errors) : $b->getMessage());
+            $existing = LedgerDomain::where('code', $code)->first();
+            if ($existing) {
+                return $existing;
+            }
+
+            $domainUuid = (string) \Illuminate\Support\Str::uuid();
+            \Illuminate\Support\Facades\DB::table('ledger_domains')->insert([
+                'domainUuid' => $domainUuid,
+                'code' => $code,
+                'currencyDefault' => $config['currency'] ?? 'PKR',
+                'extra' => json_encode(array_merge([
+                    'name' => $name,
+                    'type' => $type,
+                    'parent_code' => $parentCode,
+                    'level' => $parentCode ? 1 : 0,
+                    'industry' => $config['industry'] ?? 'General',
+                ], $config['extra'] ?? [])),
+                'subJournals' => 0,
+                'created_at' => Carbon::now(),
+                'updated_at' => Carbon::now(),
+            ]);
+
+            return LedgerDomain::where('code', $code)->first();
+        } catch (\Exception $e) {
+            throw new Exception("Failed to create domain {$code}: " . $e->getMessage());
         }
     }
 

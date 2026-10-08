@@ -234,6 +234,26 @@ class VoucherService
                 ]
             );
 
+            // Record transaction-level accounting integrity checkpoint
+            try {
+                $guard = app(AccountingIntegrityGuard::class);
+                $guard->recordCheckpoint(
+                    $domain->domainUuid,
+                    'POST_VOUCHER',
+                    $data['reference'] ?? (string)$journalEntry->journalEntryId,
+                    $voucherType ?? ($data['custom_voucher_type_name'] ?? 'journal'),
+                    $journalEntry->journalEntryId,
+                    $transDateStr,
+                    $data['currency'] ?? $domain->currencyDefault ?? 'PKR',
+                    [
+                        'description' => $data['description'] ?? null,
+                        'entries_count' => count($entries),
+                    ]
+                );
+            } catch (\Throwable $e) {
+                \Log::warning("AccountingIntegrityGuard checkpoint recording error: " . $e->getMessage());
+            }
+
             return $journalEntry;
         });
     }
@@ -600,28 +620,42 @@ class VoucherService
 
         $count = count($entryIds);
 
-        if ($count > 0) {
-            DB::transaction(function () use ($domain, $entryIds, $count) {
+        DB::transaction(function () use ($domain, $entryIds, $count) {
+            if ($count > 0) {
                 // Delete details from journal_details
                 DB::table('journal_details')->whereIn('journalEntryId', $entryIds)->delete();
                 // Delete entries from journal_entries
                 DB::table('journal_entries')->whereIn('journalEntryId', $entryIds)->delete();
                 // Delete domain association
                 DomainJournalEntry::where('domainUuid', $domain->domainUuid)->delete();
+            }
 
-                // Record administrative audit trail
-                AccountingAuditTrail::record(
-                    $domain->domainUuid,
-                    'RESET_ALL_TRANSACTIONS',
-                    'system',
-                    'ALL',
-                    [
-                        'cleared_vouchers_count' => $count,
-                        'reason' => 'Administrator reset all tenant transactions'
-                    ]
-                );
-            });
-        }
+            // Clear accounting integrity checkpoints for this domain
+            \AlamiaSoft\AlamiaAccounts\Models\AccountingIntegrityCheckpoint::where('domain_uuid', $domain->domainUuid)->delete();
+
+            // Clear front-office operational POS sales staged / posted for this company code
+            $saleIds = \AlamiaSoft\AlamiaAccounts\Models\OperationalSale::where('company_code', $domain->code)->pluck('id')->toArray();
+            if (!empty($saleIds)) {
+                \AlamiaSoft\AlamiaAccounts\Models\OperationalSaleItem::whereIn('operational_sale_id', $saleIds)->delete();
+                \AlamiaSoft\AlamiaAccounts\Models\OperationalSale::whereIn('id', $saleIds)->delete();
+            }
+
+            // Clear opening balance batches if any
+            \AlamiaSoft\AlamiaAccounts\Models\OpeningBalanceBatch::where('domain_uuid', $domain->domainUuid)->delete();
+
+            // Record administrative audit trail
+            AccountingAuditTrail::record(
+                $domain->domainUuid,
+                'RESET_ALL_TRANSACTIONS',
+                'system',
+                'ALL',
+                [
+                    'cleared_vouchers_count' => $count,
+                    'cleared_sales_count' => count($saleIds ?? []),
+                    'reason' => 'Administrator reset all tenant transactions'
+                ]
+            );
+        });
 
         return $count;
     }

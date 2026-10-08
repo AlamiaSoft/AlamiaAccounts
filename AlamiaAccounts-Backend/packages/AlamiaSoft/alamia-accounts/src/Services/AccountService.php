@@ -125,7 +125,7 @@ class AccountService
             }
         }
         if (!empty($extra)) {
-            $message->extra = (object)$extra;
+            $message->extra = is_string($extra) ? $extra : json_encode($extra);
         }
         
         // Create account via Abivia controller (for validation and business logic)

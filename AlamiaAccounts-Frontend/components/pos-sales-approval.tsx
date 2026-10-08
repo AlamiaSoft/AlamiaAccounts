@@ -103,7 +103,7 @@ export default function PosSalesApproval() {
     let postedCount = 0
 
     for (const s of sales) {
-      const amt = Number(s.total_amount) || 0
+      const amt = Number(s.total_amount ?? s.net_amount ?? s.gross_amount) || 0
       const paid = Number(s.paid_amount) || 0
       if (s.status === "staged") {
         pendingCount++
@@ -138,8 +138,9 @@ export default function PosSalesApproval() {
   }
 
   const handlePrintReceipt = (id: number | string) => {
-    const backendBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
-    window.open(`${backendBase}/api/v1/receipts/${id}/print`, "_blank", "width=850,height=900")
+    const rawBase = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api").trim()
+    const apiBase = rawBase.replace(/\/+api\/?$/i, "").replace(/\/+$/, "")
+    window.open(`${apiBase}/api/v1/receipts/${id}/print`, "_blank", "width=850,height=900")
   }
 
   return (
@@ -356,7 +357,7 @@ export default function PosSalesApproval() {
                     const isStaged = sale.status === "staged"
                     const isPosted = sale.status === "posted"
                     const createdDate = sale.created_at ? new Date(sale.created_at).toLocaleDateString() : "-"
-                    const totalAmt = Number(sale.total_amount) || 0
+                    const totalAmt = Number(sale.total_amount ?? sale.net_amount ?? sale.gross_amount) || 0
                     const paidAmt = Number(sale.paid_amount) || 0
                     const balanceDue = totalAmt - paidAmt
 
@@ -560,11 +561,11 @@ export default function PosSalesApproval() {
                 <div className="text-xs space-y-1">
                   <div className="flex justify-between">
                     <span>1. Sales Voucher (SV): Dr. Accounts Receivable ({selectedSale.customer_subledger || "1200"})</span>
-                    <span className="font-mono font-semibold">Rs. {Number(selectedSale.total_amount).toLocaleString()}</span>
+                    <span className="font-mono font-semibold">Rs. {Number(selectedSale.total_amount ?? selectedSale.net_amount ?? selectedSale.gross_amount).toLocaleString()}</span>
                   </div>
                   <div className="flex justify-between pl-4 text-muted-foreground">
                     <span>Cr. Revenue / Sales ({selectedSale.items?.[0]?.revenue_account_code || "3100"})</span>
-                    <span className="font-mono">Rs. {Number(selectedSale.total_amount).toLocaleString()}</span>
+                    <span className="font-mono">Rs. {Number(selectedSale.total_amount ?? selectedSale.net_amount ?? selectedSale.gross_amount).toLocaleString()}</span>
                   </div>
                   {Number(selectedSale.paid_amount) > 0 && (
                     <>

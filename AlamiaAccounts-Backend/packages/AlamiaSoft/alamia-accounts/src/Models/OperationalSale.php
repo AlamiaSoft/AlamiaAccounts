@@ -50,6 +50,15 @@ class OperationalSale extends Model
         'updated_at' => 'datetime',
     ];
 
+    protected $appends = [
+        'total_amount',
+    ];
+
+    public function getTotalAmountAttribute(): float
+    {
+        return (float) ($this->net_amount ?? $this->gross_amount ?? 0.0);
+    }
+
     public function items(): HasMany
     {
         return $this->hasMany(OperationalSaleItem::class, 'operational_sale_id');

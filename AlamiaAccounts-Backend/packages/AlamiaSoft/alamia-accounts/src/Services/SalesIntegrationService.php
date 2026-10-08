@@ -635,6 +635,18 @@ class SalesIntegrationService
     }
 
     /**
+     * Compatibility alias for shift reconciliation.
+     */
+    public function reconcileCashierShift(
+        string $companyCode,
+        ?string $agentId = null,
+        float $actualCashCount = 0.0,
+        ?string $date = null
+    ): array {
+        return $this->reconcileShift($companyCode, $date, $agentId, $actualCashCount);
+    }
+
+    /**
      * Generate a guaranteed collision-free voucher reference code.
      */
     protected function generateUniqueVoucherRef(string $prefix, string $companyCode): string
@@ -645,5 +657,34 @@ class SalesIntegrationService
         $num = str_pad((string)$count, 4, '0', STR_PAD_LEFT);
 
         return "{$prefix}-{$year}-{$num}-{$random}";
+    }
+
+    /**
+     * Render a clean, printable thermal receipt HTML (supports 58mm and 80mm).
+     */
+    public function renderThermalReceiptHtml(OperationalSale $sale, string $paperWidth = '80mm'): string
+    {
+        $domain = \Abivia\Ledger\Models\LedgerDomain::where('code', $sale->company_code)->first();
+        $companyName = $domain ? ($domain->name ?? $sale->company_code) : $sale->company_code;
+        $formattedDate = $sale->created_at ? $sale->created_at->format('d M Y, h:i A') : date('d M Y, h:i A');
+        $rcpNo = 'RCP-' . str_pad((string)$sale->id, 5, '0', STR_PAD_LEFT);
+        $totalAmt = (float)($sale->net_amount ?? $sale->gross_amount ?? 0.0);
+        $paidAmt = (float)($sale->paid_amount ?? 0.0);
+        $dueAmt = (float)($sale->balance_due ?? 0.0);
+        $taxAmt = (float)($sale->tax_amount ?? 0.0);
+        $grossAmt = (float)($sale->gross_amount ?? $totalAmt);
+
+        return view('receipts.thermal', [
+            'sale' => $sale,
+            'companyName' => $companyName,
+            'formattedDate' => $formattedDate,
+            'rcpNo' => $rcpNo,
+            'totalAmt' => $totalAmt,
+            'paidAmt' => $paidAmt,
+            'dueAmt' => $dueAmt,
+            'taxAmt' => $taxAmt,
+            'grossAmt' => $grossAmt,
+            'paperWidth' => $paperWidth,
+        ])->render();
     }
 }

@@ -1,0 +1,8 @@
+{
+  "task_id": "T-049",
+  "run_id": "002",
+  "timestamp": "2026-10-08T11:51:26.944Z",
+  "action": "FINISH",
+  "git_commit": "7e70fa2",
+  "evidence": "Added whereNumber constraints on dynamic {id} routes in api.php, corrected controller parameter parsing, and added reconcileCashierShift compatibility alias in SalesIntegrationService. Tested endpoint returns HTTP 200."
+}

@@ -142,9 +142,9 @@ class SalesIntegrationController extends Controller
     /**
      * Get details of a single sale.
      */
-    public function show(int $id): JsonResponse
+    public function show($id): JsonResponse
     {
-        $sale = OperationalSale::with('items')->find($id);
+        $sale = OperationalSale::with('items')->find((int)$id);
         if (!$sale) {
             return response()->json(['success' => false, 'message' => 'Sale not found.'], 404);
         }
@@ -158,13 +158,13 @@ class SalesIntegrationController extends Controller
     /**
      * Approve a staged sale and commit vouchers to ledger.
      */
-    public function approve(Request $request, int $id): JsonResponse
+    public function approve(Request $request, $id): JsonResponse
     {
         $user = $request->user();
         $approverName = $user ? $user->name : ($request->input('approver_name') ?? 'Manager');
 
         try {
-            $result = $this->salesService->approveSale($id, $approverName);
+            $result = $this->salesService->approveSale((int)$id, $approverName);
             return response()->json([
                 'success' => true,
                 'message' => 'Sale approved and committed to ledger.',
@@ -183,12 +183,13 @@ class SalesIntegrationController extends Controller
      */
     public function reconcileShift(Request $request): JsonResponse
     {
-        $companyCode = $request->attributes->get('tenant_company_code') ?? 'MAIN';
+        $companyCode = $request->attributes->get('tenant_company_code') ?? $request->input('company_code') ?? 'MAIN';
         $user = $request->user();
         $userId = $user ? (string) $user->id : ($request->input('agent_id') ?? null);
-        $cashCounted = (float) ($request->input('actual_cash_counted') ?? 0);
+        $date = $request->input('date') ?? date('Y-m-d');
+        $cashCounted = (float) ($request->input('actual_cash') ?? $request->input('actual_cash_counted') ?? 0);
 
-        $report = $this->salesService->reconcileCashierShift($companyCode, $userId, $cashCounted);
+        $report = $this->salesService->reconcileShift($companyCode, $date, $userId, $cashCounted);
 
         return response()->json([
             'success' => true,
@@ -199,9 +200,9 @@ class SalesIntegrationController extends Controller
     /**
      * Print thermal receipt (58mm or 80mm).
      */
-    public function printReceipt(Request $request, int $id): Response
+    public function printReceipt(Request $request, $id): Response
     {
-        $sale = OperationalSale::with('items')->find($id);
+        $sale = OperationalSale::with('items')->find((int)$id);
         if (!$sale) {
             return response('Sale receipt not found.', 404);
         }

@@ -85,11 +85,11 @@ class LedgerInitializationSeeder extends Seeder
         
         $accounts = [
             // Root Categories
-            ['code' => '1000', 'name' => 'Assets', 'category' => true, 'debit' => true],
-            ['code' => '2000', 'name' => 'Liabilities', 'category' => true, 'credit' => true],
-            ['code' => '3000', 'name' => 'Equity', 'category' => true, 'credit' => true],
-            ['code' => '4000', 'name' => 'Expenses', 'category' => true, 'debit' => true],
-            ['code' => '5000', 'name' => 'Revenue', 'category' => true, 'credit' => true],
+            ['code' => '1000', 'name' => 'Assets', 'category' => true, 'debit' => true, 'account_class' => 'asset'],
+            ['code' => '2000', 'name' => 'Liabilities', 'category' => true, 'credit' => true, 'account_class' => 'liability'],
+            ['code' => '3000', 'name' => 'Equity', 'category' => true, 'credit' => true, 'account_class' => 'equity'],
+            ['code' => '4000', 'name' => 'Expenses', 'category' => true, 'debit' => true, 'account_class' => 'expense'],
+            ['code' => '5000', 'name' => 'Revenue', 'category' => true, 'credit' => true, 'account_class' => 'revenue'],
 
             // Assets Sub-accounts
             ['code' => '1100', 'name' => 'Current Assets', 'category' => true, 'debit' => true, 'parent_code' => '1000'],

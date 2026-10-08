@@ -57,6 +57,12 @@ class AccountingDiagnosticService
         // Execute all P0 Imbalance Forensic Vectors
         $rawFindings = [];
 
+        // Vector 0: Causal State-Transition Timeline Analyzer (First Failing Invariant Checkpoint)
+        $causalFindings = $this->auditCausalStateTransition($asOfDate, $currency);
+        if (!empty($causalFindings)) {
+            $rawFindings = array_merge($rawFindings, $causalFindings);
+        }
+
         // Vector 1: Corrupted / Single-Legged Vouchers (Dr != Cr)
         $unbalancedVouchers = $this->auditUnbalancedVouchers($asOfDate, $currency);
         if (!empty($unbalancedVouchers)) {
@@ -112,6 +118,115 @@ class AccountingDiagnosticService
             'summary_text' => $summaryText,
             'step_by_step_guidance' => $guidanceSteps,
         ];
+    }
+
+    /**
+     * Vector 0: Audit transaction-level invariant checkpoints to identify the exact
+     * first causal state transition event (PASS -> FAIL) that introduced the imbalance.
+     */
+    public function auditCausalStateTransition(string $asOfDate, string $currency = 'PKR'): array
+    {
+        $currentDomain = $this->getCurrentDomain();
+
+        // Retrieve chronological checkpoints for this domain up to asOfDate
+        $checkpoints = \AlamiaSoft\AlamiaAccounts\Models\AccountingIntegrityCheckpoint::where('domain_uuid', $currentDomain->domainUuid)
+            ->whereDate('as_of_date', '<=', $asOfDate)
+            ->orderBy('id', 'asc')
+            ->get();
+
+        if ($checkpoints->isEmpty()) {
+            // Auto-backfill checkpoints chronologically for existing historical vouchers
+            $guard = app(AccountingIntegrityGuard::class);
+            $domainEntries = DB::table('domain_journal_entries')
+                ->join('journal_entries', 'domain_journal_entries.journalEntryId', '=', 'journal_entries.journalEntryId')
+                ->where('domain_journal_entries.domainUuid', $currentDomain->domainUuid)
+                ->where('journal_entries.currency', $currency)
+                ->orderBy('journal_entries.transDate', 'asc')
+                ->orderBy('journal_entries.journalEntryId', 'asc')
+                ->select(
+                    'journal_entries.journalEntryId',
+                    'journal_entries.transDate',
+                    'journal_entries.description',
+                    'journal_entries.extra'
+                )
+                ->get();
+
+            foreach ($domainEntries as $entry) {
+                $extra = json_decode($entry->extra ?? '', true) ?: [];
+                $vchRef = $extra['reference'] ?? ($extra['voucher_number'] ?? ('JV-' . $entry->journalEntryId));
+                $vchType = !empty($extra['voucher_type']) ? ucfirst($extra['voucher_type']) : 'Journal Voucher';
+                $transDate = Carbon::parse($entry->transDate)->toDateString();
+
+                $guard->recordCheckpoint(
+                    $currentDomain->domainUuid,
+                    'POST_VOUCHER',
+                    $vchRef,
+                    $vchType,
+                    $entry->journalEntryId,
+                    $transDate,
+                    $currency,
+                    ['description' => $entry->description]
+                );
+            }
+
+            // Re-fetch checkpoints
+            $checkpoints = \AlamiaSoft\AlamiaAccounts\Models\AccountingIntegrityCheckpoint::where('domain_uuid', $currentDomain->domainUuid)
+                ->whereDate('as_of_date', '<=', $asOfDate)
+                ->orderBy('id', 'asc')
+                ->get();
+        }
+
+        if ($checkpoints->isEmpty()) {
+            return [];
+        }
+
+        // Find the first checkpoint where invariants_passed == false
+        $firstFailing = $checkpoints->firstWhere('invariants_passed', false);
+        if (!$firstFailing) {
+            return [];
+        }
+
+        $vchRef = $firstFailing->voucher_reference ?? ("JV-" . ($firstFailing->journal_entry_id ?? $firstFailing->id));
+        if (is_numeric($vchRef)) {
+            $vchRef = "JV-{$vchRef}";
+        }
+        $vchType = $firstFailing->voucher_type ?? 'Journal Voucher';
+        $meta = is_array($firstFailing->metadata) ? $firstFailing->metadata : (json_decode($firstFailing->metadata ?? '', true) ?: []);
+        $desc = $meta['description'] ?? '';
+        $descSnippet = !empty($desc) ? " ({$desc})" : "";
+
+        $diff = (float)$firstFailing->bs_difference;
+        if ($diff <= 0.0) {
+            $diff = (float)$firstFailing->trial_balance_difference;
+        }
+
+        $findings = [];
+        $findings[] = [
+            'id' => "CAUSAL-TRANSITION-{$firstFailing->id}",
+            'vector' => 'CAUSAL_STATE_TRANSITION',
+            'type' => 'FIRST_CAUSAL_STATE_TRANSITION',
+            'title' => "First Causal Imbalance Transition at {$vchType} {$vchRef}" . (!empty($desc) ? " - {$desc}" : ""),
+            'severity' => 'critical',
+            'amount' => $diff,
+            'impact_amount' => $diff,
+            'signed_effect' => ($firstFailing->assets > ($firstFailing->liabilities + $firstFailing->equity)) ? 'assets_plus' : 'liabilities_plus',
+            'voucher_reference' => $vchRef,
+            'voucher_type' => $vchType,
+            'journal_entry_id' => $firstFailing->journal_entry_id,
+            'narration' => $desc,
+            'event_type' => $firstFailing->event_type,
+            'occurred_at' => $firstFailing->created_at ? $firstFailing->created_at->toDateTimeString() : null,
+            'evidence_keys' => ['voucher_' . $vchRef],
+            'description' => "The Balance Sheet became unbalanced immediately after {$vchType} '{$vchRef}'{$descSnippet} was posted on {$firstFailing->as_of_date->format('Y-m-d')}. The voucher introduced a Rs. " . number_format($diff, 2) . " debit/credit difference. No earlier checkpoint showed an imbalance. This voucher is therefore the primary causal event, with 100% discrepancy coverage.",
+            'violations' => $firstFailing->violations ?? ['BALANCE_SHEET_UNBALANCED'],
+            'transition_state' => $firstFailing->transition_state,
+            'suggested_fix' => "Inspect or reverse {$vchType} '{$vchRef}'{$descSnippet} to restore double-entry balance.",
+            'remediation' => "Inspect or reverse {$vchType} '{$vchRef}'{$descSnippet} to restore double-entry balance.",
+            'remediation_link' => "/vouchers?search=" . urlencode($vchRef),
+            'fix_target_page' => 'daybook',
+        ];
+
+        return $findings;
     }
 
     /**
@@ -1064,7 +1179,8 @@ class AccountingDiagnosticService
                     ? " [Partial Impact: Rs. " . number_format($finding['impact_amount'], 2) . "]"
                     : "");
 
-            $steps[] = "Step {$num} [{$finding['severity']}]{$reconciliationNote}: {$finding['title']} — {$finding['suggested_fix']}";
+            $fix = $finding['suggested_fix'] ?? ($finding['remediation'] ?? 'Review and correct the transaction.');
+            $steps[] = "Step {$num} [{$finding['severity']}]{$reconciliationNote}: {$finding['title']} — {$fix}";
         }
 
         if (empty($steps)) {

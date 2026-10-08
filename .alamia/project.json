@@ -1,0 +1,61 @@
+{
+  "version": "0.1.0",
+  "project_name": "AlamiaAccounts",
+  "stack": {
+    "primary_language": "typescript",
+    "languages": [
+      "php",
+      "javascript",
+      "typescript"
+    ],
+    "frameworks": [
+      "laravel",
+      "nextjs",
+      "react"
+    ],
+    "package_managers": [
+      "composer",
+      "npm"
+    ],
+    "manifests": [
+      "AlamiaAccounts-Backend/composer.json",
+      "AlamiaAccounts-Backend/package.json",
+      "AlamiaAccounts-Frontend/package.json"
+    ],
+    "containers": [
+      "docker-compose"
+    ]
+  },
+  "testing": {
+    "runner": "e2e-node",
+    "command": "node tests/e2e/run-all.js",
+    "test_dirs": [
+      "tests",
+      "AlamiaAccounts-Backend/tests"
+    ],
+    "has_tests": true
+  },
+  "memory": {
+    "has_memory_system": true,
+    "handoff_dir": ".project/tasks",
+    "architecture_dir": "docs/manual",
+    "worklogs": [
+      "AGENTS.md",
+      "ARCHITECTURE.md",
+      "PROJECT_PLAN.md",
+      "TASK_STATUS.md",
+      "docs/ACCOUNTANT_READINESS_CERTIFICATION.md",
+      "docs/ACCOUNTANT_UAT_GUIDE.md"
+    ],
+    "latest_handoff_file": ".project/tasks/T-044-deterministic-multi-compound-fixture-int.md"
+  },
+  "lifecycle": {
+    "groups": [
+      "bootstrap",
+      "implement",
+      "qa",
+      "architecture-review",
+      "session-end"
+    ]
+  }
+}

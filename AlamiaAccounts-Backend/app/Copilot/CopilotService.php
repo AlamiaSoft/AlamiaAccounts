@@ -782,16 +782,26 @@ class CopilotService
         foreach ($diag['anomalies'] as $idx => $anom) {
             $num = $idx + 1;
             $severityIcon = $anom['severity'] === 'critical' ? '🔴' : ($anom['severity'] === 'warning' ? '🟡' : 'ℹ️');
-            $anomaliesList .= "\n{$num}. {$severityIcon} **{$anom['title']}** (Impact: PKR " . number_format($anom['impact_amount'], 2) . ")\n   {$anom['description']}\n   *Fix*: {$anom['suggested_fix']}\n";
+            $impactAmt = (float)($anom['impact_amount'] ?? ($anom['amount'] ?? 0.0));
+            $fixText = $anom['suggested_fix'] ?? ($anom['remediation'] ?? 'Review and correct the entry.');
+            $anomaliesList .= "\n{$num}. {$severityIcon} **{$anom['title']}** (Impact: PKR " . number_format($impactAmt, 2) . ")\n   {$anom['description']}\n   *Fix*: {$fixText}\n";
+        }
+
+        $causalAnom = collect($diag['anomalies'] ?? [])->firstWhere('vector', 'CAUSAL_STATE_TRANSITION');
+        $causalLeadBlock = "";
+        if ($causalAnom) {
+            $causalLeadBlock = "> 🎯 **Primary Causal Event Isolated:**\n"
+                . "> *\"{$causalAnom['description']}\"*\n\n";
         }
 
         $guidanceList = "";
-        foreach ($diag['step_by_step_guidance'] as $step) {
+        foreach (($diag['step_by_step_guidance'] ?? []) as $step) {
             $guidanceList .= "- {$step}\n";
         }
 
         $message = "### ⚠️ Balance Sheet Forensic Diagnosis\n\n"
             . "**Discrepancy: PKR {$diffFormatted}**\n\n"
+            . $causalLeadBlock
             . "- **Total Assets**: PKR {$assetsFormatted}\n"
             . "- **Total Liabilities & Equity**: PKR {$liabEqFormatted}\n"
             . "- **Imbalance Status**: {$dirText}\n\n"
@@ -804,6 +814,19 @@ class CopilotService
             ['label' => '📖 Chart of Accounts', 'action' => 'navigate_page', 'payload' => ['page' => 'coa']],
             ['label' => '📄 View Daybook', 'action' => 'navigate_page', 'payload' => ['page' => 'daybook']],
         ];
+
+        if ($causalAnom && !empty($causalAnom['voucher_reference'])) {
+            $vRef = $causalAnom['voucher_reference'];
+            array_unshift($actions, [
+                'label' => "🔍 View Voucher {$vRef}",
+                'action' => 'navigate_page',
+                'payload' => [
+                    'page' => 'voucher-view',
+                    'id' => $vRef,
+                    'reference' => $vRef,
+                ],
+            ]);
+        }
 
         return [
             'sender' => 'Taliya',

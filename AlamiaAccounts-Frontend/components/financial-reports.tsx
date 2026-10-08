@@ -272,22 +272,22 @@ export default function FinancialReports({ initialReport, companyName, printSett
                                 <span>{anom.title}</span>
                               </div>
                               <span className="font-mono font-bold text-xs px-2 py-0.5 rounded bg-background border border-border text-foreground shrink-0">
-                                Impact: Rs. {Number(anom.impact_amount || 0).toLocaleString()}
+                                Impact: Rs. {Number(anom.impact_amount || anom.amount || 0).toLocaleString()}
                               </span>
                             </div>
                             <p className="text-xs text-muted-foreground leading-relaxed">
                               {anom.description}
                             </p>
-                            {anom.suggested_fix && (
+                            {(anom.suggested_fix || anom.remediation) && (
                               <div className="p-2.5 rounded-lg bg-background/90 border border-border text-foreground text-xs flex flex-wrap items-center justify-between gap-2">
                                 <div className="text-xs flex-1">
-                                  <span className="font-bold text-primary">Corrective Action:</span> {anom.suggested_fix.replace(/\s*\(\?page=[^)]+\)/gi, "")}
+                                  <span className="font-bold text-primary">Corrective Action:</span> {(anom.suggested_fix || anom.remediation || "").replace(/\s*\(\?page=[^)]+\)/gi, "")}
                                 </div>
                                 <Button
                                   size="sm"
                                   variant="ghost"
                                   onClick={() => {
-                                    const targetPage = anom.fix_target_page || (anom.account_code ? "coa" : "daybook")
+                                    const targetPage = anom.fix_target_page || (anom.account_code ? "coa" : (anom.voucher_reference ? "daybook" : "daybook"))
                                     window.dispatchEvent(
                                       new CustomEvent("copilot:navigate", {
                                         detail: { page: targetPage },

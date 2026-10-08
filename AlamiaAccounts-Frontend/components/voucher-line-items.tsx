@@ -1,11 +1,12 @@
 "use client"
 
 import React, { useMemo } from "react"
-import { Trash2, Check, AlertTriangle } from "lucide-react"
+import { Trash2, Check, AlertTriangle, ShieldAlert } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { useAccounts } from "@/hooks/use-accounts"
 import AccountCombobox, { type AccountOption } from "./account-combobox"
+import { getFilteredAccountsByRules, type AccountRule } from "@/lib/account-rules-helper"
 
 export interface LineItem {
   id: string
@@ -26,6 +27,7 @@ interface VoucherLineItemsProps {
   disabled?: boolean
   currency?: string
   companyCode?: string
+  accountRules?: AccountRule[]
 }
 
 export default function VoucherLineItems({
@@ -37,6 +39,7 @@ export default function VoucherLineItems({
   disabled = false,
   currency = "PKR",
   companyCode,
+  accountRules,
 }: VoucherLineItemsProps) {
   const onUpdate = propOnUpdate || onUpdateLineItem || (() => {})
   const onRemove = propOnRemove || onRemoveLineItem || (() => {})
@@ -49,6 +52,8 @@ export default function VoucherLineItems({
       category: Boolean(acc.category),
       type: acc.type,
       groupId: acc.groupId,
+      parent_code: acc.parent_code,
+      parent_name: acc.parent_name,
     }))
   }, [accounts])
 
@@ -143,7 +148,28 @@ export default function VoucherLineItems({
           {lineItems.map((item, index) => {
             const matchedAccount = accountsByCode.get(item.account.trim().toLowerCase())
             const isCategory = matchedAccount?.category
-            const isValidPosting = matchedAccount && !matchedAccount.category
+            
+            // Determine intended line side for rule filtering
+            const rowSide: "debit" | "credit" | "all" =
+              Number(item.debit) > 0
+                ? "debit"
+                : Number(item.credit) > 0
+                ? "credit"
+                : index === 0
+                ? "debit"
+                : index === 1
+                ? "credit"
+                : "all"
+
+            const rowAccounts = getFilteredAccountsByRules(accountList, accountRules, rowSide)
+            const isAllowedByRule =
+              !accountRules ||
+              accountRules.length === 0 ||
+              rowAccounts.length === 0 ||
+              rowAccounts.some((a) => a.code.toLowerCase() === item.account.trim().toLowerCase())
+
+            const isValidPosting = matchedAccount && !matchedAccount.category && isAllowedByRule
+            const isRuleWarning = matchedAccount && !matchedAccount.category && !isAllowedByRule
 
             return (
               <tr
@@ -161,6 +187,8 @@ export default function VoucherLineItems({
                       className={`h-9 font-mono text-xs sm:text-sm pr-7 bg-background ${
                         isCategory
                           ? "border-amber-500 focus-visible:ring-amber-500"
+                          : isRuleWarning
+                          ? "border-rose-500 focus-visible:ring-rose-500"
                           : isValidPosting
                           ? "border-emerald-500/50"
                           : ""
@@ -172,9 +200,10 @@ export default function VoucherLineItems({
                         <Check className="w-4 h-4 text-emerald-600" />
                       )}
                       {isCategory && (
-                        <AlertTriangle
-                          className="w-4 h-4 text-amber-500"
-                        />
+                        <AlertTriangle className="w-4 h-4 text-amber-500" />
+                      )}
+                      {isRuleWarning && (
+                        <ShieldAlert className="w-4 h-4 text-rose-500" />
                       )}
                     </div>
                   </div>
@@ -183,17 +212,22 @@ export default function VoucherLineItems({
                       Folder: select sub-account
                     </p>
                   )}
+                  {isRuleWarning && (
+                    <p className="text-[10px] text-rose-600 font-medium mt-1 leading-tight">
+                      Restricted by {rowSide.toUpperCase()} rule
+                    </p>
+                  )}
                 </td>
 
                 {/* 2. Searchable Account Name Combobox */}
                 <td className="py-2.5 px-3 align-top">
                   <AccountCombobox
-                    accounts={accountList}
+                    accounts={rowAccounts.length > 0 ? rowAccounts : accountList}
                     selectedCode={item.account}
                     selectedName={item.accountName}
                     onSelect={(selected) => handleAccountSelect(item.id, selected)}
                     disabled={disabled}
-                    placeholder="Select or search account by name..."
+                    placeholder={`Select ${rowSide === 'debit' ? 'Debit' : rowSide === 'credit' ? 'Credit' : ''} account...`}
                   />
                 </td>
 

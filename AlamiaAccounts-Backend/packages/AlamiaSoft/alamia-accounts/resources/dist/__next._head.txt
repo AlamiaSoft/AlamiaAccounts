@@ -3,6 +3,6 @@
 4:I[97367,["/_next/static/chunks/dfe24cce04d6304a.js"],"MetadataBoundary"]
 5:"$Sreact.suspense"
 7:I[27201,["/_next/static/chunks/dfe24cce04d6304a.js"],"IconMark"]
-0:{"buildId":"_cmvxFeYEMDsrJLajoVWW","rsc":["$","$1","h",{"children":[null,["$","$L2",null,{"children":"$@3"}],["$","div",null,{"hidden":true,"children":["$","$L4",null,{"children":["$","$5",null,{"name":"Next.Metadata","children":"$@6"}]}]}],["$","meta",null,{"name":"next-size-adjust","content":""}]]}],"loading":null,"isPartial":false}
+0:{"buildId":"MQzeBPg4K914n88BQhRy2","rsc":["$","$1","h",{"children":[null,["$","$L2",null,{"children":"$@3"}],["$","div",null,{"hidden":true,"children":["$","$L4",null,{"children":["$","$5",null,{"name":"Next.Metadata","children":"$@6"}]}]}],["$","meta",null,{"name":"next-size-adjust","content":""}]]}],"loading":null,"isPartial":false}
 3:[["$","meta","0",{"charSet":"utf-8"}],["$","meta","1",{"name":"viewport","content":"width=device-width, initial-scale=1"}]]
 6:[["$","title","0",{"children":"Alamia Accounts"}],["$","meta","1",{"name":"description","content":"Professional Double-Entry Accounting Suite by Alamia"}],["$","link","2",{"rel":"shortcut icon","href":"/alamia-logo.png"}],["$","link","3",{"rel":"icon","href":"/alamia-logo.png"}],["$","link","4",{"rel":"icon","href":"/icon-light-32x32.png","sizes":"32x32"}],["$","link","5",{"rel":"icon","href":"/icon-dark-32x32.png","sizes":"32x32"}],["$","link","6",{"rel":"apple-touch-icon","href":"/apple-icon.png"}],["$","$L7","7",{}]]

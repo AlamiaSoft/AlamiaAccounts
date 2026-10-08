@@ -16,6 +16,7 @@ import { useVouchers } from "@/hooks/use-vouchers"
 import { useVoucherTypes } from "@/hooks/use-voucher-types"
 import { useAccounts } from "@/hooks/use-accounts"
 import { useToast } from "@/hooks/use-toast"
+import { isAccountInGroup } from "@/lib/account-rules-helper"
 import type { Company } from "./company-switcher"
 
 interface LineItem {
@@ -99,9 +100,13 @@ export default function CustomVoucherEntry({
       const num = `${p}-${yr}-${String(rand).padStart(4, "0")}`
       setReferenceNumber(num)
 
-      // Set dynamically configured default debit & credit accounts from the Custom Voucher Type configuration
-      const defaultDebit = voucherType.default_debit_account || ""
-      const defaultCredit = voucherType.default_credit_account || ""
+      // Set dynamically configured default debit & credit accounts from the Custom Voucher Type account rules
+      const rules = voucherType.account_rules || voucherType.accountRules || []
+      const debitRule = rules.find((r: any) => r.side === "debit")
+      const creditRule = rules.find((r: any) => r.side === "credit")
+
+      const defaultDebit = debitRule?.default_account || debitRule?.defaultAccount || ""
+      const defaultCredit = creditRule?.default_account || creditRule?.defaultAccount || ""
       
       const debitAcc = defaultDebit ? accounts?.find((a: any) => String(a.code) === String(defaultDebit)) : null
       const creditAcc = defaultCredit ? accounts?.find((a: any) => String(a.code) === String(defaultCredit)) : null
@@ -320,6 +325,46 @@ export default function CustomVoucherEntry({
         variant: "destructive",
       })
       return
+    }
+
+    // 4. Validate accounts against custom voucher type account rules
+    const rules = voucherType.account_rules || voucherType.accountRules || []
+    if (rules.length > 0) {
+      for (let i = 0; i < lineItems.length; i++) {
+        const item = lineItems[i]
+        const side: "debit" | "credit" =
+          Number(item.debit) > 0 ? "debit" : Number(item.credit) > 0 ? "credit" : i === 0 ? "debit" : "credit"
+        const sideRules = rules.filter((r: any) => r.side === side)
+        
+        if (sideRules.length > 0) {
+          const allowedGroups: string[] = []
+          sideRules.forEach((r: any) => {
+            const groups = Array.isArray(r.account_groups)
+              ? r.account_groups
+              : Array.isArray(r.accountGroups)
+              ? r.accountGroups
+              : typeof r.account_groups === "string"
+              ? JSON.parse(r.account_groups || "[]")
+              : []
+            groups.forEach((g: string) => {
+              if (g && !allowedGroups.includes(g)) allowedGroups.push(g)
+            })
+          })
+
+          if (allowedGroups.length > 0) {
+            const accObj = accounts?.find((a: any) => String(a.code).toLowerCase() === item.account.trim().toLowerCase())
+            const isAllowed = accObj && allowedGroups.some((g) => isAccountInGroup(accObj, g))
+            if (!isAllowed) {
+              toast({
+                title: "Account Rule Violation",
+                description: `Line ${i + 1} (${side.toUpperCase()} [${item.account}] ${item.accountName}) is not permitted. Only accounts in [${allowedGroups.join(", ")}] are allowed.`,
+                variant: "destructive",
+              })
+              return
+            }
+          }
+        }
+      }
     }
 
     setIsSubmitting(true)
@@ -588,6 +633,7 @@ export default function CustomVoucherEntry({
             onUpdateLineItem={updateLineItem}
             currency="PKR"
             companyCode={currentCompany?.code}
+            accountRules={voucherType.account_rules || voucherType.accountRules || []}
           />
 
           <VoucherSummary

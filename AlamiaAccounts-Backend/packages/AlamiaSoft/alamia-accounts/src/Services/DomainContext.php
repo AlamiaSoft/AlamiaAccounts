@@ -35,6 +35,13 @@ class DomainContext
             }
         }
 
+        if (isset(static::$currentDomain)) {
+            $exists = LedgerDomain::where('code', static::$currentDomain)->exists();
+            if (!$exists) {
+                static::$currentDomain = null;
+            }
+        }
+
         if (!isset(static::$currentDomain)) {
             // Default to first domain if not set
             $domain = LedgerDomain::first();

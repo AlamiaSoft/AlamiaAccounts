@@ -64,7 +64,7 @@ class VoucherServiceTest extends TestCase
     {
         $voucher = $this->voucherService->createPaymentVoucher([
             'payee_account_code' => '4200',
-            'bank_account_code' => '1120',
+            'bank_account_code' => '1110',
             'amount' => 500,
             'date' => '2025-01-01',
             'voucher_number' => 'PV001',

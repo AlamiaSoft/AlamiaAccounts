@@ -248,13 +248,4 @@ class SalesIntegrationController extends Controller
             'Content-Type' => 'text/html; charset=UTF-8',
         ]);
     }
-}}
-
-        $paperWidth = $request->query('width', '80mm');
-        $html = $this->salesService->renderThermalReceiptHtml($sale, $paperWidth);
-
-        return response($html, 200, [
-            'Content-Type' => 'text/html; charset=UTF-8',
-        ]);
-    }
 }

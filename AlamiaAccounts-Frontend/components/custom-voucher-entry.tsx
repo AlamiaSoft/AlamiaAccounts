@@ -94,24 +94,12 @@ export default function CustomVoucherEntry({
   // Track initialized voucher type key to prevent infinite re-render loops (React error #185)
   const initializedKeyRef = React.useRef<string | null>(null)
 
-  // Initialize reference number and defaults when voucher type is loaded
+  // Initialize reference number and defaults once when voucher type is loaded
   useEffect(() => {
     if (!voucherType) return
 
     const typeKey = `${currentCompany?.code || "MAIN"}_${voucherType.id || voucherType.prefix}`
     if (initializedKeyRef.current === typeKey) {
-      // If already initialized for this voucher type, only populate account names if missing
-      setLineItems((prev) =>
-        prev.map((item) => {
-          if (item.account && !item.accountName && accounts && accounts.length > 0) {
-            const matched = accounts.find((a: any) => String(a.code).toLowerCase() === item.account.trim().toLowerCase())
-            if (matched) {
-              return { ...item, accountName: matched.name }
-            }
-          }
-          return item
-        })
-      )
       return
     }
 
@@ -170,7 +158,7 @@ export default function CustomVoucherEntry({
       })
     }
     setCustomFieldValues(initialFields)
-  }, [voucherType, accounts, currentCompany?.code])
+  }, [voucherType?.id, voucherType?.prefix, currentCompany?.code])
 
   const totalDebit = useMemo(() => {
     return lineItems.reduce((sum, item) => sum + (Number(item.debit) || 0), 0)
@@ -212,33 +200,35 @@ export default function CustomVoucherEntry({
   }
 
   const handleCustomFieldChange = (fieldName: string, value: any) => {
-    setCustomFieldValues((prev) => {
-      const updated = { ...prev, [fieldName]: value }
+    setCustomFieldValues((prev) => ({ ...prev, [fieldName]: value }))
 
-      // Auto-populate gross fare to debit/credit if user changes Gross Fare field
-      if (fieldName.toLowerCase().includes("fare") || fieldName.toLowerCase().includes("amount")) {
-        const numVal = parseFloat(value) || 0
-        if (numVal > 0 && lineItems.length >= 2) {
-          setLineItems((prevLines) => [
+    // Auto-populate gross fare to debit/credit if user changes Gross Fare field
+    if (fieldName.toLowerCase().includes("fare") || fieldName.toLowerCase().includes("amount")) {
+      const numVal = parseFloat(value) || 0
+      if (numVal > 0) {
+        setLineItems((prevLines) => {
+          if (prevLines.length < 2) return prevLines
+          return [
             { ...prevLines[0], debit: numVal, credit: 0 },
             { ...prevLines[1], debit: 0, credit: numVal },
             ...prevLines.slice(2),
-          ])
-        }
+          ]
+        })
       }
+    }
 
-      // Auto-update narration if passenger name / PNR changes
-      if (fieldName === "Passenger Name" || fieldName === "PNR" || fieldName === "Sector Route") {
-        const pass = updated["Passenger Name"] || ""
-        const pnr = updated["PNR"] || ""
-        const sector = updated["Sector Route"] || ""
+    // Auto-update narration if passenger name / PNR changes
+    if (fieldName === "Passenger Name" || fieldName === "PNR" || fieldName === "Sector Route") {
+      setCustomFieldValues((prev) => {
+        const pass = fieldName === "Passenger Name" ? value : prev["Passenger Name"] || ""
+        const pnr = fieldName === "PNR" ? value : prev["PNR"] || ""
+        const sector = fieldName === "Sector Route" ? value : prev["Sector Route"] || ""
         if (pass || pnr || sector) {
           setNarration(`Ticket Booking: ${pass}${pnr ? ` (PNR: ${pnr})` : ""}${sector ? ` Sector: ${sector}` : ""}`)
         }
-      }
-
-      return updated
-    })
+        return prev
+      })
+    }
   }
 
   const addLineItem = () => {

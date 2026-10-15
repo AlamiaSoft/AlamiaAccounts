@@ -1,6 +1,8 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { voucherTypeApi } from '@/lib/api'
 
+const EMPTY_VOUCHER_TYPES: any[] = []
+
 export function useVoucherTypes(companyCode?: string) {
     const queryClient = useQueryClient()
 
@@ -40,7 +42,7 @@ export function useVoucherTypes(companyCode?: string) {
     })
 
     return {
-        voucherTypes: voucherTypes || [],
+        voucherTypes: voucherTypes ?? EMPTY_VOUCHER_TYPES,
         isLoading,
         refetch,
         createVoucherType,

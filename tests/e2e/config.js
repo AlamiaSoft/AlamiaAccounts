@@ -3,8 +3,9 @@
  */
 const { chromium } = require('playwright');
 
-const BASE_URL = process.env.BASE_URL || 'http://localhost:3000';
-const API_URL = process.env.API_URL || 'http://localhost:8000/api';
+const RAW_BASE_URL = process.env.BASE_URL || 'http://localhost:8001/alamia-accounts';
+const BASE_URL = RAW_BASE_URL.replace(/\/$/, '');
+const API_URL = process.env.API_URL || 'http://localhost:8001/api';
 const DEFAULT_USER = {
   email: process.env.TEST_EMAIL || 'admin@admin.com',
   password: process.env.TEST_PASSWORD || 'password',
@@ -25,17 +26,29 @@ async function launchBrowser(options = {}) {
  * Log into the Alamia Accounts application.
  */
 async function login(page) {
-  await page.goto(`${BASE_URL}/login`);
-  await page.waitForTimeout(500);
+  page.on('console', (msg) => console.log(`[Browser Console]: ${msg.text()}`));
+  page.on('pageerror', (err) => console.log(`[Browser PageError]: ${err.message}`));
+
+  const loginUrl = BASE_URL.includes('/alamia-accounts')
+    ? `${BASE_URL}/login`
+    : `${BASE_URL}/alamia-accounts/login`;
+
+  console.log(`Navigating to login URL: ${loginUrl}`);
+  await page.goto(loginUrl);
+  await page.waitForTimeout(1000);
 
   if (page.url().includes('/login')) {
-    await page.locator('input[type="email"]').fill(DEFAULT_USER.email);
+    const emailInput = page.locator('input[type="email"]');
+    await emailInput.waitFor({ state: 'visible', timeout: 10000 });
+    await emailInput.fill(DEFAULT_USER.email);
     await page.locator('input[type="password"]').fill(DEFAULT_USER.password);
+    console.log(`Filled credentials for ${DEFAULT_USER.email}, clicking Submit...`);
     await page.getByRole('button', { name: /Sign In|Login/i }).click();
-    await page.waitForURL(`${BASE_URL}/`, { timeout: 15000 });
+    await page.waitForTimeout(2000);
+    console.log(`URL after login click: ${page.url()}`);
   }
 
-  await page.waitForSelector('aside nav', { timeout: 10000 });
+  await page.waitForSelector('aside nav', { timeout: 15000 });
   await page.waitForTimeout(500);
 }
 

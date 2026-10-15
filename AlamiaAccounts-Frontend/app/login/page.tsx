@@ -23,7 +23,11 @@ export default function LoginPage() {
 
         try {
             await login.mutateAsync({ email, password })
-            router.push("/")
+            if (typeof window !== 'undefined') {
+                window.location.href = '/alamia-accounts'
+            } else {
+                router.push("/alamia-accounts")
+            }
         } catch (err: any) {
             setError(err.response?.data?.message || "Failed to login. Please check your credentials.")
         }

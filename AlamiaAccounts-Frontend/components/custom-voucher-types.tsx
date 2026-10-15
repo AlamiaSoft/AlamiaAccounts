@@ -29,6 +29,7 @@ interface AccountRule {
   id: string
   side: "debit" | "credit"
   accountGroups: string[]
+  defaultAccount?: string
 }
 
 interface ValidationRule {
@@ -76,8 +77,6 @@ interface CustomVoucherType {
   prefix: string
   company_code?: string
   description: string
-  defaultDebitAccount?: string
-  defaultCreditAccount?: string
   customFields: CustomField[]
   accountRules: AccountRule[]
   validationRules: ValidationRule[]
@@ -99,8 +98,6 @@ export default function CustomVoucherTypes() {
     prefix: vt.prefix,
     company_code: vt.company_code,
     description: vt.description || "",
-    defaultDebitAccount: vt.default_debit_account || "",
-    defaultCreditAccount: vt.default_credit_account || "",
     customFields: Array.isArray(vt.custom_fields) ? vt.custom_fields.map((f: any) => ({
       id: String(f.id || Math.random()),
       name: f.name,
@@ -112,6 +109,7 @@ export default function CustomVoucherTypes() {
       id: String(r.id || Math.random()),
       side: r.side,
       accountGroups: Array.isArray(r.account_groups) ? r.account_groups : (typeof r.account_groups === 'string' ? JSON.parse(r.account_groups || '[]') : []),
+      defaultAccount: r.default_account || "",
     })) : [],
     validationRules: Array.isArray(vt.validation_rules) ? vt.validation_rules.map((v: any) => ({
       id: String(v.id || Math.random()),
@@ -148,8 +146,6 @@ export default function CustomVoucherTypes() {
     name: "",
     prefix: "",
     description: "",
-    defaultDebitAccount: "",
-    defaultCreditAccount: "",
     customFields: [],
     accountRules: [],
     validationRules: [],
@@ -205,8 +201,6 @@ export default function CustomVoucherTypes() {
         name: formData.name.trim(),
         prefix: formData.prefix.trim().toUpperCase(),
         description: formData.description?.trim() || "",
-        default_debit_account: formData.defaultDebitAccount || null,
-        default_credit_account: formData.defaultCreditAccount || null,
         active: formData.active ?? true,
         custom_fields: (formData.customFields || []).map((f) => ({
           name: f.name,
@@ -217,6 +211,7 @@ export default function CustomVoucherTypes() {
         account_rules: (formData.accountRules || []).map((r) => ({
           side: r.side,
           account_groups: r.accountGroups || [],
+          default_account: r.defaultAccount || null,
         })),
         validation_rules: (formData.validationRules || []).map((v) => ({
           field_name: v.fieldName,
@@ -337,6 +332,7 @@ export default function CustomVoucherTypes() {
       id: Date.now().toString(),
       side: "debit",
       accountGroups: [],
+      defaultAccount: "",
     }
     setFormData({
       ...formData,
@@ -530,48 +526,6 @@ export default function CustomVoucherTypes() {
                 value={formData.description}
                 onChange={(e) => setFormData({ ...formData, description: e.target.value })}
               />
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-3 border-t">
-              <div className="space-y-2">
-                <Label className="font-semibold text-xs uppercase text-primary">Default Debit (Dr) Account</Label>
-                <Select
-                  value={formData.defaultDebitAccount || ""}
-                  onValueChange={(val) => setFormData({ ...formData, defaultDebitAccount: val })}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select Default Debit Account" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(accounts || []).filter((a: any) => !a.category).map((a: any) => (
-                      <SelectItem key={a.code} value={a.code}>
-                        [{a.code}] {a.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <p className="text-[11px] text-muted-foreground">Default account debited upon voucher creation</p>
-              </div>
-
-              <div className="space-y-2">
-                <Label className="font-semibold text-xs uppercase text-primary">Default Credit (Cr) Account</Label>
-                <Select
-                  value={formData.defaultCreditAccount || ""}
-                  onValueChange={(val) => setFormData({ ...formData, defaultCreditAccount: val })}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select Default Credit Account" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(accounts || []).filter((a: any) => !a.category).map((a: any) => (
-                      <SelectItem key={a.code} value={a.code}>
-                        [{a.code}] {a.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <p className="text-[11px] text-muted-foreground">Default account credited upon voucher creation</p>
-              </div>
             </div>
           </CardContent>
         </Card>
@@ -852,13 +806,13 @@ export default function CustomVoucherTypes() {
                 </div>
                 {formData.accountRules?.map((rule) => (
                   <div key={rule.id} className="p-4 border rounded-lg space-y-3">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-4">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div className="flex flex-wrap items-center gap-4">
                         <Select
                           value={rule.side}
                           onValueChange={(value: "debit" | "credit") => updateAccountRule(rule.id, { side: value })}
                         >
-                          <SelectTrigger className="w-[150px]">
+                          <SelectTrigger className="w-[120px]">
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
@@ -866,7 +820,28 @@ export default function CustomVoucherTypes() {
                             <SelectItem value="credit">Credit</SelectItem>
                           </SelectContent>
                         </Select>
-                        <span className="text-sm text-muted-foreground">
+
+                        <div className="flex items-center gap-2">
+                          <Label className="text-xs text-muted-foreground whitespace-nowrap">Default Account:</Label>
+                          <Select
+                            value={rule.defaultAccount || "none"}
+                            onValueChange={(val) => updateAccountRule(rule.id, { defaultAccount: val === "none" ? "" : val })}
+                          >
+                            <SelectTrigger className="w-[240px]">
+                              <SelectValue placeholder="No default" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="none">-- No default --</SelectItem>
+                              {(accounts || []).filter((a: any) => !a.category).map((a: any) => (
+                                <SelectItem key={a.code} value={a.code}>
+                                  [{a.code}] {a.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        <span className="text-xs text-muted-foreground">
                           {rule.accountGroups.length} group(s) selected
                         </span>
                       </div>
@@ -1216,7 +1191,7 @@ export default function CustomVoucherTypes() {
                 <TableHead>Name</TableHead>
                 <TableHead>Prefix</TableHead>
                 <TableHead>Description</TableHead>
-                <TableHead>Default Posting Accounts</TableHead>
+                <TableHead>Account Rules</TableHead>
                 <TableHead>Custom Fields</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
@@ -1231,21 +1206,22 @@ export default function CustomVoucherTypes() {
                   </TableCell>
                   <TableCell className="max-w-xs truncate">{voucherType.description}</TableCell>
                   <TableCell>
-                    {voucherType.defaultDebitAccount || voucherType.defaultCreditAccount ? (
-                      <div className="text-xs space-y-0.5 font-mono">
-                        {voucherType.defaultDebitAccount && (
-                          <div className="text-emerald-700 dark:text-emerald-400">
-                            Dr: [{voucherType.defaultDebitAccount}]
+                    {(voucherType.accountRules || []).length > 0 ? (
+                      <div className="text-xs space-y-1">
+                        {voucherType.accountRules.map((rule: any, idx: number) => (
+                          <div key={idx} className="font-mono flex items-center gap-1">
+                            <span className={rule.side === 'debit' ? "text-emerald-700 dark:text-emerald-400 font-semibold" : "text-blue-700 dark:text-blue-400 font-semibold"}>
+                              {rule.side.toUpperCase()}:
+                            </span>
+                            <span>
+                              {rule.accountGroups?.join(', ') || 'Any'}
+                              {rule.defaultAccount && ` (Default: [${rule.defaultAccount}])`}
+                            </span>
                           </div>
-                        )}
-                        {voucherType.defaultCreditAccount && (
-                          <div className="text-blue-700 dark:text-blue-400">
-                            Cr: [{voucherType.defaultCreditAccount}]
-                          </div>
-                        )}
+                        ))}
                       </div>
                     ) : (
-                      <span className="text-xs text-muted-foreground italic">None configured</span>
+                      <span className="text-xs text-muted-foreground italic">No restrictions</span>
                     )}
                   </TableCell>
                   <TableCell>{voucherType.customFields.length} fields</TableCell>

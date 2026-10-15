@@ -23,8 +23,6 @@ class CustomVoucherTypeService
                 'prefix' => $validated['prefix'],
                 'company_code' => $validated['company_code'] ?? null,
                 'description' => $validated['description'] ?? null,
-                'default_debit_account' => $validated['default_debit_account'] ?? null,
-                'default_credit_account' => $validated['default_credit_account'] ?? null,
                 'active' => $validated['active'] ?? true,
                 'created_at' => now(),
                 'updated_at' => now(),
@@ -52,6 +50,7 @@ class CustomVoucherTypeService
                         'voucher_type_id' => $voucherTypeId,
                         'side' => $rule['side'],
                         'account_groups' => is_array($rule['account_groups'] ?? null) ? json_encode($rule['account_groups']) : json_encode([]),
+                        'default_account' => $rule['default_account'] ?? $rule['defaultAccount'] ?? null,
                         'created_at' => now(),
                         'updated_at' => now(),
                     ]);
@@ -165,8 +164,6 @@ class CustomVoucherTypeService
             'prefix' => $voucherType->prefix,
             'company_code' => $voucherType->company_code ?? null,
             'description' => $voucherType->description,
-            'default_debit_account' => $voucherType->default_debit_account ?? null,
-            'default_credit_account' => $voucherType->default_credit_account ?? null,
             'active' => (bool)$voucherType->active,
             'custom_fields' => $this->getCustomFields($id),
             'account_rules' => $this->getAccountRules($id),
@@ -213,8 +210,6 @@ class CustomVoucherTypeService
                 'prefix' => $validated['prefix'],
                 'company_code' => $validated['company_code'] ?? null,
                 'description' => $validated['description'] ?? null,
-                'default_debit_account' => $validated['default_debit_account'] ?? null,
-                'default_credit_account' => $validated['default_credit_account'] ?? null,
                 'active' => $validated['active'] ?? true,
                 'updated_at' => now(),
             ]);
@@ -252,6 +247,7 @@ class CustomVoucherTypeService
                         'voucher_type_id' => $id,
                         'side' => $rule['side'],
                         'account_groups' => is_array($rule['account_groups'] ?? null) ? json_encode($rule['account_groups']) : json_encode([]),
+                        'default_account' => $rule['default_account'] ?? $rule['defaultAccount'] ?? null,
                         'created_at' => now(),
                         'updated_at' => now(),
                     ]);
@@ -443,8 +439,6 @@ class CustomVoucherTypeService
             'prefix' => 'required|string|max:10',
             'company_code' => 'nullable|string|max:50',
             'description' => 'nullable|string',
-            'default_debit_account' => 'nullable|string|max:50',
-            'default_credit_account' => 'nullable|string|max:50',
             'active' => 'boolean',
             'custom_fields' => 'nullable|array',
             'account_rules' => 'nullable|array',
@@ -486,7 +480,14 @@ class CustomVoucherTypeService
         return DB::table('voucher_account_rules')
             ->where('voucher_type_id', $voucherTypeId)
             ->get()
-            ->map(function($r) { return (array)$r; })
+            ->map(function($r) {
+                return [
+                    'id' => $r->id,
+                    'side' => $r->side,
+                    'account_groups' => is_string($r->account_groups) ? json_decode($r->account_groups, true) : ($r->account_groups ?? []),
+                    'default_account' => $r->default_account ?? null,
+                ];
+            })
             ->toArray();
     }
     

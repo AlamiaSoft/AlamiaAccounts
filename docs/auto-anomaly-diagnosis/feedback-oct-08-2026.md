@@ -276,3 +276,5 @@ That is far more defensible than:
 So yes: **I would change T-040 to explicitly include transaction-level invariant checkpoints and state-transition detection.**
 
 And I would treat the resulting **causal event trail as first-class evidence for the forensic engine**, not merely as a testing mechanism.
+
+e:\Alamia\AlamiaAccounts\AlamiaAccounts-Backend\packages\AlamiaSoft\alamia-accounts\src\Services\CompanyService.php

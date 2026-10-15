@@ -1,0 +1,709 @@
+<?php
+
+namespace AlamiaSoft\AlamiaAccounts\Copilot;
+
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
+
+class IntentClassifierService
+{
+    protected static ?bool $llmAvailable = null;
+
+    /**
+     * Check if local LLM Ollama server is actively responding.
+     */
+    public function isLlmAvailable(): bool
+    {
+        if (static::$llmAvailable !== null) {
+            return static::$llmAvailable;
+        }
+
+        try {
+            $endpoint = rtrim(config('copilot.endpoint', 'http://host.docker.internal:11434'), '/');
+            $resp = Http::timeout(1)->get("{$endpoint}/api/tags");
+            static::$llmAvailable = $resp->successful();
+        } catch (\Throwable $e) {
+            static::$llmAvailable = false;
+        }
+
+        return static::$llmAvailable;
+    }
+
+    /**
+     * Classify user prompt into a structured semantic capability request.
+     *
+     * @param string $prompt
+     * @param array $context
+     * @return array
+     */
+    public function classify(string $prompt, array $context = []): array
+    {
+        $enabled = config('copilot.enabled', false);
+        if (!$enabled || !$this->isLlmAvailable()) {
+            return $this->heuristicFallback($prompt, $context);
+        }
+
+        try {
+            $endpoint = rtrim(config('copilot.endpoint', 'http://host.docker.internal:11434'), '/');
+            $model = config('copilot.model', 'qwen3.5:4b');
+            $apiKey = config('copilot.api_key');
+            $timeout = (int) config('copilot.timeout', 12);
+
+            $contextSnippet = "";
+            if (!empty($context['history']) && is_array($context['history'])) {
+                $recent = array_slice($context['history'], -3);
+                $contextLines = [];
+                foreach ($recent as $h) {
+                    $sender = $h['sender'] ?? 'user';
+                    $text = substr(trim($h['text'] ?? ($h['message'] ?? '')), 0, 100);
+                    if ($text) {
+                        $contextLines[] = "{$sender}: {$text}";
+                    }
+                }
+                if (!empty($contextLines)) {
+                    $contextSnippet = "Recent conversation context:\n" . implode("\n", $contextLines) . "\n\n";
+                }
+            }
+
+            if (!empty($context['state']) && is_array($context['state'])) {
+                $st = $context['state'];
+                $stateParts = [];
+                if (!empty($st['active_voucher']['reference'])) {
+                    $stateParts[] = "Active Voucher: " . $st['active_voucher']['reference'];
+                }
+                if (!empty($st['active_party']['name'])) {
+                    $stateParts[] = "Active Party: " . $st['active_party']['name'];
+                }
+                if (!empty($st['last_policy'])) {
+                    $stateParts[] = "Last Safety Policy: " . $st['last_policy'];
+                }
+                if (!empty($stateParts)) {
+                    $contextSnippet .= "Active Session State:\n" . implode("\n", $stateParts) . "\n\n";
+                }
+            }
+
+            $systemPrompt = <<<PROMPT
+You are a semantic capability parser for Alamia Accounts double-entry ERP.
+Analyze the user query inside <user_query>...</user_query> and return JSON ONLY matching this schema:
+{
+  "capability": "guidance.how_to" | "account.balance" | "account.lookup" | "party.lookup" | "transaction.search" | "voucher.lookup" | "voucher.draft" | "voucher.reverse" | "voucher.correct_amount" | "report.trial_balance" | "report.profit_loss" | "report.balance_sheet" | "alerts.list" | "general.help" | "general.greeting" | "refusal.chitchat" | "refusal.tax_advisory" | "refusal.untracked" | "unknown",
+  "confidence": 0.0 to 1.0,
+  "arguments": {
+    "account": "extracted account name or code (e.g. 'Meezan Bank', '1130') or empty string",
+    "party": "extracted person contact name (e.g. 'Ali Raza') or empty string (stripped of 'this'/'that')",
+    "organization": "extracted organization / vendor / client name (e.g. 'IZOC', 'Dog Pvt Ltd') or empty string (stripped of 'this'/'that')",
+    "reference": "extracted voucher reference (e.g. 'OB-2026-001') or empty string",
+    "amount": float or null,
+    "direction": "incoming" | "outgoing" | "any" | null,
+    "date_expression": "extracted natural date expression (e.g. '15 March', 'last month', 'yesterday') or empty string"
+  },
+  "requested_information": ["reason" | "created_by" | "date" | "amount" | "account" | "balance"],
+  "safety_flag": "destructive_account" | "destructive_voucher" | "mutate_ledger" | "mutate_narration" | "tax_advisory" | null
+}
+
+Domain Capabilities:
+0. guidance.how_to: Inquiring about how to use software features, accounting workflows, or operational steps (e.g. "How do I fix a wrong voucher amount?", "How to add a new bank account?", "How to close an accounting period?", "Where can I find opening balances?").
+1. party.lookup: Inquiring about a person, contact, vendor, or organization identity (e.g., "Who is Ali Raza?", "Who is this IZOC???", "Tell me about IZOC").
+2. transaction.search: Inquiring about historical transactions or vouchers related to a party/org (e.g., "can you find me the voucher related to izoc?", "what we have for izoc?", "Show what we have with IZOC", "What did we pay Ali?").
+3. account.balance / account.lookup: Inquiring about ledger accounts and balances (e.g., "What is the balance of Meezan Bank?", "Account 1130", "Cash in Hand").
+4. voucher.lookup: Inspecting a specific voucher (e.g., "Tell me about voucher OB-2026-001", "Show SV-2026-112", "What is the narration of OB-2026-001?").
+5. voucher.draft: Explicit request to draft a new transaction with amount (e.g., "Paid Rs. 25,000 for office supplies via Meezan Bank", "Create payment of Rs. 10,000 to Ali Raza").
+6. voucher.reverse: Reversing an accounting voucher (e.g., "reverse OB-2026-001", "void JV-102").
+7. voucher.correct_amount: Guided workflow to correct an erroneous voucher amount via reversal + replacement entry (e.g., "correct amount is 50,000; how do I fix that?", "how to fix voucher amount").
+8. report.trial_balance / report.profit_loss / report.balance_sheet: Financial statement reports.
+9. alerts.list: Operational alerts, anomalies, or pending approvals.
+10. refusal.chitchat: Non-accounting chit-chat, weather, jokes, general knowledge (e.g., "What is the capital of France?").
+11. refusal.tax_advisory: Asking for tax evasion, aggressive tax shelters, or legal advice.
+12. Safety Flags:
+   - "destructive_account": Requests to delete or purge accounts (e.g., "delete all accounts").
+   - "destructive_voucher": Requests to delete posted ledger vouchers (e.g., "delete voucher OB-2026-001").
+   - "mutate_ledger": Requests to directly overwrite or mutate posted transaction amounts in place (e.g., "change voucher amount to 500k").
+   - "mutate_narration": Requests to delete or modify posted narration (e.g., "delete the wrong narration in OB-2026-001", "change narration of OB-2026-001").
+   - "tax_advisory": Requests for tax evasion advice or legal tax avoidance loopholes.
+
+{$contextSnippet}<user_query>
+{$prompt}
+</user_query>
+PROMPT;
+
+            $request = Http::timeout($timeout);
+            if (!empty($apiKey)) {
+                $request = $request->withToken($apiKey);
+            }
+
+            $response = $request->post("{$endpoint}/api/generate", [
+                'model' => $model,
+                'prompt' => $systemPrompt,
+                'stream' => false,
+                'format' => 'json',
+                'options' => [
+                    'temperature' => 0.0,
+                    'num_predict' => 200,
+                ],
+            ]);
+
+            if ($response->successful()) {
+                $rawOutput = $response->json('response');
+                if (is_string($rawOutput)) {
+                    $parsed = json_decode($rawOutput, true);
+                    if (is_array($parsed) && !empty($parsed['capability'])) {
+                        return $this->normalizeSemanticOutput($parsed, 'llm', $model);
+                    }
+                }
+            }
+        } catch (\Throwable $e) {
+            Log::warning("IntentClassifierService LLM classification failed/timed out: " . $e->getMessage());
+        }
+
+        return $this->heuristicFallback($prompt, $context);
+    }
+
+    /**
+     * Normalize parsed semantic array into standard response format.
+     */
+    protected function normalizeSemanticOutput(array $data, string $source = 'heuristic', ?string $model = null): array
+    {
+        $cap = $data['capability'] ?? 'unknown';
+        $args = $data['arguments'] ?? ($data['entities'] ?? []);
+        $filters = $data['filters'] ?? [];
+        $safetyFlag = $data['safety_flag'] ?? null;
+        $requestedInfo = $data['requested_information'] ?? [];
+
+        $party = trim($args['party'] ?? ($data['party'] ?? ''));
+        $org = trim($args['organization'] ?? ($data['organization'] ?? ''));
+        $ref = trim($args['reference'] ?? ($data['reference'] ?? ''));
+        $acc = trim($args['account'] ?? ($data['account'] ?? ''));
+        $amt = isset($args['amount']) && is_numeric($args['amount']) ? (float) $args['amount'] : (isset($filters['amount']) && is_numeric($filters['amount']) ? (float) $filters['amount'] : null);
+        $dir = $args['direction'] ?? ($filters['direction'] ?? null);
+        $dateExpr = $args['date_expression'] ?? ($filters['date_expression'] ?? '');
+
+        $roleTitle = trim($args['role_title'] ?? ($data['role_title'] ?? ''));
+
+        // Clean deictic words from entity names
+        $party = trim(preg_replace('/^(this|that|the|a|an)\s+/i', '', $party));
+        $org = trim(preg_replace('/^(this|that|the|a|an)\s+/i', '', $org));
+
+        $isOrgCandidate = (!empty($org) && empty($party)) ||
+            preg_match('/\b(ltd|limited|inc|corp|pvt|co|company|technologies|solutions|services|group|holdings)\b/i', $party . ' ' . $org) ||
+            (ctype_upper($party) && strlen($party) <= 6);
+
+        if ($isOrgCandidate && (!empty($party) || !empty($org))) {
+            $org = $org ?: $party;
+            $party = '';
+            $entityType = 'organization';
+        } else {
+            $entityType = !empty($acc) ? 'account' : (!empty($ref) ? 'reference' : (!empty($party) ? 'person' : (!empty($org) ? 'organization' : null)));
+        }
+
+        // Infer primary intent name for backward compatibility with existing tests
+        $intent = match ($cap) {
+            'guidance.how_to' => 'GUIDANCE_HOW_TO',
+            'general.greeting' => 'GREETING',
+            'general.help' => 'HELP',
+            'alerts.list' => 'LIST_SITUATIONS',
+            'report.trial_balance', 'report.profit_loss', 'report.balance_sheet' => 'INQUIRE_REPORT',
+            'diagnostics.balance_sheet_imbalance' => 'DIAGNOSE_BALANCE_SHEET',
+            'voucher.draft' => 'DRAFT_VOUCHER',
+            'voucher.reverse', 'voucher.action', 'voucher.correct_amount' => 'VOUCHER_ACTION',
+            'voucher.lookup' => 'INQUIRE_VOUCHER',
+            'account.balance', 'account.lookup', 'account.ledger' => 'INQUIRE_ACCOUNT',
+            'party.lookup' => 'INQUIRE_ENTITY',
+            'transaction.search' => 'FIND_TRANSACTION',
+            'refusal.chitchat', 'refusal.untracked' => 'OUT_OF_SCOPE_REFUSAL',
+            'refusal.tax_advisory' => 'RESTRICTED_ACTION',
+            default => !empty($safetyFlag) ? 'RESTRICTED_ACTION' : 'GENERAL_SEARCH',
+        };
+
+        if ($safetyFlag === 'mutate_narration') {
+            $intent = 'VOUCHER_ACTION';
+        } elseif (!empty($safetyFlag)) {
+            $intent = 'RESTRICTED_ACTION';
+        }
+
+        $entityValue = !empty($acc) ? $acc : (!empty($ref) ? $ref : (!empty($party) ? $party : $org));
+
+        $action = match ($safetyFlag) {
+            'mutate_narration' => 'edit_narration',
+            'destructive_account' => 'delete_account',
+            'destructive_voucher' => 'delete_voucher',
+            'mutate_ledger' => 'modify_amount',
+            default => ($cap === 'voucher.reverse' ? 'reverse_voucher' : ($cap === 'voucher.correct_amount' ? 'correct_amount' : null)),
+        };
+
+        $confidence = isset($data['confidence']) && is_numeric($data['confidence'])
+            ? (float) $data['confidence']
+            : match ($cap) {
+                'account.balance', 'voucher.lookup' => 0.98,
+                'voucher.correct_amount' => 0.95,
+                'general.greeting', 'general.help', 'report.trial_balance', 'report.profit_loss', 'report.balance_sheet', 'alerts.list', 'refusal.chitchat', 'refusal.tax_advisory', 'refusal.untracked' => 0.95,
+                'voucher.draft' => ($amt !== null && $amt > 0) ? 0.92 : 0.60,
+                'party.lookup', 'transaction.search' => (!empty($party) || !empty($org)) ? 0.90 : 0.65,
+                'unknown' => empty($entityValue) ? 0.20 : 0.40,
+                default => 0.85,
+            };
+
+        return [
+            'success' => true,
+            'source' => $source,
+            'model' => $model,
+            'capability' => $cap,
+            'confidence' => $confidence,
+            'intent' => $intent,
+            'arguments' => [
+                'party' => $party,
+                'organization' => $org,
+                'account' => $acc,
+                'reference' => strtoupper($ref),
+                'amount' => $amt,
+                'direction' => $dir,
+                'date_expression' => $dateExpr,
+                'role_title' => $roleTitle,
+            ],
+            'requested_information' => $requestedInfo,
+            'party' => $party,
+            'organization' => $org,
+            'role_title' => $roleTitle,
+            'entity_type' => $entityType,
+            'entity_value' => $entityValue,
+            'entity' => $entityValue,
+            'target_object' => !empty($acc) ? 'account' : (!empty($ref) ? 'voucher' : (!empty($party) || !empty($org) ? 'contact' : null)),
+            'reference' => strtoupper($ref),
+            'account' => $acc,
+            'action' => $action,
+            'safety_flag' => $safetyFlag,
+            'direction' => $dir,
+            'action_type' => $cap === 'voucher.draft' ? ($dir === 'incoming' ? 'receipt' : 'payment') : null,
+            'amount' => $amt,
+            'currency' => 'PKR',
+            'date_filter' => null,
+            'report_type' => match ($cap) {
+                'report.trial_balance' => 'trial-balance',
+                'report.profit_loss' => 'profit-loss',
+                'report.balance_sheet' => 'balance-sheet',
+                default => null,
+            },
+        ];
+    }
+
+    /**
+     * Minimal, bounded heuristic fallback for offline or basic environments.
+     *
+     * @param string $prompt
+     * @param array $context
+     * @return array
+     */
+    public function heuristicFallback(string $prompt, array $context = []): array
+    {
+        $promptTrimmed = trim($prompt);
+        $promptLower = strtolower($promptTrimmed);
+
+        // 1. Safety Guardrails (Immutability & COA Protection & Advisory Refusal)
+        if (
+            preg_match('/\b(evade|avoid|hide|dodge|cheat|skirt)\s+(?:on\s+)?(?:corporate\s+|sales\s+)?taxes?\b/i', $promptLower) ||
+            preg_match('/\b(tax\s+evasion|tax\s+advice|tax\s+avoidance|tax\s+loophole|write\s*off\s+personal|hide\s+cash\s+income|underreport\s+income)\b/i', $promptLower) ||
+            preg_match('/\b(how\s+can\s+i\s+evade|how\s+to\s+evade|should\s+i\s+hide\s+cash)\b/i', $promptLower)
+        ) {
+            return $this->normalizeSemanticOutput([
+                'capability' => 'refusal.tax_advisory',
+                'safety_flag' => 'tax_advisory',
+                'confidence' => 0.98,
+            ]);
+        }
+
+        if (preg_match('/\b(delete|remove|change|modify|correct|clear|erase)\s+(?:the\s+)?(?:wrong\s+)?(?:narration|description|memo|note)\b/i', $promptTrimmed)) {
+            preg_match('/\b(ob|jv|pv|rv|cv|sv|rev)-[0-9a-z-]+\b/i', $prompt, $vm);
+            return $this->normalizeSemanticOutput([
+                'capability' => 'voucher.action',
+                'arguments' => ['reference' => $vm[0] ?? ''],
+                'safety_flag' => 'mutate_narration',
+                'confidence' => 0.98,
+            ]);
+        }
+
+        if (preg_match('/\b(reverse|void|cancel)\s+(?:the\s+)?(?:voucher\s+)?([a-z0-9-]+)\b/i', $promptTrimmed, $revMatch)) {
+            return $this->normalizeSemanticOutput([
+                'capability' => 'voucher.reverse',
+                'arguments' => ['reference' => $revMatch[2]],
+                'confidence' => 0.98,
+            ]);
+        }
+
+        if (preg_match('/\b(last century|century ago|18[0-9]{2}|19[0-9]{2}|200 years ago|millennium)\b/i', $promptLower)) {
+            return $this->normalizeSemanticOutput([
+                'capability' => 'unknown',
+                'safety_flag' => 'implausible_temporal_request',
+                'confidence' => 0.95,
+            ]);
+        }
+
+        if (
+            preg_match('/\b(delete|remove|purge|erase|drop|wipe|destroy)\s+(?:all\s+)?(accounts?|chart\s+of\s+accounts?|ledger|vouchers?|database|company|entries|data)\b/i', $promptTrimmed) ||
+            preg_match('/\b(delete|remove|purge|erase|drop)\s+(?:the\s+)?account\s+(\d{4}|[a-z0-9\s]+)/i', $promptTrimmed) ||
+            preg_match('/\b(delete|remove|purge|erase|drop)\s+(?:the\s+)?voucher\s+([a-z0-9-]+)/i', $promptTrimmed, $delMatch) ||
+            preg_match('/\b(change|modify|update|edit|alter)\s+(?:the\s+)?(?:voucher\s+)?(?:amount|total|lines?)\b/i', $promptTrimmed)
+        ) {
+            $isMutation = (bool) preg_match('/\b(change|modify|update|edit|alter)\s+(?:the\s+)?(?:voucher\s+)?(?:amount|total|lines?)\b/i', $promptTrimmed);
+            $isAcc = str_contains($promptLower, 'account') || str_contains($promptLower, 'chart');
+            return $this->normalizeSemanticOutput([
+                'capability' => 'unknown',
+                'arguments' => ['reference' => $delMatch[2] ?? ''],
+                'safety_flag' => $isMutation ? 'mutate_ledger' : ($isAcc ? 'destructive_account' : 'destructive_voucher'),
+                'confidence' => 0.98,
+            ]);
+        }
+
+        // 2. Chit-Chat & General Knowledge Refusal
+        if (
+            preg_match('/\b(capital of|tell me a joke|weather today|weather forecast|meaning of life|who is the president|how are you today|what is the time|recipe for|write a poem|sing a song|translate to)\b/i', $promptLower) ||
+            preg_match('/^(what is the capital|tell me a joke|how is the weather|what time is it)\b/i', $promptTrimmed)
+        ) {
+            return $this->normalizeSemanticOutput([
+                'capability' => 'refusal.chitchat',
+                'confidence' => 0.98,
+            ]);
+        }
+
+        // 3. Untracked Data Refusal
+        if (preg_match('/\b(system password|admin password|database password|api secret|private key|personal phone|home address of|hobbies of)\b/i', $promptLower)) {
+            return $this->normalizeSemanticOutput([
+                'capability' => 'refusal.untracked',
+                'confidence' => 0.95,
+            ]);
+        }
+
+        // 4. Operational Guidance & How-To (Tier 1 Guidance)
+        if (
+            preg_match('/^(?:how\s+(?:do\s+i|can\s+i|to|should\s+i)\s+(?:add|create|setup|fix|correct|reverse|close|lock|reopen|view|generate|post|reconcile|find|enter)|where\s+(?:can\s+i|do\s+i|is\s+the)|what\s+is\s+the\s+procedure\s+to|explain\s+how\s+to)\b/i', $promptTrimmed) ||
+            ((str_starts_with($promptLower, 'how to ') || str_starts_with($promptLower, 'how do i ') || str_starts_with($promptLower, 'where to ') || str_starts_with($promptLower, 'how can i ')) &&
+             preg_match('/\b(voucher|account|period|balance|daybook|ledger|reversal|chart|trial|report|entry|tax|invoice|bill|transaction|company|initial|bank|cash)\b/i', $promptLower))
+        ) {
+            return $this->normalizeSemanticOutput([
+                'capability' => 'guidance.how_to',
+                'confidence' => 0.95,
+            ]);
+        }
+
+
+        // 5. Greetings, Executive Onboarding & Help
+        if (preg_match('/^(hi|hello|hey|greetings|good morning|good afternoon|good evening|salam|assalam)([\s!,.].*)?$/i', $promptTrimmed)) {
+            return $this->normalizeSemanticOutput(['capability' => 'general.greeting', 'confidence' => 0.98]);
+        }
+        if (
+            preg_match('/^(help|who are you|who is taliya|who taliya|what is taliya|who made you|about taliya|about you|what can you do|how to use|commands|features|\?)[\s?!.]*$/i', $promptTrimmed) ||
+            preg_match('/\b(who is taliya|who taliya|what is taliya)\b/i', $promptTrimmed) ||
+            preg_match('/\b(how\s+(?:will|can)\s+you\s+help\s+(?:me|us)|what\s+can\s+you\s+do\s+for\s+(?:me|us))\b/i', $promptLower) ||
+            preg_match('/\b(?:i\'?m|i\s+am|this\s+is)\s+([a-zA-Z\s]+),?\s+(?:the\s+)?(owner|founder|ceo|cfo|director|manager|accountant|auditor|partner|controller)\b/i', $promptTrimmed)
+        ) {
+            $name = '';
+            $roleTitle = '';
+            if (preg_match('/\b(?:i\'?m|i\s+am|this\s+is)\s+([a-zA-Z]+)[,\s]+(?:the\s+)?(owner|founder|ceo|cfo|director|manager|accountant|auditor|partner|controller)\b/i', $promptTrimmed, $mMatch)) {
+                $name = $mMatch[1] ?? '';
+                $roleTitle = strtolower($mMatch[2] ?? '');
+            } elseif (preg_match('/\b(?:i\'?m|i\s+am|this\s+is)\s+([a-zA-Z]+)\b/i', $promptTrimmed, $mMatch)) {
+                $name = $mMatch[1] ?? '';
+            }
+            return $this->normalizeSemanticOutput([
+                'capability' => 'general.help',
+                'confidence' => 0.98,
+                'party' => $name,
+                'arguments' => [
+                    'party' => $name,
+                    'role_title' => $roleTitle,
+                ]
+            ]);
+        }
+
+        // 5. Financial Statements & Balance Sheet Diagnostics
+        if (
+            str_contains($promptLower, 'why is my balance sheet not balanced') ||
+            str_contains($promptLower, 'why balance sheet is not balanced') ||
+            str_contains($promptLower, 'why is the balance sheet not balanced') ||
+            str_contains($promptLower, 'why it is not balanced') ||
+            str_contains($promptLower, 'why not balanced') ||
+            str_contains($promptLower, 'balance sheet is not balanced') ||
+            str_contains($promptLower, 'balance sheet not balanced') ||
+            str_contains($promptLower, 'balance sheet imbalance') ||
+            str_contains($promptLower, 'diagnose balance sheet') ||
+            str_contains($promptLower, 'analyze balance sheet') ||
+            (str_contains($promptLower, 'balance sheet') && (str_contains($promptLower, 'unbalanced') || str_contains($promptLower, 'difference') || str_contains($promptLower, 'error') || str_contains($promptLower, 'issue') || str_contains($promptLower, 'fix') || str_contains($promptLower, 'correct') || str_contains($promptLower, 'anomaly') || str_contains($promptLower, 'anomalies') || str_contains($promptLower, 'discrepancy')))
+        ) {
+            return $this->normalizeSemanticOutput(['capability' => 'diagnostics.balance_sheet_imbalance', 'confidence' => 0.98]);
+        }
+        if (str_contains($promptLower, 'trial balance') || str_contains($promptLower, 'tb')) {
+            return $this->normalizeSemanticOutput(['capability' => 'report.trial_balance', 'confidence' => 0.95]);
+        }
+        if (str_contains($promptLower, 'profit') || str_contains($promptLower, 'loss') || str_contains($promptLower, 'p&l')) {
+            return $this->normalizeSemanticOutput(['capability' => 'report.profit_loss', 'confidence' => 0.95]);
+        }
+        if (str_contains($promptLower, 'balance sheet')) {
+            return $this->normalizeSemanticOutput(['capability' => 'report.balance_sheet', 'confidence' => 0.95]);
+        }
+
+        // 6. Situations & Alerts
+        if (str_contains($promptLower, 'situation') || str_contains($promptLower, 'pending') || str_contains($promptLower, 'approval')) {
+            return $this->normalizeSemanticOutput(['capability' => 'alerts.list', 'confidence' => 0.95]);
+        }
+
+        // 7. Voucher Drafting (Requires non-inquiry, explicit amount, and action verb)
+        $isQuestionInquiry = (bool) preg_match('/^(what was|what did|what is|how much was|how much did|how much is|why did|why was|why were|why we|why|did we|was there|show|find|lookup|tell me about|check|who worked|who created|who entered|who posted)\b/i', $promptTrimmed) ||
+            str_ends_with($promptTrimmed, '?');
+        $promptWithoutDates = preg_replace('/\b[0-9]{1,2}\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|january|february|march|april|may|june|july|august|september|october|november|december)\b/i', '', $promptTrimmed);
+        if (
+            !$isQuestionInquiry &&
+            (str_contains($promptLower, 'paid') || str_contains($promptLower, 'pay ') || str_contains($promptLower, 'received') || str_contains($promptLower, 'transfer') || str_contains($promptLower, 'create payment')) &&
+            preg_match('/(?:rs\.?|pkr|\$)?\s*([0-9]+(?:,[0-9]{3})*(?:\.[0-9]{1,2})?)/i', $promptWithoutDates, $amtMatch)
+        ) {
+            return $this->normalizeSemanticOutput([
+                'capability' => 'voucher.draft',
+                'arguments' => ['amount' => (float) str_replace(',', '', $amtMatch[1])],
+                'confidence' => 0.92,
+            ]);
+        }
+
+        // 1. Procedural Repair / Guided Correction Workflow (e.g., "correct amount is 50,000; how do i fix that?", "how do i fix that?")
+        $isProceduralRepair = preg_match('/\b(how\s+(?:do\s+i|can\s+i|to|should\s+i)\s+(?:fix|correct|reverse|adjust|change)|how\s+to\s+fix|how\s+to\s+correct|how\s+to\s+reverse|ok\s+how|yes\s+how|how\s+do\s+we\s+fix|what\s+to\s+do\s+now)\b/i', $promptLower) ||
+            preg_match('/\b(?:correct\s+amount\s+is|amount\s+is|should\s+be)\s+[0-9,.]+\s*(?:;|,)?\s*(?:how\s+do\s+i\s+fix|how\s+to\s+fix|how\s+to\s+correct)/i', $promptLower);
+
+        if ($isProceduralRepair) {
+            // Check context for active voucher
+            $activeRef = $context['state']['active_voucher']['reference'] ?? '';
+            if (empty($activeRef) && !empty($context['history'])) {
+                foreach (array_reverse($context['history']) as $h) {
+                    $htext = $h['text'] ?? ($h['message'] ?? '');
+                    if (preg_match('/\b(ob|jv|pv|rv|cv|sv|rev)-[0-9a-z-]+\b/i', $htext, $hm)) {
+                        $activeRef = strtoupper($hm[0]);
+                        break;
+                    }
+                }
+            }
+
+            // Extract target amount deterministically (strip dates, ref strings, and negation amounts first)
+            $cleanedForAmount = preg_replace('/\b[0-9]{1,2}\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|january|february|march|april|may|june|july|august|september|october|november|december)(?:\s+[0-9]{4})?\b/i', '', $promptTrimmed);
+            $cleanedForAmount = preg_replace('/\b(ob|jv|pv|rv|cv|sv|rev)-[0-9a-z-]+\b/i', '', $cleanedForAmount);
+            $cleanedForAmount = preg_replace('/\b(?:never\s+got|originally|was|not)\s*(?:rs\.?|pkr|\$)?\s*[0-9]+(?:,[0-9]{3})*(?:\.[0-9]{1,2})?\b/i', '', $cleanedForAmount);
+            $cleanedForAmount = preg_replace('/\b(19[89][0-9]|20[0-2][0-9]|2030)\b/', '', $cleanedForAmount);
+
+            $targetAmount = null;
+            if (preg_match('/(?:correct\s+(?:amount\s+)?(?:.*?)\s+is|correct\s+amount\s+is|amount\s+should\s+be|amount\s+is|change\s+to|fix\s+to|is\s+actually)\s*(?:rs\.?|pkr|\$)?\s*([0-9]+(?:,[0-9]{3})*(?:\.[0-9]{1,2})?)/i', $cleanedForAmount, $amtMatch)) {
+                $targetAmount = (float) str_replace(',', '', $amtMatch[1]);
+            } elseif (preg_match('/(?:rs\.?|pkr|\$)\s*([0-9]+(?:,[0-9]{3})*(?:\.[0-9]{1,2})?)/i', $cleanedForAmount, $amtMatch2)) {
+                $targetAmount = (float) str_replace(',', '', $amtMatch2[1]);
+            }
+
+            if ($targetAmount !== null && $targetAmount > 0) {
+                return $this->normalizeSemanticOutput([
+                    'capability' => 'voucher.correct_amount',
+                    'arguments' => [
+                        'reference' => $activeRef,
+                        'amount' => $targetAmount,
+                    ],
+                    'confidence' => 0.95,
+                ]);
+            } elseif (!empty($activeRef)) {
+                return $this->normalizeSemanticOutput([
+                    'capability' => 'voucher.reverse',
+                    'arguments' => ['reference' => $activeRef],
+                    'confidence' => 0.95,
+                ]);
+            }
+        }
+
+        // 8. Voucher Reference Lookup
+        if (preg_match('/\b(ob|jv|pv|rv|cv|sv|rev)-[0-9a-z-]+\b/i', $prompt, $vm)) {
+            $reqInfo = [];
+            if (str_contains($promptLower, 'who worked') || str_contains($promptLower, 'who created') || str_contains($promptLower, 'who posted') || str_contains($promptLower, 'who entered')) {
+                $reqInfo = ['created_by', 'workforce'];
+            }
+            return $this->normalizeSemanticOutput([
+                'capability' => 'voucher.lookup',
+                'arguments' => ['reference' => $vm[0]],
+                'requested_information' => $reqInfo,
+                'confidence' => 0.95,
+            ]);
+        }
+
+        // 9. Transaction & Voucher Search (Party / Org) - MUST PRECEDE ACCOUNT INQUIRIES
+        if (
+            str_contains($promptLower, 'transaction') ||
+            str_contains($promptLower, 'transactions') ||
+            str_contains($promptLower, 'voucher related to') ||
+            str_contains($promptLower, 'vouchers related to') ||
+            str_contains($promptLower, 'voucher for') ||
+            str_contains($promptLower, 'vouchers for') ||
+            str_contains($promptLower, 'voucher of') ||
+            str_contains($promptLower, 'vouchers of') ||
+            str_contains($promptLower, 'what we have for') ||
+            str_contains($promptLower, 'what do we have for') ||
+            str_contains($promptLower, 'what we have with') ||
+            str_contains($promptLower, 'what do we have with') ||
+            str_contains($promptLower, 'need to correct the amount of a voucher') ||
+            str_contains($promptLower, 'find me the voucher') ||
+            str_contains($promptLower, 'find voucher') ||
+            str_contains($promptLower, 'search voucher') ||
+            str_contains($promptLower, 'what did we pay') ||
+            str_contains($promptLower, 'why we paid') ||
+            str_contains($promptLower, 'why did we pay') ||
+            str_contains($promptLower, 'what payment') ||
+            str_contains($promptLower, 'what did') ||
+            str_contains($promptLower, 'what was') ||
+            str_contains($promptLower, 'who worked') ||
+            str_contains($promptLower, 'who created') ||
+            str_contains($promptLower, 'payment to') ||
+            str_contains($promptLower, 'receipt from') ||
+            str_contains($promptLower, 'show me what we have')
+        ) {
+            $party = '';
+            $org = '';
+            
+            // Extract entity candidate from phrases like "voucher related to Izoc", "what we have for izoc", "need to correct the amount of a voucher... related to Izoc", etc.
+            if (preg_match('/(?:voucher(?:s)?\s*(?:\.{1,3}\s*)?(?:related\s+to|for|of)|have\s+(?:for|with)|paid\s+to|payment\s+to|pay|with|for)\s+(?:mr\.?|ms\.?|mrs\.?|dr\.?)?\s*([a-z0-9\s.,-]+?)(?:\s+of|\s+from|\s+in|\s+at|\s+make|\s+through|\?|\.|\;|\,|$)/i', $prompt, $pMatch)) {
+                $cand = trim($pMatch[1]);
+                $cand = trim(preg_replace('/^(?:what\s+)?(?:do\s+)?we\s+have\s+(?:with|for)\s+/i', '', $cand));
+                $cand = trim(preg_replace('/^(this|that|the|a|an)\s+/i', '', $cand), " ?.!\"'");
+                if (!in_array(strtolower($cand), ['we', 'us', 'me', 'our', 'them', 'him', 'her', 'it', 'a voucher', 'the voucher', 'vouchers'])) {
+                    $party = $cand;
+                }
+            }
+            if (empty($party) && preg_match('/(?:did|payment\s+did|from)\s+(?:mr\.?|ms\.?|mrs\.?|dr\.?)?\s*([a-z0-9\s]+?)(?:\s+pay|\s+make|\s+send|\s+transfer|\s+of|\s+from|\?|\.|\;|\,|$)/i', $prompt, $pMatch2)) {
+                $cand = trim($pMatch2[1]);
+                if (!in_array(strtolower($cand), ['we', 'us', 'me', 'our', 'them', 'him', 'her', 'it'])) {
+                    $party = $cand;
+                }
+            }
+            if (preg_match('/\b(?:of|from|at|in|company)\b\s+([a-z0-9\s]+?(?:ltd|limited|inc|corp|pvt|co)?)(?:\.|\;|\,|$|\s+i\s+need)/i', $prompt, $oMatch)) {
+                $candidateOrg = trim($oMatch[1]);
+                if (!in_array(strtolower($candidateOrg), ['we', 'us', 'me', 'our', 'them', 'him', 'her', 'it'])) {
+                    $org = $candidateOrg;
+                }
+            }
+
+            $direction = null;
+            if (str_contains($promptLower, 'what did we pay') || str_contains($promptLower, 'paid to')) {
+                $direction = 'outgoing';
+            } elseif (str_contains($promptLower, 'pay us') || str_contains($promptLower, 'receipt from')) {
+                $direction = 'incoming';
+            }
+
+            $isOrg = (!empty($org) && empty($party)) ||
+                preg_match('/\b(ltd|limited|inc|corp|pvt|co|company|technologies|solutions|services|group|holdings)\b/i', $party) ||
+                (ctype_upper($party) && strlen($party) <= 6 && !in_array($party, ['I', 'ME', 'WE', 'US', 'HE', 'SHE']));
+
+            if ($isOrg && !empty($party) && empty($org)) {
+                $org = $party;
+                $party = '';
+            }
+
+            return $this->normalizeSemanticOutput([
+                'capability' => 'transaction.search',
+                'arguments' => [
+                    'party' => $party,
+                    'organization' => $org,
+                    'direction' => $direction,
+                ],
+                'confidence' => (!empty($party) || !empty($org)) ? 0.90 : 0.70,
+            ]);
+        }
+
+        // 10. Account Balances & Inquiries
+        if (preg_match('/^(?:what\s+is\s+)?([a-z0-9\s]+?)(?:\'s)?\s+balance\??$/i', $promptTrimmed, $balMatch)) {
+            $candAcc = trim($balMatch[1]);
+            if (!in_array(strtolower($candAcc), ['what is', 'the', 'my', 'our', 'a', 'an'])) {
+                return $this->normalizeSemanticOutput([
+                    'capability' => 'account.balance',
+                    'arguments' => ['account' => $candAcc],
+                    'confidence' => 0.90,
+                ]);
+            }
+        }
+
+        // Check for 4-digit code enclosed in parentheses e.g. (1110)
+        if (preg_match('/\(([1-5][0-9]{3})\)/', $promptTrimmed, $codeParenMatch)) {
+            return $this->normalizeSemanticOutput([
+                'capability' => 'account.balance',
+                'arguments' => ['account' => $codeParenMatch[1]],
+                'confidence' => 0.98,
+            ]);
+        }
+
+        if (
+            str_contains($promptLower, 'ledger activity') ||
+            str_contains($promptLower, 'ledger statement') ||
+            str_contains($promptLower, 'show ledger for') ||
+            str_contains($promptLower, 'show ledger activity')
+        ) {
+            $cand = preg_replace('/^(?:show\s+)?(?:me\s+)?ledger\s+(?:activity|statement|entries)?\s+(?:for|of|in)?\s*/i', '', $promptTrimmed);
+            $cand = trim(preg_replace('/\s*\(\d{4}\)/', '', $cand), " ?.'\"()");
+            if (preg_match('/\b([1-5][0-9]{3})\b/', $promptTrimmed, $cm4)) {
+                $cand = $cm4[1];
+            }
+            return $this->normalizeSemanticOutput([
+                'capability' => 'account.balance',
+                'arguments' => ['account' => $cand],
+                'confidence' => 0.95,
+            ]);
+        }
+
+        $cleanedAccount = preg_replace('/^(what is the balance of|what is the balance in|what is the balance for|what is the balance|what is in|how much is in|how much in|balance of|balance in|balance for|balance|tell me about account|tell me about|show me account|show me|details of account|details of|account)\s+(the\s+|account\s+)?/i', '', $promptTrimmed);
+        $cleanedAccount = trim($cleanedAccount, " ?.\"'");
+        if (
+            preg_match('/^[0-9]{4}$/', $cleanedAccount) ||
+            str_starts_with($promptLower, 'balance') ||
+            str_contains($promptLower, 'balance of') ||
+            str_starts_with($promptLower, 'account ') ||
+            str_contains($promptLower, 'cash in hand') ||
+            str_contains($promptLower, 'meezan')
+        ) {
+            return $this->normalizeSemanticOutput([
+                'capability' => 'account.balance',
+                'arguments' => ['account' => $cleanedAccount],
+                'confidence' => preg_match('/^[0-9]{4}$/', $cleanedAccount) ? 0.98 : 0.90,
+            ]);
+        }
+
+        // 11. Party & Organization Identity Inquiries
+        if (
+            preg_match('/^(?:what\s+or\s+who|who\s+or\s+what|who|what)\s+(?:is|are|was|were)?\s+(?:this\s+|that\s+|the\s+|a\s+|an\s+)?([a-z0-9\s.,-]+?)[\s?!.]*$/i', $promptTrimmed, $whoMatch) ||
+            preg_match('/^tell\s+me\s+about\s+(?:party\s+|contact\s+|person\s+|client\s+|vendor\s+|company\s+)?([a-z0-9\s.,-]+?)[\s?!.]*$/i', $promptTrimmed, $tellMatch) ||
+            preg_match('/^(?:what\s+company\s+is|what\s+firm\s+is|who\s+is)\s+([a-z0-9\s.,-]+?)\s+(?:associated\s+with|working\s+with)[\s?!.]*$/i', $promptTrimmed, $assocMatch) ||
+            preg_match('/^[A-Z][a-z]+(?:\s+[A-Z][a-z]+)+$/', $promptTrimmed)
+        ) {
+            $rawCand = !empty($whoMatch[1]) ? $whoMatch[1] : (!empty($tellMatch[1]) ? $tellMatch[1] : ($assocMatch[1] ?? $promptTrimmed));
+            $rawCand = trim(preg_replace('/^(this|that|the|a|an)\s+/i', '', $rawCand), " ?.!\"'");
+            $candLower = strtolower($rawCand);
+
+            if (in_array($candLower, ['he', 'she', 'him', 'her', 'it', 'them', 'this', 'that', 'this company', 'that company', 'this person'])) {
+                if (!empty($context['history'])) {
+                    foreach (array_reverse($context['history']) as $h) {
+                        $htext = $h['text'] ?? '';
+                        if (preg_match('/(?:mr\.?|ms\.?|mrs\.?|dr\.?)?\s*([a-z0-9\s]+(?:ltd|pvt|inc|corp|company|ali raza|izoc))/i', $htext, $hm)) {
+                            $rawCand = trim($hm[0]);
+                            break;
+                        }
+                    }
+                }
+            }
+
+            return $this->normalizeSemanticOutput([
+                'capability' => 'party.lookup',
+                'arguments' => [
+                    'party' => $rawCand,
+                    'organization' => $rawCand,
+                ],
+                'confidence' => 0.88,
+            ]);
+        }
+
+        // 12. Gibberish / Low-Confidence / Unknown Fallback
+        $isGibberish = preg_match('/\b(asdf|qwerty|zxcv|12345|jkl|qwer|poiuy|zzzz)\b/i', $promptTrimmed) ||
+            (strlen($promptTrimmed) > 4 && !preg_match('/[aeiouy]/i', $promptTrimmed));
+
+        $entity = preg_replace('/^(tell me about|what is|how much in|search for|search|lookup|who is|show)\s+/i', '', $promptTrimmed);
+        $entity = trim($entity, " ?.\"'");
+
+        return $this->normalizeSemanticOutput([
+            'capability' => 'unknown',
+            'arguments' => ['party' => $entity],
+            'confidence' => $isGibberish ? 0.15 : (empty($entity) ? 0.20 : 0.50),
+        ]);
+    }
+}

@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from "react"
 import apiClient from "@/lib/api-client"
+import { copilotApi } from "@/lib/api"
 import {
   Bot,
   Sparkles,
@@ -88,7 +89,7 @@ export default function CopilotWidget({ companyCode }: { companyCode?: string })
       .map((m) => ({ sender: m.sender, text: m.text, cardType: m.cardType }))
 
     try {
-      const response = await apiClient.post("/copilot/chat", {
+      const response = await copilotApi.chat({
         prompt: promptText,
         company_code: companyCode,
         context: {

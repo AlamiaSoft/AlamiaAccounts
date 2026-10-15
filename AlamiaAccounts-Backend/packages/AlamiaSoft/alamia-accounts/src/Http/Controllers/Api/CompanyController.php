@@ -6,7 +6,6 @@ use AlamiaSoft\AlamiaAccounts\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use AlamiaSoft\AlamiaAccounts\Services\CompanyService;
 use AlamiaSoft\AlamiaAccounts\Services\DomainContext;
-use Abivia\Ledger\Models\LedgerDomain;
 
 /**
  * @OA\Tag(name="Companies", description="Operations related to Company management")

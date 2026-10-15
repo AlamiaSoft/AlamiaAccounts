@@ -45,7 +45,7 @@ return new class extends Migration
      */
     public function down(): void
     {
-        if (Schema::hasTable('copilot_diagnostic_logs')) {
+        if (Schema::hasTable('copilot_diagnostic_logs') && DB::getDriverName() !== 'sqlite') {
             Schema::table('copilot_diagnostic_logs', function (Blueprint $table) {
                 if (Schema::hasColumn('copilot_diagnostic_logs', 'anomaly_flag')) {
                     $table->dropColumn('anomaly_flag');

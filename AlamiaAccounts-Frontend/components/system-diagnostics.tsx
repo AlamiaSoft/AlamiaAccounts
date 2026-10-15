@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react"
 import apiClient from "@/lib/api-client"
+import { copilotApi } from "@/lib/api"
 import { 
   Activity, 
   Download, 
@@ -143,12 +144,7 @@ export default function SystemDiagnostics() {
         params.anomaly_flag = "any"
       }
 
-      let res
-      try {
-        res = await apiClient.get("/copilot/diagnostics", { params })
-      } catch (e) {
-        res = await apiClient.get("/copilot/diagnostics-public", { params })
-      }
+      const res = await copilotApi.getDiagnostics(params)
       if (res.data?.success) {
         setTraces(res.data.data || [])
         setStats(res.data.stats || null)
@@ -171,12 +167,7 @@ export default function SystemDiagnostics() {
   const fetchKnowledge = useCallback(async () => {
     setIsLoadingKnowledge(true)
     try {
-      let res
-      try {
-        res = await apiClient.get("/copilot/knowledge", { params: { company_code: "all" } })
-      } catch (e) {
-        res = await apiClient.get("/copilot/knowledge-public", { params: { company_code: "all" } })
-      }
+      const res = await copilotApi.getKnowledge("all")
       if (res.data?.success) {
         setKnowledgeList(res.data.data || [])
       }
@@ -202,14 +193,11 @@ export default function SystemDiagnostics() {
   const handleSaveFeedback = async () => {
     if (!selectedTrace) return
     try {
-      const res = await apiClient.patch(`/copilot/diagnostics/${selectedTrace.id}/feedback`, {
-        status: devStatus,
-        developer_notes: devNotes,
-      })
+      const res = await copilotApi.updateFeedback(selectedTrace.id, 0, devNotes)
       if (res.data?.success) {
         toast({
           title: "Feedback Saved",
-          description: `Trace #${selectedTrace.id} marked as ${devStatus}.`,
+          description: `Trace #${selectedTrace.id} updated successfully.`,
         })
         setSelectedTrace(res.data.data)
         fetchDiagnostics()
@@ -265,7 +253,7 @@ export default function SystemDiagnostics() {
         actions: selectedTrace.final_response?.actions || [],
       }
 
-      const res = await apiClient.post(`/copilot/diagnostics/${selectedTrace.id}/promote-to-guidance`, payload)
+      const res = await copilotApi.promoteToGuidance(selectedTrace.id, payload)
       if (res.data?.success) {
         toast({
           title: "Promoted to Knowledge Base!",
@@ -306,7 +294,7 @@ export default function SystemDiagnostics() {
         note: kbNote || null,
       }
 
-      const res = await apiClient.post("/copilot/knowledge", payload)
+      const res = await copilotApi.createKnowledge(payload)
       if (res.data?.success) {
         toast({
           title: "Knowledge Base Rule Created",
@@ -326,7 +314,7 @@ export default function SystemDiagnostics() {
 
   const handleDeleteKnowledge = async (id: number) => {
     try {
-      const res = await apiClient.delete(`/copilot/knowledge/${id}`)
+      const res = await copilotApi.deleteKnowledge(id)
       if (res.data?.success) {
         toast({
           title: "Knowledge Entry Deleted",
@@ -347,9 +335,7 @@ export default function SystemDiagnostics() {
     try {
       const token = typeof window !== "undefined" ? localStorage.getItem("auth_token") : null
       const companyCode = typeof window !== "undefined" ? localStorage.getItem("current_company_code") : null
-      const baseURL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api"
-      
-      const url = `${baseURL}/copilot/diagnostics/export?format=${format}${companyCode ? `&company_code=${companyCode}` : ""}`
+      const url = copilotApi.exportDiagnosticsUrl(companyCode || undefined, format)
       
       const response = await fetch(url, {
         headers: {
@@ -382,7 +368,7 @@ export default function SystemDiagnostics() {
 
   const handlePruneLogs = async () => {
     try {
-      const res = await apiClient.delete("/copilot/diagnostics")
+      const res = await copilotApi.pruneDiagnostics()
       if (res.data?.success) {
         toast({
           title: "Logs Cleared",

@@ -1,17 +1,25 @@
 import axios from 'axios'
 
+export const getApiBaseUrl = () => {
+    if (typeof window !== 'undefined') {
+        return `${window.location.origin}/api`
+    }
+    return process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'
+}
+
 const apiClient = axios.create({
-    baseURL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api',
+    baseURL: getApiBaseUrl(),
     headers: {
         'Content-Type': 'application/json',
         'Accept': 'application/json',
     },
-    withCredentials: true,
+    withCredentials: false,
 })
 
-// Add auth token and current company code to requests
+// Add auth token, current company code, and dynamic origin to requests
 apiClient.interceptors.request.use((config) => {
     if (typeof window !== 'undefined') {
+        config.baseURL = `${window.location.origin}/api`
         const token = localStorage.getItem('auth_token')
         if (token) {
             config.headers.Authorization = `Bearer ${token}`
@@ -31,7 +39,7 @@ apiClient.interceptors.response.use(
         if (error.response?.status === 401) {
             if (typeof window !== 'undefined') {
                 localStorage.removeItem('auth_token')
-                window.location.href = '/login'
+                window.location.href = '/alamia-accounts/login'
             }
         }
         return Promise.reject(error)

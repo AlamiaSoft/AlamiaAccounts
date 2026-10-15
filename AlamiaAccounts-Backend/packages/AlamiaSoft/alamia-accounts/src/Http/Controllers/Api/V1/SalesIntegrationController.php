@@ -142,17 +142,27 @@ class SalesIntegrationController extends Controller
     /**
      * Get details of a single sale.
      */
-    public function show($id): JsonResponse
+    public function show(Request $request, $id): JsonResponse
     {
-        $sale = OperationalSale::with('items')->find((int)$id);
+        $companyCode = $request->attributes->get('tenant_company_code');
+        if (!$companyCode) {
+            return response()->json(['success' => false, 'error' => 'company_context_required'], 403);
+        }
+
+        $query = OperationalSale::with('items')
+            ->where('company_code', $companyCode)
+            ->whereKey((int) $id);
+        $user = $request->user();
+        if ($user && !$request->attributes->get('is_manager', false)) {
+            $query->where('created_by_user_id', (string) $user->id);
+        }
+
+        $sale = $query->first();
         if (!$sale) {
             return response()->json(['success' => false, 'message' => 'Sale not found.'], 404);
         }
 
-        return response()->json([
-            'success' => true,
-            'data' => $sale,
-        ]);
+        return response()->json(['success' => true, 'data' => $sale]);
     }
 
     /**
@@ -160,11 +170,18 @@ class SalesIntegrationController extends Controller
      */
     public function approve(Request $request, $id): JsonResponse
     {
-        $user = $request->user();
-        $approverName = $user ? $user->name : ($request->input('approver_name') ?? 'Manager');
+        $companyCode = $request->attributes->get('tenant_company_code');
+        if (!$companyCode) {
+            return response()->json(['success' => false, 'error' => 'company_context_required'], 403);
+        }
+        if (!$request->attributes->get('is_manager', false)) {
+            return response()->json(['success' => false, 'error' => 'approval_forbidden'], 403);
+        }
 
+        $user = $request->user();
+        $approverName = $user ? $user->name : 'Authorized POS approver';
         try {
-            $result = $this->salesService->approveSale((int)$id, $approverName);
+            $result = $this->salesService->approveSale((int) $id, $approverName, $companyCode);
             return response()->json([
                 'success' => true,
                 'message' => 'Sale approved and committed to ledger.',
@@ -173,7 +190,8 @@ class SalesIntegrationController extends Controller
         } catch (\Throwable $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Failed to approve sale: ' . $e->getMessage(),
+                'error' => 'sale_approval_failed',
+                'message' => 'The sale could not be approved. Verify its company and current status.',
             ], 422);
         }
     }
@@ -202,10 +220,35 @@ class SalesIntegrationController extends Controller
      */
     public function printReceipt(Request $request, $id): Response
     {
-        $sale = OperationalSale::with('items')->find((int)$id);
+        $companyCode = $request->attributes->get('tenant_company_code');
+        if (!$companyCode) {
+            return response('An authorized company context is required.', 403);
+        }
+
+        $query = OperationalSale::with('items')
+            ->where('company_code', $companyCode)
+            ->whereKey((int) $id);
+        $user = $request->user();
+        if ($user && !$request->attributes->get('is_manager', false)) {
+            $query->where('created_by_user_id', (string) $user->id);
+        }
+
+        $sale = $query->first();
         if (!$sale) {
             return response('Sale receipt not found.', 404);
         }
+
+        $paperWidth = $request->query('width', '80mm');
+        if (!in_array($paperWidth, ['58mm', '80mm'], true)) {
+            $paperWidth = '80mm';
+        }
+        $html = $this->salesService->renderThermalReceiptHtml($sale, $paperWidth);
+
+        return response($html, 200, [
+            'Content-Type' => 'text/html; charset=UTF-8',
+        ]);
+    }
+}}
 
         $paperWidth = $request->query('width', '80mm');
         $html = $this->salesService->renderThermalReceiptHtml($sale, $paperWidth);

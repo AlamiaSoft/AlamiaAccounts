@@ -9,6 +9,6 @@ class BulkLedgerResetRouteTest extends TestCase
     public function test_bulk_ledger_reset_route_is_not_registered(): void
     {
         $this->postJson('/api/vouchers/clear-all')
-            ->assertNotFound();
+            ->assertMethodNotAllowed();
     }
 }

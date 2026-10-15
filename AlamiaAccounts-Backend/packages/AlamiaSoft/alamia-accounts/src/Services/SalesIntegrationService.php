@@ -341,22 +341,21 @@ class SalesIntegrationService
      */
     public function approveSale(int $saleId, ?string $approverName = null, ?string $authorizedCompanyCode = null): array
     {
-        $query = OperationalSale::with('items')->whereKey($saleId);
-        if ($authorizedCompanyCode !== null && trim($authorizedCompanyCode) !== '') {
-            $query->where('company_code', strtoupper(trim($authorizedCompanyCode)));
-        }
-        $sale = $query->firstOrFail();
+        return DB::transaction(function () use ($saleId, $approverName, $authorizedCompanyCode) {
+            $query = OperationalSale::with('items')->whereKey($saleId)->lockForUpdate();
+            if ($authorizedCompanyCode !== null && trim($authorizedCompanyCode) !== '') {
+                $query->where('company_code', strtoupper(trim($authorizedCompanyCode)));
+            }
+            $sale = $query->firstOrFail();
 
-        if ($sale->status === 'posted') {
-            return $this->formatSaleResponse($sale);
-        }
-        if (!in_array($sale->status, ['staged', 'pending_approval'], true)) {
-            throw new Exception('Sale is not in an approvable state.');
-        }
+            if ($sale->status === 'posted') {
+                return $this->formatSaleResponse($sale);
+            }
+            if (!in_array($sale->status, ['staged', 'pending_approval'], true)) {
+                throw new Exception('Sale is not in an approvable state.');
+            }
 
-        DomainContext::set($sale->company_code);
-
-        return DB::transaction(function () use ($sale, $approverName) {
+            DomainContext::set($sale->company_code);
             $salesVoucherRef = $this->generateUniqueVoucherRef('SV', $sale->company_code);
             $customerSubledger = $sale->customer_subledger_code ?: '1200';
 

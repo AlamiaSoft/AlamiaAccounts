@@ -173,11 +173,13 @@ class VoucherService
             $message->extra = json_encode($extraData);
         }
 
-        $details = [];
+        // Consolidate net amounts by account code for Abivia's distinct account requirement
+        $accountNetAmounts = [];
         foreach ($entries as $item) {
             $accountCode = $item['account_code'] ?? $item['account'] ?? null;
-            $detail = new Detail();
-            $detail->account = new EntityRef($accountCode);
+            if (!$accountCode) {
+                continue;
+            }
 
             $rawAmount = (float)($item['amount'] ?? 0);
             if ($rawAmount <= 0) {
@@ -192,9 +194,26 @@ class VoucherService
                 $isCredit = false;
             }
 
-            // In Abivia: debit is positive, credit is negative
-            $detail->amount = $isCredit ? (string) -abs($rawAmount) : (string) abs($rawAmount);
+            $signedAmount = $isCredit ? -abs($rawAmount) : abs($rawAmount);
+            if (!isset($accountNetAmounts[$accountCode])) {
+                $accountNetAmounts[$accountCode] = 0.0;
+            }
+            $accountNetAmounts[$accountCode] += $signedAmount;
+        }
+
+        $details = [];
+        foreach ($accountNetAmounts as $accountCode => $netAmount) {
+            if (abs($netAmount) < 0.0001) {
+                continue;
+            }
+            $detail = new Detail();
+            $detail->account = new EntityRef($accountCode);
+            $detail->amount = (string)$netAmount;
             $details[] = $detail;
+        }
+
+        if (count($details) < 2) {
+            throw new Exception('Voucher must contain at least two non-cancelling account entries for double-entry ledger posting');
         }
 
         $message->details = $details;

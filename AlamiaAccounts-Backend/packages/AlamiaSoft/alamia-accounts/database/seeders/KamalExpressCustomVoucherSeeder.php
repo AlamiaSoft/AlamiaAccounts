@@ -87,11 +87,11 @@ class KamalExpressCustomVoucherSeeder extends Seeder
                 'account_rules' => [
                     [
                         'side' => 'debit',
-                        'account_groups' => ['Cash', 'Bank Accounts', 'Accounts Receivable'],
+                        'account_groups' => ['Cash', 'Bank Accounts', 'Accounts Receivable', 'Expenses'],
                     ],
                     [
                         'side' => 'credit',
-                        'account_groups' => ['Revenue', 'Fee Income', 'Accounts Payable'],
+                        'account_groups' => ['Revenue', 'Fee Income', 'Accounts Payable', 'Cash', 'Bank Accounts'],
                     ],
                 ],
                 'validation_rules' => [

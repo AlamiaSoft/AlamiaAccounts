@@ -194,4 +194,31 @@ class VoucherServiceTest extends TestCase
             ->where('extra', 'like', '%JV-DUPLICATE-001%')
             ->count());
     }
+
+    public function test_can_create_voucher_with_multiple_entries_for_same_account_netted()
+    {
+        // Airline ticket with commission scenario:
+        // Debit Cash 1110: 12345
+        // Credit Sales 3100: 12345
+        // Debit Operating Expenses 4200: 345
+        // Credit Cash 1110: 345
+        $voucher = $this->voucherService->createJournalEntry([
+            'reference' => 'TKT-TEST-MULTI-ENTRY',
+            'currency' => 'PKR',
+            'date' => '2026-10-15',
+            'description' => 'Test ticket with commission',
+            'entries' => [
+                ['account_code' => '1110', 'amount' => 12345, 'type' => 'debit'],
+                ['account_code' => '3100', 'amount' => 12345, 'type' => 'credit'],
+                ['account_code' => '4200', 'amount' => 345, 'type' => 'debit'],
+                ['account_code' => '1110', 'amount' => 345, 'type' => 'credit'],
+            ],
+        ]);
+
+        $this->assertInstanceOf(JournalEntry::class, $voucher);
+        // Verify that the entry was saved and can be retrieved
+        $retrieved = $this->voucherService->getVoucher('TKT-TEST-MULTI-ENTRY');
+        $this->assertNotNull($retrieved);
+        $this->assertSame('TKT-TEST-MULTI-ENTRY', $retrieved['reference']);
+    }
 }

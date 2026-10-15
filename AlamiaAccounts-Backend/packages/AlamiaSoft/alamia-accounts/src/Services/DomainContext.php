@@ -30,24 +30,27 @@ class DomainContext
         if (function_exists('request') && request()) {
             $headerDomain = request()->header('X-Company-Code');
             if (!empty($headerDomain)) {
-                static::$currentDomain = $headerDomain;
+                static::$currentDomain = strtoupper(trim((string) $headerDomain));
                 return static::$currentDomain;
             }
         }
 
-        if (isset(static::$currentDomain)) {
-            $exists = LedgerDomain::where('code', static::$currentDomain)->exists();
-            if (!$exists) {
-                static::$currentDomain = null;
+        if (function_exists('tenant') && tenant()) {
+            $tenantKey = tenant()->getTenantKey();
+            if (!empty($tenantKey)) {
+                static::$currentDomain = strtoupper(trim((string) $tenantKey));
+                return static::$currentDomain;
             }
         }
 
-        if (!isset(static::$currentDomain)) {
-            // Default to first domain if not set
-            $domain = LedgerDomain::first();
-            if ($domain) {
-                static::$currentDomain = $domain->code;
-            }
+        if (!empty(static::$currentDomain)) {
+            return static::$currentDomain;
+        }
+
+        // Default to first domain if not set
+        $domain = LedgerDomain::first();
+        if ($domain) {
+            static::$currentDomain = $domain->code;
         }
         
         return static::$currentDomain;

@@ -23,7 +23,7 @@ use AlamiaSoft\AlamiaAccounts\Http\Middleware\AuthenticateSalesOrSanctum;
 Route::post('/login', [AuthController::class, 'login']);
 Route::get('/login', function () {
     return response()->json(['message' => 'Unauthenticated.'], 401);
-})->name('login');
+})->name('accounts.api.login');
 Route::post('/copilot/chat-public', [CopilotController::class, 'chat']);
 Route::get('/copilot/capabilities-public', [CopilotController::class, 'capabilities']);
 Route::post('/copilot/capabilities-public/{capability}/execute', [CopilotController::class, 'executeCapability']);

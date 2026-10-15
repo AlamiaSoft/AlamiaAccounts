@@ -1,0 +1,108 @@
+name: Alamia Accounts CI
+
+on:
+  push:
+    paths:
+      - 'AlamiaAccounts-Backend/**'
+      - '.github/workflows/alamia-accounts-ci.yml'
+  pull_request:
+    paths:
+      - 'AlamiaAccounts-Backend/**'
+      - '.github/workflows/alamia-accounts-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: alamia-accounts-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Composer, syntax, and architecture checks
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: AlamiaAccounts-Backend
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          tools: composer:v2
+          extensions: bcmath, mbstring, pdo_sqlite, pdo_pgsql
+
+      - name: Validate Composer manifests
+        run: composer validate --no-check-publish
+
+      - name: Install PHP dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress --optimize-autoloader
+
+      - name: Check PHP syntax
+        run: find app bootstrap config database packages routes tests -type f -name '*.php' ! -path '*/vendor/*' -print0 | xargs -0 -n1 php -l
+
+      - name: Audit Composer dependencies
+        run: composer audit --no-interaction
+
+      - name: Check repository architecture
+        run: node ../scripts/verify-architecture.js
+
+  tests:
+    name: PHPUnit (${{ matrix.database }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        database: [sqlite, pgsql]
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: alamia_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: secret
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d alamia_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    defaults:
+      run:
+        working-directory: AlamiaAccounts-Backend
+    env:
+      APP_ENV: testing
+      APP_DEBUG: 'true'
+      APP_KEY: base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+      DB_CONNECTION: ${{ matrix.database }}
+      DB_DATABASE: ${{ matrix.database == 'pgsql' && 'alamia_test' || ':memory:' }}
+      DB_HOST: 127.0.0.1
+      DB_PORT: '5432'
+      DB_USERNAME: postgres
+      DB_PASSWORD: secret
+      DB_URL: ''
+      CACHE_STORE: array
+      SESSION_DRIVER: array
+      QUEUE_CONNECTION: sync
+      BROADCAST_CONNECTION: 'null'
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          tools: composer:v2
+          extensions: bcmath, mbstring, pdo_sqlite, pdo_pgsql
+
+      - name: Install PHP dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress --optimize-autoloader
+
+      - name: Run the configured PHPUnit suites
+        run: php artisan test

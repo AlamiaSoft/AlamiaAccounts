@@ -568,7 +568,7 @@ export default function CustomVoucherEntry({
                       </Label>
                       {field.type === "dropdown" ? (
                         <Select
-                          value={val || (field.options?.[0] ?? "")}
+                          value={typeof val === "string" && val.length > 0 ? val : undefined}
                           onValueChange={(v) => handleCustomFieldChange(field.name, v)}
                         >
                           <SelectTrigger>

@@ -2,34 +2,42 @@
 
 namespace AlamiaSoft\AlamiaAccounts\Tests\Feature;
 
+use App\Models\User;
+use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
 class SalesApprovalAuthorizationTest extends TestCase
 {
-    public function test_machine_pos_credential_cannot_approve_a_sale(): void
+    protected function actingAsStaffInCompany(string $companyCode = 'KAMAL_EXPRESS'): void
     {
-        $secret = 'test-pos-secret-with-sufficient-entropy';
-        config()->set('alamia-accounts.pos_api_key_hashes', [
-            hash('sha256', $secret) => 'KAMAL_EXPRESS',
+        $user = new User();
+        $user->forceFill([
+            'id' => 9001,
+            'name' => 'POS Test Staff',
+            'email' => 'pos-staff-test@example.invalid',
+            'role' => 'staff',
+            'company_code' => $companyCode,
         ]);
+        $user->exists = true;
 
-        $this->withHeader('X-POS-Key', $secret)
-            ->postJson('/api/v1/sales/123/approve')
+        Sanctum::actingAs($user);
+    }
+
+    public function test_regular_staff_cannot_approve_a_sale(): void
+    {
+        $this->actingAsStaffInCompany();
+
+        $this->postJson('/api/v1/sales/123/approve')
             ->assertForbidden()
             ->assertJsonPath('error', 'approval_forbidden');
     }
 
-    public function test_pos_credential_cannot_approve_using_another_company_code(): void
+    public function test_staff_cannot_select_another_company_for_approval(): void
     {
-        $secret = 'test-pos-secret-with-sufficient-entropy';
-        config()->set('alamia-accounts.pos_api_key_hashes', [
-            hash('sha256', $secret) => 'KAMAL_EXPRESS',
-        ]);
+        $this->actingAsStaffInCompany();
 
-        $this->withHeaders([
-            'X-POS-Key' => $secret,
-            'X-Company-Code' => 'OTHER_COMPANY',
-        ])->postJson('/api/v1/sales/123/approve')
+        $this->withHeader('X-Company-Code', 'OTHER_COMPANY')
+            ->postJson('/api/v1/sales/123/approve')
             ->assertForbidden()
             ->assertJsonPath('error', 'company_access_denied');
     }
@@ -39,8 +47,6 @@ class SalesApprovalAuthorizationTest extends TestCase
         $response = $this->withoutMiddleware()
             ->postJson('/api/v1/sales/123/approve');
 
-        // Without the integration middleware there is no trusted company context,
-        // so the controller must fail closed before attempting a database lookup.
         $response->assertForbidden()
             ->assertJsonPath('error', 'company_context_required');
     }

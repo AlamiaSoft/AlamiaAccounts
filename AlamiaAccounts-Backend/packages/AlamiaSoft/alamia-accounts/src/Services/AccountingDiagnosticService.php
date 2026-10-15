@@ -246,11 +246,11 @@ class AccountingDiagnosticService
             ->select(
                 'journal_entries.journalEntryId',
                 'journal_entries.transDate',
-                DB::raw('SUM(journal_details.amount) as net_amount'),
-                DB::raw('SUM(CASE WHEN journal_details.amount > 0 THEN journal_details.amount ELSE 0 END) as total_debit'),
-                DB::raw('SUM(CASE WHEN journal_details.amount < 0 THEN ABS(journal_details.amount) ELSE 0 END) as total_credit')
+                DB::raw('SUM(CAST(journal_details.amount AS DECIMAL(15,2))) as net_amount'),
+                DB::raw('SUM(CASE WHEN CAST(journal_details.amount AS DECIMAL(15,2)) > 0 THEN CAST(journal_details.amount AS DECIMAL(15,2)) ELSE 0 END) as total_debit'),
+                DB::raw('SUM(CASE WHEN CAST(journal_details.amount AS DECIMAL(15,2)) < 0 THEN ABS(CAST(journal_details.amount AS DECIMAL(15,2))) ELSE 0 END) as total_credit')
             )
-            ->havingRaw('ABS(SUM(journal_details.amount)) > 0.009')
+            ->havingRaw('ABS(SUM(CAST(journal_details.amount AS DECIMAL(15,2)))) > 0.009')
             ->get();
 
         $anomalies = [];
@@ -414,9 +414,9 @@ class AccountingDiagnosticService
         $obDetails = DB::table('journal_details')
             ->whereIn('journalEntryId', $openingEntries)
             ->select(
-                DB::raw('SUM(amount) as net_amount'),
-                DB::raw('SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END) as total_debit'),
-                DB::raw('SUM(CASE WHEN amount < 0 THEN ABS(amount) ELSE 0 END) as total_credit')
+                DB::raw('SUM(CAST(amount AS DECIMAL(15,2))) as net_amount'),
+                DB::raw('SUM(CASE WHEN CAST(amount AS DECIMAL(15,2)) > 0 THEN CAST(amount AS DECIMAL(15,2)) ELSE 0 END) as total_debit'),
+                DB::raw('SUM(CASE WHEN CAST(amount AS DECIMAL(15,2)) < 0 THEN ABS(CAST(amount AS DECIMAL(15,2))) ELSE 0 END) as total_credit')
             )
             ->first();
 
@@ -496,7 +496,7 @@ class AccountingDiagnosticService
                     ->where('journal_entries.currency', $currency)
                     ->where('journal_details.ledgerUuid', $reAccount->ledgerUuid)
                     ->where('journal_entries.transDate', '<=', Carbon::parse($asOfDate)->endOfDay())
-                    ->sum('journal_details.amount') ?? 0.0);
+                    ->sum(DB::raw('CAST(journal_details.amount AS DECIMAL(15,2))')) ?? 0.0);
 
                 if (abs($manualBalance) > 0.01) {
                     $absBal = round(abs($manualBalance), 2);
@@ -563,7 +563,7 @@ class AccountingDiagnosticService
                     $q->where('ledger_accounts.code', 'like', '3%')
                       ->orWhere('ledger_accounts.code', 'like', '4%');
                 })
-                ->sum('journal_details.amount') ?? 0.0);
+                ->sum(DB::raw('CAST(journal_details.amount AS DECIMAL(15,2))')) ?? 0.0);
 
             $absFuture = round(abs($futureAmt), 2);
             $anomalies[] = [
@@ -1001,8 +1001,8 @@ class AccountingDiagnosticService
             $ref2 = $extra2['reference'] ?? "VCH-{$dup->id2}";
 
             // Check if amounts match exactly
-            $amt1 = DB::table('journal_details')->where('journalEntryId', $dup->id1)->where('amount', '>', 0)->sum('amount');
-            $amt2 = DB::table('journal_details')->where('journalEntryId', $dup->id2)->where('amount', '>', 0)->sum('amount');
+            $amt1 = DB::table('journal_details')->where('journalEntryId', $dup->id1)->whereRaw('CAST(amount AS DECIMAL(15,2)) > 0')->sum(DB::raw('CAST(amount AS DECIMAL(15,2))'));
+            $amt2 = DB::table('journal_details')->where('journalEntryId', $dup->id2)->whereRaw('CAST(amount AS DECIMAL(15,2)) > 0')->sum(DB::raw('CAST(amount AS DECIMAL(15,2))'));
 
             if ($amt1 > 0 && abs($amt1 - $amt2) < 0.01) {
                 $findings[] = [

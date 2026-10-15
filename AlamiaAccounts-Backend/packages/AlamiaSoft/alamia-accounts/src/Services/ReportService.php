@@ -449,7 +449,7 @@ class ReportService
             $query->where('journal_entries.transDate', '<=', Carbon::parse($asOfDate)->endOfDay());
         }
 
-        return (float)($query->sum('journal_details.amount') ?? 0.0);
+        return (float)($query->sum(DB::raw('CAST(journal_details.amount AS DECIMAL(15,2))')) ?? 0.0);
     }
 
     /**
@@ -488,7 +488,7 @@ class ReportService
             ->whereIn('journal_details.ledgerUuid', $targetUuids)
             ->where('journal_entries.transDate', '>=', Carbon::parse($fromDate)->startOfDay())
             ->where('journal_entries.transDate', '<=', Carbon::parse($toDate)->endOfDay())
-            ->sum('journal_details.amount') ?? 0.0);
+            ->sum(DB::raw('CAST(journal_details.amount AS DECIMAL(15,2))')) ?? 0.0);
     }
 
     /**
@@ -550,8 +550,8 @@ class ReportService
                 ->where('journal_entries.currency', $currency)
                 ->where('journal_details.ledgerUuid', $cust->ledgerUuid)
                 ->where('journal_entries.transDate', '<=', Carbon::parse($asOfDate)->endOfDay())
-                ->where('journal_details.amount', '>', 0)
-                ->sum('journal_details.amount') ?? 0.0);
+                ->whereRaw('CAST(journal_details.amount AS DECIMAL(15,2)) > 0')
+                ->sum(DB::raw('CAST(journal_details.amount AS DECIMAL(15,2))')) ?? 0.0);
 
             // Total receipts/payments received (Cr)
             $creditMovements = (float)(DB::table('journal_details')
@@ -561,8 +561,8 @@ class ReportService
                 ->where('journal_entries.currency', $currency)
                 ->where('journal_details.ledgerUuid', $cust->ledgerUuid)
                 ->where('journal_entries.transDate', '<=', Carbon::parse($asOfDate)->endOfDay())
-                ->where('journal_details.amount', '<', 0)
-                ->sum(DB::raw('ABS(journal_details.amount)')) ?? 0.0);
+                ->whereRaw('CAST(journal_details.amount AS DECIMAL(15,2)) < 0')
+                ->sum(DB::raw('ABS(CAST(journal_details.amount AS DECIMAL(15,2)))')) ?? 0.0);
 
             $balance = round($debitMovements - $creditMovements, 2);
             $aging = $this->computeAgingBuckets($cust->ledgerUuid, $asOfDate, true, $currency);
@@ -647,8 +647,8 @@ class ReportService
                 ->where('journal_entries.currency', $currency)
                 ->where('journal_details.ledgerUuid', $sup->ledgerUuid)
                 ->where('journal_entries.transDate', '<=', Carbon::parse($asOfDate)->endOfDay())
-                ->where('journal_details.amount', '>', 0)
-                ->sum('journal_details.amount') ?? 0.0);
+                ->whereRaw('CAST(journal_details.amount AS DECIMAL(15,2)) > 0')
+                ->sum(DB::raw('CAST(journal_details.amount AS DECIMAL(15,2))')) ?? 0.0);
 
             // Total purchases/bills owed (Cr)
             $creditMovements = (float)(DB::table('journal_details')
@@ -658,8 +658,8 @@ class ReportService
                 ->where('journal_entries.currency', $currency)
                 ->where('journal_details.ledgerUuid', $sup->ledgerUuid)
                 ->where('journal_entries.transDate', '<=', Carbon::parse($asOfDate)->endOfDay())
-                ->where('journal_details.amount', '<', 0)
-                ->sum(DB::raw('ABS(journal_details.amount)')) ?? 0.0);
+                ->whereRaw('CAST(journal_details.amount AS DECIMAL(15,2)) < 0')
+                ->sum(DB::raw('ABS(CAST(journal_details.amount AS DECIMAL(15,2)))')) ?? 0.0);
 
             // Payable balance: Credit (Owed) - Debit (Paid)
             $balance = round($creditMovements - $debitMovements, 2);

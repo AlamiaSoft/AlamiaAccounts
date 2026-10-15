@@ -5,6 +5,8 @@ function getCompanyCode(): string {
     return typeof window !== 'undefined' ? localStorage.getItem('current_company_code') || 'MAIN' : 'MAIN'
 }
 
+const EMPTY_VOUCHERS: any[] = []
+
 export function useVouchers(params?: any) {
     const queryClient = useQueryClient()
     const company = getCompanyCode()
@@ -46,7 +48,7 @@ export function useVouchers(params?: any) {
     })
 
     return {
-        vouchers: vouchers || [],
+        vouchers: vouchers ?? EMPTY_VOUCHERS,
         isLoading,
         createVoucher,
         updateVoucher,

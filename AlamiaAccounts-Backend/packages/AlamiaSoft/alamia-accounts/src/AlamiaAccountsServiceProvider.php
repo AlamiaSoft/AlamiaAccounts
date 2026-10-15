@@ -78,6 +78,33 @@ class AlamiaAccountsServiceProvider extends ServiceProvider
                 $this->loadRoutesFrom(__DIR__.'/../routes/api.php');
             });
 
+        // Route static assets for embedded Next.js UI (must be before the catch-all SPA route)
+        $serveAsset = function (string $any) {
+            $path = public_path('vendor/alamia-accounts/_next/' . $any);
+            if (!file_exists($path)) {
+                $path = __DIR__.'/../dist/_next/' . $any;
+            }
+            if (file_exists($path)) {
+                $ext = strtolower(pathinfo($path, PATHINFO_EXTENSION));
+                $mime = match ($ext) {
+                    'js' => 'application/javascript',
+                    'css' => 'text/css',
+                    'json' => 'application/json',
+                    'woff2' => 'font/woff2',
+                    'woff' => 'font/woff',
+                    'png' => 'image/png',
+                    'jpg', 'jpeg' => 'image/jpeg',
+                    'svg' => 'image/svg+xml',
+                    default => 'application/octet-stream',
+                };
+                return response()->file($path, ['Content-Type' => $mime]);
+            }
+            return response('Asset not found', 404);
+        };
+
+        \Illuminate\Support\Facades\Route::get('/alamia-accounts/_next/{any}', $serveAsset)->where('any', '.*');
+        \Illuminate\Support\Facades\Route::get('/_next/{any}', $serveAsset)->where('any', '.*');
+
         // Register turnkey web routes for embedded SPA UI
         \Illuminate\Support\Facades\Route::middleware('web')->group(function () {
             \Illuminate\Support\Facades\Route::get('/login', function () {
@@ -90,7 +117,7 @@ class AlamiaAccountsServiceProvider extends ServiceProvider
                     return response()->file($pkgPath);
                 }
                 return redirect('/alamia-accounts');
-            });
+            })->name('login');
 
             \Illuminate\Support\Facades\Route::get('/ke-pos', function () {
                 $posPath = public_path('vendor/alamia-accounts/ke-pos.html');
@@ -122,27 +149,6 @@ class AlamiaAccountsServiceProvider extends ServiceProvider
                 return response("Alamia Accounts UI bundle not published. Run 'php artisan vendor:publish --tag=alamia-accounts-ui'", 404);
             })->where('any', '.*');
         });
-
-        // Route static assets for embedded Next.js UI
-        \Illuminate\Support\Facades\Route::get('/_next/{any}', function (string $any) {
-            $path = public_path('vendor/alamia-accounts/_next/' . $any);
-            if (file_exists($path)) {
-                $ext = strtolower(pathinfo($path, PATHINFO_EXTENSION));
-                $mime = match ($ext) {
-                    'js' => 'application/javascript',
-                    'css' => 'text/css',
-                    'json' => 'application/json',
-                    'woff2' => 'font/woff2',
-                    'woff' => 'font/woff',
-                    'png' => 'image/png',
-                    'jpg', 'jpeg' => 'image/jpeg',
-                    'svg' => 'image/svg+xml',
-                    default => 'application/octet-stream',
-                };
-                return response()->file($path, ['Content-Type' => $mime]);
-            }
-            return response('Asset not found', 404);
-        })->where('any', '.*');
 
         // Route static icons/logos requested from root by embedded UI
         \Illuminate\Support\Facades\Route::get('/{asset}', function (string $asset) {

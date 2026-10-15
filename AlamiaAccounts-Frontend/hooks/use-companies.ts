@@ -1,6 +1,8 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { companyApi } from '@/lib/api'
 
+const EMPTY_COMPANIES: any[] = []
+
 export function useCompanies() {
     const queryClient = useQueryClient()
 
@@ -61,7 +63,7 @@ export function useCompanies() {
     const resolvedCurrentCompany = currentCompany || (companies && companies.length > 0 ? companies[0] : null)
 
     return {
-        companies: companies || [],
+        companies: companies ?? EMPTY_COMPANIES,
         currentCompany: resolvedCurrentCompany,
         isLoading: loadingCompanies && !resolvedCurrentCompany,
         switchCompany,

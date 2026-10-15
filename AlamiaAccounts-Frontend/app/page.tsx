@@ -658,10 +658,17 @@ function HomeContent() {
       default:
         if (currentPage.startsWith("custom-voucher-")) {
           const typeId = currentPage.replace("custom-voucher-", "")
+          if (isLoadingCompanies || !currentCompany) {
+            return (
+              <div className="flex h-screen items-center justify-center bg-background">
+                <Loader2 className="w-8 h-8 animate-spin text-primary" />
+              </div>
+            )
+          }
           return (
             <CustomVoucherEntry
               voucherTypeId={typeId}
-              currentCompany={currentCompany || companies[0]}
+              currentCompany={currentCompany}
               onBack={() => setCurrentPage("dashboard")}
               onSuccessNavigate={(voucher) => {
                 handleSearchResultClick({

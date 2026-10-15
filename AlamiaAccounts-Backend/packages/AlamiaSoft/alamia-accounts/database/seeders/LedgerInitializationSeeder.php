@@ -55,7 +55,7 @@ class LedgerInitializationSeeder extends Seeder
 
     protected function createDomain(): void
     {
-        if (\Illuminate\Support\Facades\DB::table('ledger_domains')->count() === 0) {
+        if (!LedgerDomain::where('code', 'MAIN')->exists()) {
             $domainUuid = (string) \Illuminate\Support\Str::uuid();
             \Illuminate\Support\Facades\DB::table('ledger_domains')->insert([
                 'domainUuid' => $domainUuid,

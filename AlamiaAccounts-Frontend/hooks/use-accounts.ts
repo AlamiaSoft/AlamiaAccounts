@@ -5,6 +5,8 @@ function getCompanyCode(): string {
     return typeof window !== 'undefined' ? localStorage.getItem('current_company_code') || 'MAIN' : 'MAIN'
 }
 
+const EMPTY_ACCOUNTS: any[] = []
+
 export function useAccounts() {
     const queryClient = useQueryClient()
     const company = getCompanyCode()
@@ -50,7 +52,7 @@ export function useAccounts() {
     })
 
     return {
-        accounts: accounts || [],
+        accounts: accounts ?? EMPTY_ACCOUNTS,
         isLoading,
         createAccount,
         updateAccount,

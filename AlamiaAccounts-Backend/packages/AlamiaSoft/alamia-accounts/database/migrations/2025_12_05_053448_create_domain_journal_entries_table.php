@@ -16,8 +16,8 @@ return new class extends Migration
     {
         Schema::create('domain_journal_entries', function (Blueprint $table) {
             $table->id();
-            $table->string('domainUuid');
-            $table->integer('journalEntryId')->unsigned();
+            $table->foreignUuid('domainUuid');
+            $table->unsignedBigInteger('journalEntryId');
             $table->timestamps();
             
             // Foreign keys

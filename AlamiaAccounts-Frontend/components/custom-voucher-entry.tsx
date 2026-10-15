@@ -91,64 +91,74 @@ export default function CustomVoucherEntry({
     },
   ])
 
-  // Initialize reference number and defaults when voucher type is loaded
+  // Track initialized voucher type key to prevent infinite re-render loops (React error #185)
+  const initializedKeyRef = React.useRef<string | null>(null)
+
+  // Initialize reference number and defaults once when voucher type is loaded
   useEffect(() => {
-    if (voucherType) {
-      const p = voucherType.prefix || "CST"
-      const yr = new Date().getFullYear()
-      const rand = Math.floor(100 + Math.random() * 900)
-      const num = `${p}-${yr}-${String(rand).padStart(4, "0")}`
-      setReferenceNumber(num)
+    if (!voucherType) return
 
-      // Set dynamically configured default debit & credit accounts from the Custom Voucher Type account rules
-      const rules = voucherType.account_rules || voucherType.accountRules || []
-      const debitRule = rules.find((r: any) => r.side === "debit")
-      const creditRule = rules.find((r: any) => r.side === "credit")
-
-      const defaultDebit = debitRule?.default_account || debitRule?.defaultAccount || ""
-      const defaultCredit = creditRule?.default_account || creditRule?.defaultAccount || ""
-      
-      const debitAcc = defaultDebit ? accounts?.find((a: any) => String(a.code) === String(defaultDebit)) : null
-      const creditAcc = defaultCredit ? accounts?.find((a: any) => String(a.code) === String(defaultCredit)) : null
-
-      const debitAccName = debitAcc?.name || ""
-      const creditAccName = creditAcc?.name || ""
-
-      setLineItems([
-        {
-          id: "1",
-          account: defaultDebit,
-          accountName: debitAccName,
-          debit: 0,
-          credit: 0,
-          description: "",
-        },
-        {
-          id: "2",
-          account: defaultCredit,
-          accountName: creditAccName,
-          debit: 0,
-          credit: 0,
-          description: "",
-        },
-      ])
-
-      // Initialize default custom field values
-      const initialFields: Record<string, any> = {}
-      if (Array.isArray(voucherType.custom_fields)) {
-        voucherType.custom_fields.forEach((f: any) => {
-          if (f.type === "dropdown" && Array.isArray(f.options) && f.options.length > 0) {
-            initialFields[f.name] = f.options[0]
-          } else if (f.type === "checkbox") {
-            initialFields[f.name] = false
-          } else {
-            initialFields[f.name] = ""
-          }
-        })
-      }
-      setCustomFieldValues(initialFields)
+    const typeKey = `${currentCompany?.code || "MAIN"}_${voucherType.id || voucherType.prefix}`
+    if (initializedKeyRef.current === typeKey) {
+      return
     }
-  }, [voucherType, accounts])
+
+    initializedKeyRef.current = typeKey
+
+    const p = voucherType.prefix || "CST"
+    const yr = new Date().getFullYear()
+    const rand = Math.floor(100 + Math.random() * 900)
+    const num = `${p}-${yr}-${String(rand).padStart(4, "0")}`
+    setReferenceNumber(num)
+
+    // Set dynamically configured default debit & credit accounts from the Custom Voucher Type account rules
+    const rules = voucherType.account_rules || voucherType.accountRules || []
+    const debitRule = rules.find((r: any) => r.side === "debit")
+    const creditRule = rules.find((r: any) => r.side === "credit")
+
+    const defaultDebit = debitRule?.default_account || debitRule?.defaultAccount || ""
+    const defaultCredit = creditRule?.default_account || creditRule?.defaultAccount || ""
+    
+    const debitAcc = defaultDebit ? accounts?.find((a: any) => String(a.code) === String(defaultDebit)) : null
+    const creditAcc = defaultCredit ? accounts?.find((a: any) => String(a.code) === String(defaultCredit)) : null
+
+    const debitAccName = debitAcc?.name || ""
+    const creditAccName = creditAcc?.name || ""
+
+    setLineItems([
+      {
+        id: "1",
+        account: defaultDebit,
+        accountName: debitAccName,
+        debit: 0,
+        credit: 0,
+        description: "",
+      },
+      {
+        id: "2",
+        account: defaultCredit,
+        accountName: creditAccName,
+        debit: 0,
+        credit: 0,
+        description: "",
+      },
+    ])
+
+    // Initialize default custom field values
+    const initialFields: Record<string, any> = {}
+    if (Array.isArray(voucherType.custom_fields)) {
+      voucherType.custom_fields.forEach((f: any) => {
+        if (f.type === "dropdown" && Array.isArray(f.options) && f.options.length > 0) {
+          initialFields[f.name] = f.options[0]
+        } else if (f.type === "checkbox") {
+          initialFields[f.name] = false
+        } else {
+          initialFields[f.name] = ""
+        }
+      })
+    }
+    setCustomFieldValues(initialFields)
+  }, [voucherType?.id, voucherType?.prefix, currentCompany?.code])
 
   const totalDebit = useMemo(() => {
     return lineItems.reduce((sum, item) => sum + (Number(item.debit) || 0), 0)
@@ -190,33 +200,35 @@ export default function CustomVoucherEntry({
   }
 
   const handleCustomFieldChange = (fieldName: string, value: any) => {
-    setCustomFieldValues((prev) => {
-      const updated = { ...prev, [fieldName]: value }
+    setCustomFieldValues((prev) => ({ ...prev, [fieldName]: value }))
 
-      // Auto-populate gross fare to debit/credit if user changes Gross Fare field
-      if (fieldName.toLowerCase().includes("fare") || fieldName.toLowerCase().includes("amount")) {
-        const numVal = parseFloat(value) || 0
-        if (numVal > 0 && lineItems.length >= 2) {
-          setLineItems((prevLines) => [
+    // Auto-populate gross fare to debit/credit if user changes Gross Fare field
+    if (fieldName.toLowerCase().includes("fare") || fieldName.toLowerCase().includes("amount")) {
+      const numVal = parseFloat(value) || 0
+      if (numVal > 0) {
+        setLineItems((prevLines) => {
+          if (prevLines.length < 2) return prevLines
+          return [
             { ...prevLines[0], debit: numVal, credit: 0 },
             { ...prevLines[1], debit: 0, credit: numVal },
             ...prevLines.slice(2),
-          ])
-        }
+          ]
+        })
       }
+    }
 
-      // Auto-update narration if passenger name / PNR changes
-      if (fieldName === "Passenger Name" || fieldName === "PNR" || fieldName === "Sector Route") {
-        const pass = updated["Passenger Name"] || ""
-        const pnr = updated["PNR"] || ""
-        const sector = updated["Sector Route"] || ""
+    // Auto-update narration if passenger name / PNR changes
+    if (fieldName === "Passenger Name" || fieldName === "PNR" || fieldName === "Sector Route") {
+      setCustomFieldValues((prev) => {
+        const pass = fieldName === "Passenger Name" ? value : prev["Passenger Name"] || ""
+        const pnr = fieldName === "PNR" ? value : prev["PNR"] || ""
+        const sector = fieldName === "Sector Route" ? value : prev["Sector Route"] || ""
         if (pass || pnr || sector) {
           setNarration(`Ticket Booking: ${pass}${pnr ? ` (PNR: ${pnr})` : ""}${sector ? ` Sector: ${sector}` : ""}`)
         }
-      }
-
-      return updated
-    })
+        return prev
+      })
+    }
   }
 
   const addLineItem = () => {
@@ -325,6 +337,22 @@ export default function CustomVoucherEntry({
         variant: "destructive",
       })
       return
+    }
+
+    // 3b. Validate no category/folder accounts are used for posting
+    for (let i = 0; i < lineItems.length; i++) {
+      const item = lineItems[i]
+      const accObj = accounts?.find(
+        (a: any) => String(a.code).trim().toLowerCase() === item.account.trim().toLowerCase()
+      )
+      if (accObj?.category) {
+        toast({
+          title: "Category Account Not Allowed",
+          description: `Line ${i + 1} uses "${accObj.code} - ${accObj.name}", which is a grouping folder/category account. Journal transactions can only be posted to leaf accounts.`,
+          variant: "destructive",
+        })
+        return
+      }
     }
 
     // 4. Validate accounts against custom voucher type account rules
@@ -540,7 +568,7 @@ export default function CustomVoucherEntry({
                       </Label>
                       {field.type === "dropdown" ? (
                         <Select
-                          value={val || (field.options?.[0] ?? "")}
+                          value={typeof val === "string" && val.length > 0 ? val : undefined}
                           onValueChange={(v) => handleCustomFieldChange(field.name, v)}
                         >
                           <SelectTrigger>

@@ -128,7 +128,7 @@ class AccountingIntegrityCheckpointTest extends TestCase
             'description' => 'Corrupted Single-Legged Post',
             'created_at' => now(),
             'updated_at' => now(),
-        ]);
+        ], 'journalEntryId');
 
         DomainJournalEntry::create([
             'domainUuid' => $this->domain->domainUuid,

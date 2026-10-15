@@ -14,6 +14,7 @@ const test09 = require('./09-voucher-lifecycle-negative.test');
 const test10 = require('./10-accountant-production-readiness.test');
 const test11 = require('./11-tally-workstation-and-subledgers.test');
 const test12 = require('./12-balance-sheet-diagnostics-and-copilot.test');
+const test14 = require('./14-custom-voucher-airline-ticket.test');
 
 async function runAll() {
   console.log('================================================================');
@@ -34,6 +35,7 @@ async function runAll() {
     { name: '10: Accountant Production Readiness & Hardening', fn: test10 },
     { name: '11: Tally Workstation, Bank Book & Subledgers', fn: test11 },
     { name: '12: Balance Sheet Diagnostics & AI Copilot', fn: test12 },
+    { name: '14: Airline Ticket Booking Custom Voucher & Commission Posting', fn: test14 },
   ];
 
   const results = [];

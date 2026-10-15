@@ -246,7 +246,7 @@ class AccountService
             ->join('domain_journal_entries', 'journal_entries.journalEntryId', '=', 'domain_journal_entries.journalEntryId')
             ->where('domain_journal_entries.domainUuid', $currentDomain->domainUuid)
             ->groupBy('journal_details.ledgerUuid')
-            ->select('journal_details.ledgerUuid', \Illuminate\Support\Facades\DB::raw('SUM(journal_details.amount) as total_balance'))
+            ->select('journal_details.ledgerUuid', \Illuminate\Support\Facades\DB::raw('SUM(CAST(journal_details.amount AS DECIMAL(15,2))) as total_balance'))
             ->pluck('total_balance', 'journal_details.ledgerUuid')
             ->toArray();
 

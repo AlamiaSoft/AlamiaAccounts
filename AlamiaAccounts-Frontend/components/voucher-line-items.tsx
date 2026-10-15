@@ -223,7 +223,7 @@ export default function VoucherLineItems({
                   <AccountCombobox
                     accounts={hasRules ? rowAccounts : accountList.filter((a) => !a.category)}
                     selectedCode={item.account}
-                    selectedName={item.accountName}
+                    selectedName={item.accountName || matchedAccount?.name || ""}
                     onSelect={(selected) => handleAccountSelect(item.id, selected)}
                     disabled={disabled}
                     placeholder={`Select ${rowSide === 'debit' ? 'Debit' : rowSide === 'credit' ? 'Credit' : ''} account...`}

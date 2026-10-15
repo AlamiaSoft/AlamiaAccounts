@@ -100,23 +100,22 @@ class VoucherService
             }
         }
 
+        $accountCodes = array_values(array_unique($accountCodes));
         $accountUuids = DomainLedgerAccount::getAccountUuidsForDomain($domain->domainUuid);
-        foreach ($accountCodes as $code) {
-            $globalAcc = \Abivia\Ledger\Models\LedgerAccount::where('code', $code)->first();
-            if ($globalAcc && !in_array($globalAcc->ledgerUuid, $accountUuids)) {
-                DomainLedgerAccount::firstOrCreate([
-                    'domainUuid' => $domain->domainUuid,
-                    'ledgerUuid' => $globalAcc->ledgerUuid,
-                ]);
-            }
-        }
-        $accountUuids = DomainLedgerAccount::getAccountUuidsForDomain($domain->domainUuid);
-        $validAccounts = \Abivia\Ledger\Models\LedgerAccount::whereIn('code', $accountCodes)
+        $domainAccounts = \Abivia\Ledger\Models\LedgerAccount::whereIn('code', $accountCodes)
             ->whereIn('ledgerUuid', $accountUuids)
-            ->count();
+            ->get(['ledgerUuid', 'code', 'category'])
+            ->keyBy('code');
 
-        if ($validAccounts !== count($accountCodes)) {
-            throw new Exception('One or more accounts do not belong to the current domain');
+        foreach ($accountCodes as $code) {
+            $account = $domainAccounts->get($code);
+            if (!$account) {
+                throw new Exception('One or more accounts do not belong to the current domain');
+            }
+
+            if ($account->category) {
+                throw new Exception("Account {$code} is a category account and cannot receive postings");
+            }
         }
 
         $message = new Entry();
@@ -174,11 +173,13 @@ class VoucherService
             $message->extra = json_encode($extraData);
         }
 
-        $details = [];
+        // Consolidate net amounts by account code for Abivia's distinct account requirement
+        $accountNetAmounts = [];
         foreach ($entries as $item) {
             $accountCode = $item['account_code'] ?? $item['account'] ?? null;
-            $detail = new Detail();
-            $detail->account = new EntityRef($accountCode);
+            if (!$accountCode) {
+                continue;
+            }
 
             $rawAmount = (float)($item['amount'] ?? 0);
             if ($rawAmount <= 0) {
@@ -193,9 +194,26 @@ class VoucherService
                 $isCredit = false;
             }
 
-            // In Abivia: debit is positive, credit is negative
-            $detail->amount = $isCredit ? (string) -abs($rawAmount) : (string) abs($rawAmount);
+            $signedAmount = $isCredit ? -abs($rawAmount) : abs($rawAmount);
+            if (!isset($accountNetAmounts[$accountCode])) {
+                $accountNetAmounts[$accountCode] = 0.0;
+            }
+            $accountNetAmounts[$accountCode] += $signedAmount;
+        }
+
+        $details = [];
+        foreach ($accountNetAmounts as $accountCode => $netAmount) {
+            if (abs($netAmount) < 0.0001) {
+                continue;
+            }
+            $detail = new Detail();
+            $detail->account = new EntityRef($accountCode);
+            $detail->amount = (string)$netAmount;
             $details[] = $detail;
+        }
+
+        if (count($details) < 2) {
+            throw new Exception('Voucher must contain at least two non-cancelling account entries for double-entry ledger posting');
         }
 
         $message->details = $details;

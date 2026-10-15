@@ -1,6 +1,6 @@
 # Alamia Accounts CI
 
-The `Alamia Accounts CI` workflow runs when backend files change in the monorepo, when its workflow changes, or when manually dispatched. It validates and installs the backend Composer dependencies, checks PHP syntax, audits dependencies, runs the repository architecture checker, and executes all PHPUnit suites configured in `AlamiaAccounts-Backend/phpunit.xml` against SQLite and PostgreSQL.
+The `Alamia Accounts CI` workflow runs when backend files change in the monorepo, when its workflow changes, or when manually dispatched. It validates and installs the backend Composer dependencies, checks PHP syntax, audits dependencies, runs the repository architecture checker, and executes all PHPUnit suites configured in `AlamiaAccounts-Backend/phpunit.xml` against SQLite and PostgreSQL. The Composer audit fails on security advisories while reporting abandoned packages without making the current `doctrine/annotations` abandonment a blocker.
 
 Laravel Pint currently reports existing formatting issues across the host application, packages, and tests, including the voucher service and its test file. Pint is therefore not a blocking CI check yet; add it after the existing style backlog is resolved or after the team adopts a scoped formatting policy. Composer validation uses `--no-check-publish` because the monorepo intentionally uses `@dev` path dependencies before the package-release phase.
 

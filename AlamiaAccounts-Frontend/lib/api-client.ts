@@ -13,7 +13,7 @@ const apiClient = axios.create({
         'Content-Type': 'application/json',
         'Accept': 'application/json',
     },
-    withCredentials: true,
+    withCredentials: false,
 })
 
 // Add auth token, current company code, and dynamic origin to requests
@@ -39,7 +39,7 @@ apiClient.interceptors.response.use(
         if (error.response?.status === 401) {
             if (typeof window !== 'undefined') {
                 localStorage.removeItem('auth_token')
-                window.location.href = '/login'
+                window.location.href = '/alamia-accounts/login'
             }
         }
         return Promise.reject(error)

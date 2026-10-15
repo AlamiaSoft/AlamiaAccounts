@@ -33,7 +33,17 @@ class AuthenticateSalesOrSanctum
             $isAdminOrManager = in_array($role, ['admin', 'owner', 'lead_accountant', 'manager', 'accountant'], true);
             $userCompany = strtoupper(trim((string) ($user->company_code ?? '')));
 
-            if ($userCompany !== '' && $requestedCompany !== '' && $userCompany !== $requestedCompany && !$isAdminOrManager) {
+            // This codebase has no verified multi-company membership resolver here.
+            // Role names do not grant cross-company access; require an assigned company.
+            if ($userCompany === '') {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'No company is assigned to this account.',
+                    'error' => 'user_company_unassigned',
+                ], 403);
+            }
+
+            if ($requestedCompany !== '' && $userCompany !== $requestedCompany) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Access denied for the requested company.',
@@ -41,14 +51,7 @@ class AuthenticateSalesOrSanctum
                 ], 403);
             }
 
-            $effectiveCompany = $requestedCompany ?: $userCompany;
-            if ($effectiveCompany === '') {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'A company context is required.',
-                    'error' => 'company_context_required',
-                ], 422);
-            }
+            $effectiveCompany = $userCompany;
 
             $request->setUserResolver(fn () => $user);
             $request->attributes->set('tenant_company_code', $effectiveCompany);

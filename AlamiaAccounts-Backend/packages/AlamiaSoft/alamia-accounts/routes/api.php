@@ -24,10 +24,6 @@ Route::post('/login', [AuthController::class, 'login']);
 Route::get('/login', function () {
     return response()->json(['message' => 'Unauthenticated.'], 401);
 })->name('accounts.api.login');
-Route::post('/copilot/chat-public', [CopilotController::class, 'chat']);
-Route::get('/copilot/capabilities-public', [CopilotController::class, 'capabilities']);
-Route::post('/copilot/capabilities-public/{capability}/execute', [CopilotController::class, 'executeCapability']);
-Route::post('/alamia-360/capabilities-public/{capability}/execute', [CopilotController::class, 'executeCapability']);
 Route::get('/manual', [ManualController::class, 'index']);
 
 // Protected routes
@@ -128,13 +124,5 @@ Route::middleware([AuthenticateSalesOrSanctum::class])->group(function () {
     Route::get('/v1/receipts/{id}/print', [SalesIntegrationController::class, 'printReceipt']);
 });
 
-// Public testing / development routes
-Route::get('/copilot/diagnostics-public', [CopilotController::class, 'diagnostics']);
-Route::get('/copilot/diagnostics-public/export', [CopilotController::class, 'exportDiagnostics']);
-Route::get('/copilot/diagnostics-public/{id}', [CopilotController::class, 'diagnosticTrace']);
-Route::patch('/copilot/diagnostics-public/{id}/feedback', [CopilotController::class, 'updateDiagnosticFeedback']);
-Route::post('/copilot/diagnostics-public/{id}/promote-to-guidance', [CopilotController::class, 'promoteDiagnosticToKnowledge']);
-Route::delete('/copilot/diagnostics-public', [CopilotController::class, 'pruneDiagnostics']);
-Route::get('/copilot/knowledge-public', [CopilotController::class, 'knowledgeList']);
-Route::post('/copilot/knowledge-public', [CopilotController::class, 'knowledgeStore']);
-Route::delete('/copilot/knowledge-public/{id}', [CopilotController::class, 'knowledgeDelete']);
+// Diagnostic and knowledge-management endpoints are intentionally not exposed publicly.
+// Use the authenticated routes above and enforce company-scoped authorization.

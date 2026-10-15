@@ -16,8 +16,8 @@ return new class extends Migration
     {
         Schema::create('domain_ledger_accounts', function (Blueprint $table) {
             $table->id();
-            $table->string('domainUuid');
-            $table->string('ledgerUuid'); // ledger account UUID
+            $table->foreignUuid('domainUuid');
+            $table->foreignUuid('ledgerUuid'); // ledger account UUID
             $table->timestamps();
             
             // Foreign keys

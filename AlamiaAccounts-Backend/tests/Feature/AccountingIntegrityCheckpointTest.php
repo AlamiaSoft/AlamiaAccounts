@@ -2,11 +2,10 @@
 
 namespace Tests\Feature;
 
-use Abivia\Ledger\Models\LedgerAccount;
-use Abivia\Ledger\Models\LedgerDomain;
 use AlamiaSoft\AlamiaAccounts\Models\AccountingIntegrityCheckpoint;
 use AlamiaSoft\AlamiaAccounts\Models\DomainJournalEntry;
 use AlamiaSoft\AlamiaAccounts\Models\DomainLedgerAccount;
+use AlamiaSoft\AlamiaAccounts\Services\AccountService;
 use AlamiaSoft\AlamiaAccounts\Services\AccountingDiagnosticService;
 use AlamiaSoft\AlamiaAccounts\Services\AccountingIntegrityGuard;
 use AlamiaSoft\AlamiaAccounts\Services\DomainContext;
@@ -18,7 +17,7 @@ use Tests\TestCase;
 class AccountingIntegrityCheckpointTest extends TestCase
 {
     protected string $domainCode = 'CKP-TEST-CORP';
-    protected ?LedgerDomain $domain = null;
+    protected $domain = null;
 
     protected function setUp(): void
     {
@@ -28,7 +27,7 @@ class AccountingIntegrityCheckpointTest extends TestCase
 
         // Find or create test domain
         $companyService = app(\AlamiaSoft\AlamiaAccounts\Services\CompanyService::class);
-        $this->domain = LedgerDomain::where('code', $this->domainCode)->first();
+        $this->domain = $companyService->getDomain($this->domainCode);
         if (!$this->domain) {
             $this->domain = $companyService->createCompany($this->domainCode, 'Checkpoint Test Corp');
         }
@@ -136,7 +135,7 @@ class AccountingIntegrityCheckpointTest extends TestCase
         ]);
 
         // Insert only Debit without matching Credit (Rs. 25,000 discrepancy)
-        $acc1110 = LedgerAccount::where('code', '1110')->first();
+        $acc1110 = app(AccountService::class)->getAccountByCode('1110');
         DB::table('journal_details')->insert([
             'journalEntryId' => $faultEntryId,
             'ledgerUuid' => $acc1110->ledgerUuid,

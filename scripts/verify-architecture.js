@@ -468,7 +468,7 @@ function runAllArchitecturalChecks() {
         console.log(`${colors.yellow}Review the highlighted violations above to assign to a refactor agent.${colors.reset}\n`);
         process.exit(1);
     } else {
-        console.log(`\n${colors.bold}${colors.green}✅ 100% PASS: Complete Architectural & Coding Standards Conformance!${colors.reset}\n`);
+        console.log(`\n${colors.bold}${colors.green}✔ PASS: All configured architecture and coding checks passed. This is not a guarantee of universal conformance.${colors.reset}\n`);
         process.exit(0);
     }
 }

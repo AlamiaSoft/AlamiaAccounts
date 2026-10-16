@@ -18,7 +18,7 @@ class TestLedger extends Command
         $this->newLine();
 
         // Check domain
-        $domain = LedgerDomain::where('code', 'default')->first();
+        $domain = app(CompanyService::class)->getDomain('default');
         if ($domain) {
             $this->info("✓ Domain found: {$domain->code}");
         } else {
@@ -27,7 +27,8 @@ class TestLedger extends Command
         }
 
         // Check accounts
-        $accounts = LedgerAccount::all();
+        DomainContext::set($domain->code);
+        $accounts = app(AccountService::class)->getChartOfAccounts();
         $this->info("✓ Total accounts: {$accounts->count()}");
         
         $this->newLine();

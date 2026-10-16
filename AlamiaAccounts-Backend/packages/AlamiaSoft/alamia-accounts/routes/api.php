@@ -49,7 +49,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::apiResource('accounts', AccountController::class);
     
     // Vouchers
-    Route::post('/vouchers/clear-all', [VoucherController::class, 'clearAll']);
+    // Bulk ledger reset is intentionally not exposed through the application API.
     Route::post('/vouchers/{reference}/reverse', [VoucherController::class, 'reverse']);
     Route::apiResource('vouchers', VoucherController::class);
     

@@ -60,10 +60,17 @@ Welcome to **Alamia Accounts**. All AI agents operating on this repository must 
    - Reopening a locked period requires a documented business reason and is logged in the audit trail.
 7. **Permanent Accounting Audit Trail**:
    - All financial operations (`POST_OPENING_BALANCES`, `CREATE_VOUCHER`, `REVERSE_VOUCHER`, `CLOSE_PERIOD`, `REOPEN_PERIOD`) are recorded in `accounting_audit_trails` capturing user, action, timestamp, IP, entity, and reasons.
-8. **Abivia Kernel Encapsulation & Domain Services Mandate**:
-   - **NEVER** call or query underlying Abivia engine models (`\Abivia\Ledger\Models\...`) directly from HTTP controllers, UI endpoints, or feature scripts.
-   - All ledger access must be encapsulated behind Alamia domain services (`VoucherService`, `CompanyService`, `AccountService`, `ReportService`, `PeriodService`).
+8. **Abivia Kernel Encapsulation & Domain Services Mandate — HARD ARCHITECTURE BOUNDARY**:
+   - **ABSOLUTE RULE: no client/consumer code may EVER call the Abivia Ledger package directly.** All capabilities required by Alamia Accounts consumers must be exposed through dedicated, Alamia-owned public services/contracts.
+   - This prohibition applies to application code and to tests for public services, features, HTTP/API workflows, UI behavior, integrations, jobs, and end-to-end flows. Tests must enter through the Alamia Accounts public API and must not use Abivia as a shortcut for setup, execution, or assertions.
+   - Consumer code must not import, instantiate, query, mutate, or invoke Abivia package models, repositories, facades, services, helpers, domain/context resolvers, or package-specific APIs. Do not use `\\Abivia\\Ledger\\Models\\...` directly outside the approved integration boundary.
+   - **Only the explicitly designated internal Abivia adapter/integration layer may depend on Abivia in production code.** Direct Abivia access is permitted in tests only when the test is specifically testing that internal adapter/integration boundary. Keep such tests clearly named/scoped as adapter tests; they do not replace public-contract tests.
+   - If consumers need audit records, ledger state, domain identity, reports, or other verification data, expose a suitable read-only Alamia-owned service/contract or verify it through a narrowly scoped adapter test. Do not couple consumer tests to Abivia tables or models.
+   - Maintain an automated architecture/conformance check that fails CI when Abivia references appear outside the approved internal integration paths and dedicated adapter tests. Keep the allowlist explicit and minimal; never exempt an entire test suite or repository area merely to make the check pass.
+   - All ledger access must be encapsulated behind Alamia domain services (for example, `VoucherService`, `CompanyService`, `AccountService`, `ReportService`, and `PeriodService`). Extend or add an Alamia-owned service when a needed capability is missing; do not bypass the boundary.
    - Company attributes (such as configured default currency) must **ALWAYS** be resolved through centralized helpers (e.g. `DomainContext::getDefaultCurrency($companyCode)` or `CompanyService::getDefaultCurrency()`) rather than scattered ad-hoc database queries.
+   - A test that directly calls Abivia to perform a public business operation is an architecture violation even if its assertions pass. A green test suite does not waive this rule.
+
 9. **Zero Hardcoded Account Codes & Zero Heuristic Guessing**:
    - **NEVER** hardcode fixed account numbers (e.g., `"5200"`, `"5100"`, `"1110"`, `"3100"`, `"4200"`) in frontend components, controllers, or service scripts.
    - **NEVER** use heuristic pattern matching (such as `startsWith('4')`, `includes('commission')`, `includes('expense')`) to infer or guess posting accounts.

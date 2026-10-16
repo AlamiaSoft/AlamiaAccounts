@@ -59,9 +59,12 @@ test('rejects Abivia service, facade, repository and controller namespaces too',
     withFixture({
         'AlamiaAccounts-Backend/app/Example.php': String.raw`<?php
 use Abivia\Ledger\Http\Controllers\JournalEntryController;
+use Abivia\Ledger\Services\LedgerService;
+use Abivia\Ledger\Facades\Ledger;
+use Abivia\Ledger\Repositories\LedgerRepository;
 `,
     }, (root) => {
-        assert.equal(scanFixture(root).violations.length, 1);
+        assert.equal(scanFixture(root).violations.length, 4);
     });
 });
 

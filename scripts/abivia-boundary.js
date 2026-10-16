@@ -25,6 +25,11 @@ const DEFAULT_APPROVED_PRODUCTION_FILES = new Set([
     // to the underlying domain model; they do not expose Abivia to consumers.
     'AlamiaAccounts-Backend/packages/AlamiaSoft/alamia-accounts/src/Models/AccountingAuditTrail.php',
     'AlamiaAccounts-Backend/packages/AlamiaSoft/alamia-accounts/src/Models/AccountingPeriod.php',
+    'AlamiaAccounts-Backend/packages/AlamiaSoft/alamia-accounts/src/Models/DomainJournalEntry.php',
+    'AlamiaAccounts-Backend/packages/AlamiaSoft/alamia-accounts/src/Models/DomainLedgerAccount.php',
+    'AlamiaAccounts-Backend/packages/AlamiaSoft/alamia-accounts/src/Models/OpeningBalanceBatch.php',
+    'AlamiaAccounts-Backend/packages/AlamiaSoft/alamia-accounts/src/Models/PostingIdempotencyRecord.php',
+    'AlamiaAccounts-Backend/packages/AlamiaSoft/alamia-accounts/src/Models/UnpostedIntegrationEntry.php',
 ]);
 
 const DEFAULT_APPROVED_ADAPTER_TEST_PREFIXES = [

@@ -6,6 +6,8 @@ on:
       - 'AlamiaAccounts-Backend/**'
       - 'AlamiaAccounts-Frontend/**'
       - 'scripts/**'
+      - 'docs/architecture/abivia-boundary-audit-*.md'
+      - 'docs/architecture/abivia-boundary-audit-*.md'
       - 'AGENTS.md'
       - '.agents/**'
       - '.github/workflows/alamia-accounts-ci.yml'

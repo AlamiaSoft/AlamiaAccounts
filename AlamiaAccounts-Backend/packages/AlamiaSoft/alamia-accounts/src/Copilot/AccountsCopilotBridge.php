@@ -19,9 +19,13 @@ class AccountsCopilotBridge
 {
     protected static bool $registered = false;
 
-    public static function register(): void
+    public static function register(bool $force = false): void
     {
-        if (static::$registered) {
+        $registry = class_exists(\Alamia360\Capabilities\CapabilityRegistry::class)
+            ? app(\Alamia360\Capabilities\CapabilityRegistry::class)
+            : null;
+
+        if (!$force && static::$registered && $registry && $registry->has('post_voucher')) {
             return;
         }
         static::$registered = true;
@@ -287,6 +291,33 @@ class AccountsCopilotBridge
                     ];
                 }
 
+                // P0 Institutional Gate: Enforce Maker-Checker Threshold at Posting Boundary
+                $totalDebit = 0.0;
+                foreach ($entries as $e) {
+                    if (!empty($e['debit'])) {
+                        $totalDebit += (float) $e['amount'];
+                    }
+                }
+
+                $makerCheckerThreshold = (float) config('copilot.maker_checker_threshold', 100000.0);
+                if ($totalDebit >= $makerCheckerThreshold) {
+                    $copilotService = app(\AlamiaSoft\AlamiaAccounts\Copilot\CopilotService::class);
+                    $reason = trim($input['approval']['reason'] ?? ($input['reason'] ?? ''));
+                    $reenteredAmount = isset($input['approval']['reentered_amount'])
+                        ? $input['approval']['reentered_amount']
+                        : ($input['reentered_amount'] ?? null);
+
+                    $approvalCheck = $copilotService->validateMakerCheckerApproval([
+                        'reason' => $reason,
+                        'amount' => $totalDebit,
+                        'reentered_amount' => $reenteredAmount,
+                    ]);
+
+                    if (!$approvalCheck['valid']) {
+                        throw new \Exception($approvalCheck['error']);
+                    }
+                }
+
                 $payload = [
                     'reference' => $ref,
                     'description' => $input['description'] ?? 'Voucher posted via Taliya Copilot',
@@ -390,7 +421,11 @@ class AccountsCopilotBridge
             ->handleUsing(function (array $input, $actor) {
                 $voucherService = app(VoucherService::class);
                 $ref = $input['reference'] ?? '';
-                $reason = $input['reason'] ?? 'Reversal initiated via Taliya Copilot';
+                $reason = trim($input['approval']['reason'] ?? ($input['reason'] ?? ''));
+                $words = array_values(array_filter(preg_split('/\s+/', $reason), fn($w) => strlen($w) > 1));
+                if (strlen($reason) < 15 || count($words) < 3) {
+                    throw new \Exception('A detailed business reason (minimum 15 characters and 3 words) is mandatory for institutional authorization.');
+                }
                 $reversal = $voucherService->reverseVoucher($ref, $reason);
 
                 return [

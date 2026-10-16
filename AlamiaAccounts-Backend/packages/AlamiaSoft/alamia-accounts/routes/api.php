@@ -91,29 +91,28 @@ Route::middleware('auth:sanctum')->group(function () {
         // Audit Trail
         Route::get('/audit-trail', [AuditTrailController::class, 'index']);
 
-        // Copilot (Taliya AI) & Alamia 360 Capabilities
-        Route::post('/copilot/chat', [CopilotController::class, 'chat']);
-        Route::get('/copilot/capabilities', [CopilotController::class, 'capabilities']);
-        Route::get('/copilot/situations', [CopilotController::class, 'situations']);
-        Route::post('/copilot/capabilities/{capability}/execute', [CopilotController::class, 'executeCapability']);
-        Route::post('/alamia-360/capabilities/{capability}/execute', [CopilotController::class, 'executeCapability']);
+        // Copilot (Taliya AI) & Alamia 360 Capabilities (Rate Limited)
+        Route::middleware(['throttle:60,1'])->group(function () {
+            Route::post('/copilot/chat', [CopilotController::class, 'chat']);
+            Route::get('/copilot/capabilities', [CopilotController::class, 'capabilities']);
+            Route::get('/copilot/situations', [CopilotController::class, 'situations']);
+            Route::post('/copilot/capabilities/{capability}/execute', [CopilotController::class, 'executeCapability']);
+            Route::post('/alamia-360/capabilities/{capability}/execute', [CopilotController::class, 'executeCapability']);
 
-        // Copilot Diagnostics & Developer Observability
-        Route::get('/copilot/diagnostics', [CopilotController::class, 'diagnostics']);
-        Route::get('/copilot/diagnostics/export', [CopilotController::class, 'exportDiagnostics']);
-        Route::get('/copilot/diagnostics/{id}', [CopilotController::class, 'diagnosticTrace']);
-        Route::patch('/copilot/diagnostics/{id}/feedback', [CopilotController::class, 'updateDiagnosticFeedback']);
-        Route::post('/copilot/diagnostics/{id}/promote-to-guidance', [CopilotController::class, 'promoteDiagnosticToKnowledge']);
-        Route::delete('/copilot/diagnostics', [CopilotController::class, 'pruneDiagnostics']);
+            // Copilot Diagnostics & Developer Observability (Privileged Administrative Access)
+            Route::get('/copilot/diagnostics', [CopilotController::class, 'diagnostics']);
+            Route::get('/copilot/diagnostics/export', [CopilotController::class, 'exportDiagnostics']);
+            Route::get('/copilot/diagnostics/{id}', [CopilotController::class, 'diagnosticTrace']);
+            Route::patch('/copilot/diagnostics/{id}/feedback', [CopilotController::class, 'updateDiagnosticFeedback']);
+            Route::post('/copilot/diagnostics/{id}/promote-to-guidance', [CopilotController::class, 'promoteDiagnosticToKnowledge']);
+            Route::delete('/copilot/diagnostics', [CopilotController::class, 'pruneDiagnostics']);
 
-        // Copilot Knowledge Base (Self-Learning Guidance)
-        Route::get('/copilot/knowledge', [CopilotController::class, 'knowledgeList']);
-        Route::post('/copilot/knowledge', [CopilotController::class, 'knowledgeStore']);
-        Route::delete('/copilot/knowledge/{id}', [CopilotController::class, 'knowledgeDelete']);
+            // Copilot Knowledge Base (Self-Learning Guidance)
+            Route::get('/copilot/knowledge', [CopilotController::class, 'knowledgeList']);
+            Route::post('/copilot/knowledge', [CopilotController::class, 'knowledgeStore']);
+            Route::delete('/copilot/knowledge/{id}', [CopilotController::class, 'knowledgeDelete']);
+        });
     });
-
-    // Accountant Help & User Manual Portal API
-    Route::get('/manual', [ManualController::class, 'index']);
 });
 
 // Front-Office & Sales POS Integration API (v1) - Dual Sanctum User & Machine POS Gateway Authentication

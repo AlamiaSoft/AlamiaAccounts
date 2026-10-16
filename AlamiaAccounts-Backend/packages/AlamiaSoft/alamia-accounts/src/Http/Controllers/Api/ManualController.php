@@ -11,13 +11,46 @@ class ManualController extends Controller
 {
     /**
      * Get all structured manual chapters and ERP workflow playbooks.
+     * Public access returns strictly generic system manual documentation with zero tenant custom policy disclosure.
      */
     public function index(Request $request): JsonResponse
     {
-        $companyCode = $request->input('company_code') ?? $request->header('X-Company-Code');
+        $user = $request->user() ?? auth('sanctum')->user();
+        $isAuth = ($user !== null);
 
         $chapters = $this->loadManualChapters();
         $sopWorkflows = $this->loadStandardGuidance();
+
+        // Minimization of intentionally public read-only endpoint:
+        // When unauthenticated, return strictly public chapters and standard guidance with zero tenant policy leakage.
+        if (!$isAuth) {
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'system_name' => 'Alamia Accounts & ERP',
+                    'active_company' => 'PUBLIC',
+                    'chapters' => $chapters,
+                    'workflows' => $sopWorkflows,
+                    'custom_policies' => [],
+                ],
+            ]);
+        }
+
+        $companyCode = strtoupper(trim((string) (
+            $request->header('X-Company-Code') ??
+            $request->input('company_code') ??
+            $user->company_code ??
+            ''
+        )));
+
+        if ($companyCode !== '' && method_exists($user, 'canAccessCompany') && !$user->canAccessCompany($companyCode)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Access denied for the requested company.',
+                'error' => 'company_access_denied',
+            ], 403);
+        }
+
         $customKnowledge = $this->loadCustomKnowledge($companyCode);
 
         return response()->json([

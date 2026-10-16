@@ -8,7 +8,8 @@ Welcome to **Alamia Accounts**. All AI agents operating on this repository must 
 
 > [!IMPORTANT]
 > **TOKEN PRESERVATION & SCRIPT PERSISTENCE MANDATE**
-> - **DO NOT generate ad-hoc, repetitive inline test code** inside tool calls.
+> - **DO NOT generate ad-hoc, throwaway scripts on the fly** in ephemeral scratch directories or shell calls.
+> - **ALL utility, API, and operational scripts must be persisted under [`scripts/`](file:///e:/Alamia/AlamiaAccounts/scripts)** (e.g., `scripts/github/`, `scripts/pm.js`, `scripts/verify-architecture.js`).
 > - **ALL E2E test scripts must be stored in the repository under [`tests/e2e/`](file:///e:/Alamia/AlamiaAccounts/tests/e2e)** so they can be re-run indefinitely without consuming model generation tokens.
 > - **DO NOT run browser tests automatically on every turn** unless the user explicitly requests it. Suggest/ask the user before running tests.
 > - When running tests, execute the pre-built scripts using `run_command`:

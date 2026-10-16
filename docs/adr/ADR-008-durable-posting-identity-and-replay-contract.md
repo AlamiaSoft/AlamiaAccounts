@@ -96,24 +96,26 @@ $table->unique(['domainUuid', 'journalEntryId'], 'domain_entry_unique');
 ## 4. Tenant-Scoped Posting Identity Specification
 
 ### 4.1 Tenant Scoping vs. Global Uniqueness
-In multi-tenant SaaS accounting, idempotency **must always be tenant-scoped**. Enforcing global uniqueness on raw client-supplied keys (e.g. `UUID` or `invoice_123`) would allow Tenant A to unintentionally or maliciously deny service to Tenant B by reserving their keys.
+In multi-tenant SaaS accounting, idempotency **must always be tenant-scoped**. Enforcing global uniqueness on raw client-supplied keys (e.g. UUID, external invoice number `INV-2026-001`, or payroll batch ID) would allow Tenant A to unintentionally or maliciously deny service to Tenant B by reserving or exhausting their keyspace.
 
-Therefore, the database constraint must be composite:
+Therefore, the database constraint must strictly be composite:
 
 $$\text{Storage Constraint} = \text{UNIQUE}(\text{domain\_uuid}, \text{idempotency\_key})$$
 
 ### 4.2 Reconciling Client-Supplied vs. Synthetic Canonical Keys
 A request may provide an idempotency key through two channels:
-1. **Client-Supplied Header**: HTTP `Idempotency-Key` or payload `idempotency_key`.
-2. **System-Generated Synthetic Key**: Derived when no explicit key is supplied.
+1. **Explicit Caller-Supplied Key**: Passed via HTTP header `Idempotency-Key` or payload attribute `idempotency_key` (common in external integrations, webhooks, and modern API clients).
+2. **System-Generated Synthetic Key**: Derived deterministically by the system when the caller does not supply an explicit key.
 
-To reconcile both models cleanly:
-* The `idempotency_key` column stores the primary lookup key (either client-supplied or synthetic).
-* The record also stores the structured 5-tuple identity columns for audit correlation:
-  - `source_module`: e.g. `pos`, `travelos`, `api`, `copilot`
-  - `company_code`: target company tenant code (normalized uppercase)
-  - `domain_uuid`: LedgerDomain foreign UUID
-  - `source_transaction_id`: external invoice/ticket/reference ID
+To reconcile both models seamlessly without data loss:
+* The `idempotency_key` column in `posting_idempotency_records` stores the primary lookup key:
+  - If the caller supplies an explicit key, that exact key is stored in `idempotency_key` (scoped strictly by `domain_uuid`).
+  - If the caller omits an explicit key, the system generates a canonical synthetic key and stores it in `idempotency_key`.
+* Regardless of whether the key is caller-supplied or synthetic, the 5-tuple canonical identity columns are always extracted and stored in dedicated table columns for tenant auditability, tracing, and multi-field querying:
+  - `source_module`: e.g. `pos`, `travelos`, `api`, `voucher_ui`, `copilot`
+  - `company_code`: target company tenant code (normalized uppercase, e.g. `MAIN`, `TRAVEL_EXP`)
+  - `domain_uuid`: foreign UUID of the `LedgerDomain`
+  - `source_transaction_id`: external invoice/ticket/voucher reference ID (e.g. `EXP-2026-0089`)
   - `operation`: financial action (`post`, `reverse`, `amend`)
   - `version`: contract schema revision (`v1`)
 
@@ -121,9 +123,30 @@ When synthetic keys are generated, they follow the canonical serialized format:
 ```text
 {source_module}:{company_code}:{source_transaction_id}:{operation}:{version}
 ```
+
 *Example Synthetic Keys*:
 - `travelos:MAIN:EXP-2026-0089:post:v1`
 - `pos:KAMAL_EXPRESS:TKT-991204:post:v1`
+- `voucher_ui:HOLDING:JV-2026-1044:post:v1`
+
+### 4.3 Cross-Company Isolation Examples
+
+To illustrate how composite uniqueness protects multi-tenant isolation, consider two distinct companies hosted on the same database cluster:
+
+| Tenant Attribute | Company 1 (Main Entity) | Company 2 (Subsidiary Entity) |
+| :--- | :--- | :--- |
+| **`company_code`** | `MAIN` | `SUB_TRAVEL` |
+| **`domain_uuid`** | `11111111-1111-1111-1111-111111111111` | `22222222-2222-2222-2222-222222222222` |
+| **Caller Key** | `EXP-2026-10-001` | `EXP-2026-10-001` |
+
+* **Scenario A: Flawed Global Uniqueness (`UNIQUE(idempotency_key)`)**:
+  1. Company 1 posts expense voucher with caller key `EXP-2026-10-001`. Key is inserted globally.
+  2. Company 2 independently posts their own expense voucher with their internal reference `EXP-2026-10-001`.
+  3. **Failure**: Company 2's request crashes with `QueryException` (duplicate key) or falsely replays Company 1's financial transaction, causing cross-tenant data leakage or denial of service.
+* **Scenario B: Proposed Composite Tenant Uniqueness (`UNIQUE(domain_uuid, idempotency_key)`)**:
+  1. Company 1 posts with key `EXP-2026-10-001`. Row inserted: `('11111111-...', 'EXP-2026-10-001')`. Ledger entry created in Company 1's ledger.
+  2. Company 2 posts with key `EXP-2026-10-001`. Row inserted: `('22222222-...', 'EXP-2026-10-001')`. Ledger entry created in Company 2's ledger.
+  3. **Outcome**: Both transactions succeed independently with complete cryptographic and ledger isolation. Neither company can block, observe, or collide with the other.
 
 ---
 
@@ -132,37 +155,49 @@ When synthetic keys are generated, they follow the canonical serialized format:
 To detect key reuse with conflicting arguments (tampering, unintended copy-paste, or client bugs), a cryptographic SHA-256 fingerprint of the normalized request payload must be stored.
 
 ### 5.1 Field-by-Field Normalization Rules
-Generic JSON serialization is insufficient because floating-point numbers, whitespace, and key ordering introduce false mismatches. Payload canonicalization must be **field-aware**:
+Generic JSON serialization is insufficient because floating-point numbers, whitespace, and key ordering introduce false mismatches. Payload canonicalization must be **strictly field-aware**:
 
-1. **Monetary Amounts**:
-   - Normalized to fixed-point strings with 4 decimal places: `number_format((float)$val, 4, '.', '')`.
+> [!IMPORTANT]
+> **Type Safety Mandate**: NEVER indiscriminately cast numeric-looking fields to float. Non-monetary identifiers (such as account numbers `0110`, phone numbers, customer IDs, and reference numbers) MUST remain strings to preserve leading zeros and formatting.
+
+1. **Monetary Decimal Amounts**:
+   - Only fields explicitly defined in the accounting schema as monetary currency amounts (`amount`, `debit`, `credit`, `tax_amount`, `subtotal`, `total`, `unit_price`, `discount_amount`) are normalized to fixed-point strings with exactly 4 decimal places: `number_format((float)$val, 4, '.', '')`.
    - Zeroes are normalized: `0.0000`, `0`, and `-0.0000` all normalize to `"0.0000"`.
    - In double-entry lines, amounts are decomposed into non-negative `debit` and `credit` strings:
      `"debit": "1500.0000"`, `"credit": "0.0000"`.
-2. **Calendar Dates**:
+2. **Account Codes & Non-Monetary Identifiers**:
+   - `account_code`, `reference`, `source_transaction_id`, `tax_id`, and `cost_center` must **NEVER** be cast to float or integer.
+   - Preserved as trimmed uppercase strings. For example, account code `"0110"` (Cash) remains `"0110"` and is never converted to `110`.
+3. **Calendar Dates**:
    - Normalized to ISO-8601 calendar date format `YYYY-MM-DD` (e.g., `"2026-10-16"`).
    - Any time or timezone component is parsed and truncated to the accounting transaction date.
-3. **Currencies**:
+4. **Currencies**:
    - Trimmed uppercase 3-letter ISO-4217 code (e.g., `"PKR"`, `"USD"`).
    - If omitted, normalized to the domain's default currency resolved via `DomainContext::getDefaultCurrency()`.
-4. **Account Codes & Dynamic Mappings**:
-   - Explicit account codes are trimmed and normalized to uppercase strings (e.g., `"1110"`, `"1200"`).
+5. **Account Intent vs. Dynamic Mappings**:
    - When a high-level intent is passed (e.g. `category: "office_supplies"`), the fingerprint hashes both:
      - The input intent: `category => "office_supplies"`
      - The resolved target ledger account: `resolved_debit_account => "4200"`
      If an accountant reconfigures the category mapping in company settings between retries, the fingerprint changes, preventing silent posting to a different ledger account under the same key.
-5. **Line Items & Sorting**:
+6. **Line Items & Sorting**:
    - Line items are sorted deterministically before hashing using composite sorting:
      `account_code ASC`, then `debit ASC`, then `credit ASC`, then `description ASC`.
    - This ensures that line order permutation does not cause false-positive payload mismatches.
-6. **Transient Field Elimination**:
+7. **Quantities**:
+   - Integer quantities remain integer strings (`"1"`, `"5"`). Fractional quantities (e.g. units of service) are normalized to fixed 4-decimal precision.
+8. **Transient Field Elimination**:
    - The following transport/metadata fields are explicitly excluded from the fingerprint:
      `['idempotency_key', 'timestamp', 'request_time', 'current_time', 'request_id', '_token', 'created_at', 'updated_at', 'agent_notes_transient']`.
 
-### 5.2 Mathematical Fingerprint Contract
+### 5.2 Mathematical Fingerprint Contract & Qualified Equality
+
 $$\text{payload\_hash} = \text{SHA256}(\text{CanonicalJson}(\text{Normalize}(P)))$$
 
+The equality claim:
 $$\text{payload\_hash}(P_1) = \text{payload\_hash}(P_2) \iff \text{SemanticAccountingEquality}(P_1, P_2)$$
+is formally qualified as follows:
+1. **Cryptographic Collision Resistance**: SHA-256 provides a collision probability of less than $2^{-128}$ against birthday attacks, rendering hash collisions practically impossible in operational accounting.
+2. **Canonical Domain Projection**: Semantic accounting equality is evaluated strictly over the projected business attributes (accounts, debits, credits, currencies, transaction dates, and resolved mapping intent). Discarded transient transport fields (such as client request timestamps or temporary correlation IDs) are intentionally non-semantic.
 
 ---
 
@@ -177,43 +212,84 @@ sequenceDiagram
     participant Ledger as Abivia Ledger & Domain Pivot
 
     Client->>Service: POST /expenses {idempotency_key, payload}
-    Service->>DB: INSERT INTO posting_idempotency_records (status: 'in_flight')
+    Service->>DB: INSERT INTO posting_idempotency_records (status: 'in_flight', created_at: now())
     alt Insert Succeeds (Worker Won Race)
         Service->>Ledger: BEGIN TX: Add JournalEntry + Add DomainJournalEntry(reference)
         Ledger-->>Service: Commit Successful
         Service->>DB: UPDATE posting_idempotency_records SET status='committed', response_data=...
         Service-->>Client: 201 Created {is_idempotent_replay: false, ...}
     else Unique Constraint Violation (Concurrent Worker Lost Race)
-        Service->>DB: SELECT * FROM posting_idempotency_records WHERE key = ...
+        Service->>DB: SELECT * FROM posting_idempotency_records WHERE domain_uuid = ? AND idempotency_key = ?
         alt Status is 'committed' & Hash Matches
             Service-->>Client: 200 OK (Cached Response, is_idempotent_replay: true)
         else Status is 'committed' & Hash Differs
             Service->>DB: Record IDEMPOTENCY_PAYLOAD_MISMATCH Audit
             Service-->>Client: 422 Unprocessable (Payload Mismatch)
-        else Status is 'in_flight' (< 30s)
+        else Status is 'in_flight' & Lock Age < 30s
             Service-->>Client: 409 Conflict (Retry-After: 2)
+        else Status is 'in_flight' & Lock Age >= 30s (Stale Lock Recovery)
+            Service->>DB: Conditional UPDATE status='in_flight', created_at=now() WHERE age >= 30s
+            alt Reclaimed Lock
+                Service->>Ledger: Execute Transaction
+            else Failed Reclaim
+                Service-->>Client: 409 Conflict (Retry-After: 2)
+            end
         end
     end
 ```
 
-### 6.1 Reservation Protocol
-1. **Pre-Transaction Autonomous Reservation**:
-   - Before opening the ledger transaction, the service attempts an `INSERT` into `posting_idempotency_records` with `status = 'in_flight'` and `payload_hash = $hash`.
-   - The database unique constraint `UNIQUE (domain_uuid, idempotency_key)` serves as the distributed atomic mutex.
-2. **Winner Execution**:
-   - The winning process proceeds immediately to execute the accounting transaction inside `DB::transaction(...)`.
-3. **Concurrent-Loser Protocol**:
-   - Any concurrent request with the same `(domain_uuid, idempotency_key)` receives a `QueryException` (SQLSTATE 23505 / 23000 / 19).
-   - The loser catches the exception and inspects the existing record:
-     - **Case A (`status === 'committed'`)**: Compare payload hash. If match, return HTTP 200 with cached response (`is_idempotent_replay: true`). If mismatch, return HTTP 422 (`IdempotencyPayloadMismatchException`).
-     - **Case B (`status === 'in_flight'`)**: If the record was created recently (< 30 seconds ago), return HTTP 409 Conflict with header `Retry-After: 2` and error code `idempotency_conflict_in_flight`.
-     - **Case C (`status === 'failed'`)**: Allow controlled re-execution.
+### 6.1 Reservation Protocol & Concurrency-Loser Sequence
+
+The reservation and concurrency protocol proceeds in discrete steps:
+
+1. **Step 1: Normalization & Hash Calculation**:
+   - The incoming request payload is canonicalized using the field-aware rules in Section 5.1.
+   - The SHA-256 `payload_hash` is computed.
+2. **Step 2: Pre-Transaction Reservation (`INSERT`)**:
+   - Before opening the ledger transaction, the service attempts an autonomous `INSERT` into `posting_idempotency_records`:
+     ```sql
+     INSERT INTO posting_idempotency_records (
+         domain_uuid, company_code, idempotency_key, payload_hash,
+         source_module, source_transaction_id, operation, version,
+         request_payload, status, created_at, updated_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'in_flight', NOW(), NOW());
+     ```
+   - The database unique constraint `UNIQUE (domain_uuid, idempotency_key)` acts as the atomic mutex.
+   - If the insert succeeds, this worker has won the execution rights and proceeds to Step 4 (Winner Ledger Execution).
+3. **Step 3: Concurrent-Loser Recovery Sequence**:
+   - If the insert throws a `QueryException` (SQLSTATE 23505 / 23000 / 19 unique violation), this worker has lost the initial reservation race.
+   - The losing worker queries the existing record:
+     `SELECT * FROM posting_idempotency_records WHERE domain_uuid = ? AND idempotency_key = ?`
+   - The worker branches based on the existing record's state:
+     - **Case A: `status === 'committed'`**:
+       - Compare `existing.payload_hash === current.payload_hash`.
+       - If matching: Return HTTP 200 OK immediately with cached `response_data` and header `X-Idempotent-Replay: true`.
+       - If mismatch: Reject with HTTP 422 Unprocessable (`IdempotencyPayloadMismatchException`), logging a security audit event (`IDEMPOTENCY_PAYLOAD_MISMATCH`).
+     - **Case B: `status === 'in_flight'` and Lock Age < 30 seconds**:
+       - The initial worker is actively executing the transaction.
+       - The losing worker rejects with HTTP 409 Conflict, returning header `Retry-After: 2` and error code `idempotency_conflict_in_flight`.
+     - **Case C: `status === 'in_flight'` and Lock Age >= 30 seconds (Stale Lock Recovery)**:
+       - The previous worker crashed or timed out before completing or failing.
+       - Attempt atomic lock reclamation via conditional update:
+         ```sql
+         UPDATE posting_idempotency_records
+         SET status = 'in_flight', created_at = NOW(), payload_hash = ?, updated_at = NOW()
+         WHERE domain_uuid = ? AND idempotency_key = ? AND status = 'in_flight' AND created_at <= ?;
+         ```
+       - If affected rows == 1: This worker reclaims the lock and proceeds to Step 4.
+       - If affected rows == 0: Another concurrent worker reclaimed the lock; return HTTP 409 Conflict (`Retry-After: 2`).
+     - **Case D: `status === 'failed'`**:
+       - The previous attempt encountered an unpostable business validation error or transient failure.
+       - If payload hash matches: return HTTP 422 with the stored error message.
+       - If client provides corrected payload or forces retry: permit re-reservation.
+4. **Step 4: Winner Ledger Execution**:
+   - Proceed to the atomic transaction boundary (Section 7.1).
 
 ---
 
 ## 7. Separation of Atomic Ledger Posting vs. Durable Failure Records
 
-Accounting transactions require strict separation between what must roll back together and what must survive rollback:
+Institutional accounting systems require strict separation between what must roll back together and what must survive rollback:
 
 ### 7.1 Atomic Transaction Boundary (All-or-Nothing Commit)
 The following operations execute strictly inside `DB::transaction(...)`:
@@ -231,6 +307,26 @@ When an exception occurs during ledger posting, the transaction rolls back. An i
 3. An audit record is written to `accounting_audit_trails` with action `INTEGRATION_POSTING_FAILED`.
 
 This ensures that accountants can view, diagnose, and reprocess failed entries via the reconciliation workbench without leaving orphaned transactions in the general ledger.
+
+### 7.3 Interruption Recovery for the Failure Handler
+A critical edge case in distributed accounting is when the failure handler itself is interrupted (e.g. SIGKILL, container eviction, OOM, power loss, or database connection drop during the `catch` block):
+
+* **Interruption State**: The database record in `posting_idempotency_records` remains stranded in `status = 'in_flight'` with its original `created_at` timestamp. No ledger entry was committed (rolled back by RDBMS crash recovery).
+* **Self-Healing Recovery Mechanisms**:
+  1. **Reactive Recovery on Client Retry**:
+     - When the client retries the request after network timeout, the request arrives after the 30-second TTL.
+     - The worker triggers the Stale Lock Recovery branch (Section 6.1, Case C).
+     - The worker verifies that no ledger entry exists in `domain_journal_entries` for this reference/key, reclaims the in-flight lock, and executes the posting cleanly.
+  2. **Proactive Reconciliation Sweeper (`ReconcileStaleInFlightPostingsJob`)**:
+     - A background scheduled artisan command runs periodically (every 5 minutes):
+       ```sql
+       SELECT * FROM posting_idempotency_records
+       WHERE status = 'in_flight' AND created_at < NOW() - INTERVAL 5 MINUTE;
+       ```
+     - For each stranded record:
+       - It inspects `domain_journal_entries` by `reference` and `domainUuid`.
+       - If no ledger entry exists: It safely marks the record as `status = 'failed'` with `error_message = 'Interrupted: worker terminated before transaction commit'`, enqueues an entry to `unposted_integration_entries`, and emits an alert for accountant review.
+       - If a ledger entry does exist (an ultra-rare edge case where the transaction committed but the worker died before returning): It repairs the record to `status = 'committed'`, caches the response, and completes the audit trail.
 
 ---
 

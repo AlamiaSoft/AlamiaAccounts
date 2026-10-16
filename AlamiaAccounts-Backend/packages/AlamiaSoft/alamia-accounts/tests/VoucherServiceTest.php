@@ -23,6 +23,7 @@ class VoucherServiceTest extends TestCase
     {
         parent::setUp();
         $this->seed(\AlamiaSoft\AlamiaAccounts\Database\Seeders\LedgerInitializationSeeder::class);
+        DomainContext::set('MAIN');
         $this->voucherService = new VoucherService();
         $this->accountService = new AccountService();
     }

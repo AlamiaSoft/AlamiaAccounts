@@ -37,11 +37,6 @@ class AccountController extends Controller
 
     public function index(Request $request)
     {
-        $companyCode = $request->header('X-Company-Code') ?? $request->query('company_code');
-        if ($companyCode) {
-            \AlamiaSoft\AlamiaAccounts\Services\DomainContext::set($companyCode);
-        }
-
         $filters = [
             'voucher_type_id' => $request->query('voucher_type_id'),
             'voucher_type' => $request->query('voucher_type'),

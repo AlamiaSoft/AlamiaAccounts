@@ -43,6 +43,10 @@ class CompanyController extends Controller
     public function index()
     {
         $companies = $this->companyService->listCompanies();
+        $user = request()->user() ?? auth('sanctum')->user();
+        if ($user && method_exists($user, 'canAccessCompany')) {
+            $companies = $companies->filter(fn($c) => $user->canAccessCompany($c->code))->values();
+        }
         
         return response()->json([
             'data' => $companies->map(function($company) {
@@ -268,52 +272,66 @@ class CompanyController extends Controller
      */
     public function switch(Request $request, $code)
     {
-        $company = $this->companyService->getDomain($code);
+        $targetCode = strtoupper(trim((string)$code));
+        $company = $this->companyService->getDomain($targetCode);
         if (!$company) {
             return response()->json(['message' => 'Company not found'], 404);
         }
-        DomainContext::set($code);
+
+        $user = $request->user() ?? auth('sanctum')->user();
+        if ($user) {
+            $hasAccess = method_exists($user, 'canAccessCompany')
+                ? $user->canAccessCompany($targetCode)
+                : (in_array(strtolower((string)($user->role ?? '')), ['admin', 'owner', 'lead_accountant', 'super_admin'], true) || ($user->company_code ?? '') === $targetCode);
+
+            if (!$hasAccess) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Access denied for the requested company.',
+                    'error' => 'company_access_denied',
+                ], 403);
+            }
+
+            if (isset($user->company_code) || property_exists($user, 'company_code')) {
+                $user->company_code = $targetCode;
+                $user->save();
+            }
+        }
+
+        DomainContext::set($targetCode);
         
         return response()->json([
             'message' => 'Company switched successfully',
-            'current_company' => $code
+            'current_company' => $targetCode
         ]);
     }
 
-    public function current()
+    public function current(Request $request)
     {
-        $currentCode = DomainContext::get();
-        // If no context is set, we might want to return the first company or handle it.
-        // But DomainContext::get() usually returns something or throws?
-        // Let's assume it returns a code.
-        
+        $user = $request->user();
+        $userCompany = $user ? strtoupper(trim((string)($user->company_code ?? ''))) : null;
+        $currentCode = DomainContext::get() ?: ($userCompany ?: null);
+
         if (!$currentCode) {
-             // Fallback to first company if no context
-             $first = $this->companyService->listCompanies()->first();
-             if ($first) {
-                 $currentCode = $first->code;
-                 DomainContext::set($currentCode);
-             } else {
-                 return response()->json(['message' => 'No companies found'], 404);
-             }
+            return response()->json([
+                'success' => false,
+                'message' => 'No active company context set.',
+                'error' => 'company_context_required',
+            ], 404);
         }
 
         $company = $this->companyService->getDomain($currentCode);
-        
         if (!$company) {
-            $first = $this->companyService->listCompanies()->first();
-            if ($first) {
-                $currentCode = $first->code;
-                DomainContext::set($currentCode);
-                $company = $first;
-            } else {
-                return response()->json(['message' => 'No companies found'], 404);
-            }
+            return response()->json([
+                'success' => false,
+                'message' => "Company '{$currentCode}' not found.",
+                'error' => 'company_not_found',
+            ], 404);
         }
-        
+
         $extra = is_string($company->extra) ? json_decode($company->extra, true) : $company->extra;
         $name = $extra['name'] ?? ($company->code === 'MAIN' ? 'Main Company' : $company->code);
-        
+
         return response()->json([
             'data' => [
                 'id' => $company->code,

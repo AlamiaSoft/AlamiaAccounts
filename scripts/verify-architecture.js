@@ -414,6 +414,47 @@ function checkProjectDAGIntegrity() {
 }
 
 // ----------------------------------------------------------------------------
+// SUITE 8: Static Secret Scan & Credential Exposure Prevention (Issue #3)
+// ----------------------------------------------------------------------------
+function checkStaticSecretScan() {
+    totalChecks++;
+    logHeader('SUITE 8: Static Secret Scan & Credential Exposure Prevention (Issue #3)');
+    let violationsInSuite = 0;
+
+    const files = walkDir(ROOT_DIR, ['.php', '.ts', '.tsx', '.js', '.json', '.env', '.example', '.yml', '.yaml'], ['node_modules', '.git', 'vendor', '.next', 'storage']);
+
+    const exposedPatterns = [
+        { pattern: /demo_kamal_token/i, message: 'Hardcoded legacy POS token "demo_kamal_token" detected.' },
+        { pattern: /X-POS-Key['"]\s*=>\s*['"][a-zA-Z0-9_-]{12,}['"]/i, message: 'Hardcoded live POS key header detected.' },
+        { pattern: /api_token['"]\s*=>\s*['"][a-zA-Z0-9_-]{12,}['"]/i, message: 'Hardcoded api_token detected in source.' },
+    ];
+
+    for (const filePath of files) {
+        const rel = path.relative(ROOT_DIR, filePath);
+        if (rel.includes('AuthenticateSalesOrSanctumTest.php') || rel.includes('pos-credential-rotation.md') || rel.includes('verify-architecture.js')) {
+            continue;
+        }
+
+        const content = fs.readFileSync(filePath, 'utf8');
+        const lines = content.split('\n');
+
+        lines.forEach((line, idx) => {
+            for (const ep of exposedPatterns) {
+                if (ep.pattern.test(line)) {
+                    violationsInSuite++;
+                    recordViolation('Secret-Exposure', filePath, idx + 1, ep.message, line, 'Move credential to environment/hash configuration.');
+                }
+            }
+        });
+    }
+
+    if (violationsInSuite === 0) {
+        passedChecks++;
+        console.log(`  ${colors.green}✔ PASS${colors.reset}: Zero plaintext POS credentials or hardcoded integration keys detected.`);
+    }
+}
+
+// ----------------------------------------------------------------------------
 // Main Runner & Summary
 // ----------------------------------------------------------------------------
 function runAllArchitecturalChecks() {
@@ -428,6 +469,7 @@ function runAllArchitecturalChecks() {
     checkReusablePackageStructure();
     checkE2ETestRegistration();
     checkProjectDAGIntegrity();
+    checkStaticSecretScan();
 
     console.log(`\n${colors.bold}════════════════════════════════════════════════════════════════════════${colors.reset}`);
     console.log(`${colors.bold} AUDIT SUMMARY REPORT${colors.reset}`);

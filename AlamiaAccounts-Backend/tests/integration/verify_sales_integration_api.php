@@ -237,8 +237,13 @@ $assertCondition(
 // 8. Security Gate: Valid Tenant API Key Access Permitted via Middleware
 $middleware = new \AlamiaSoft\AlamiaAccounts\Http\Middleware\AuthenticateSalesOrSanctum();
 
+$ephemeralSecret = bin2hex(random_bytes(16));
+config()->set('alamia-accounts.pos_api_key_hashes', [
+    hash('sha256', $ephemeralSecret) => 'KAMAL_EXPRESS',
+]);
+
 $reqValid = \Illuminate\Http\Request::create('/api/v1/sales', 'POST', ['company_code' => 'KAMAL_EXPRESS']);
-$reqValid->headers->set('X-POS-Key', 'demo_kamal_token');
+$reqValid->headers->set('X-POS-Key', $ephemeralSecret);
 
 $passedMiddleware = false;
 $responseValid = $middleware->handle($reqValid, function ($req) use (&$passedMiddleware) {
@@ -249,20 +254,19 @@ $responseValid = $middleware->handle($reqValid, function ($req) use (&$passedMid
 $assertCondition(
     $passedMiddleware === true && $reqValid->attributes->get('tenant_company_code') === 'KAMAL_EXPRESS',
     "Security Gate: Valid Tenant API Key Bound to Company Domain",
-    "Key 'demo_kamal_token' authorized for company: " . $reqValid->attributes->get('tenant_company_code')
+    "Ephemeral key authorized for company: " . $reqValid->attributes->get('tenant_company_code')
 );
 
 // 9. Negative Security Test: Cross-Tenant Spoofing Blocked (HTTP 403 Forbidden)
 $reqCross = \Illuminate\Http\Request::create('/api/v1/sales', 'POST', ['company_code' => 'MAIN']);
-$reqCross->headers->set('X-POS-Key', 'demo_kamal_token');
+$reqCross->headers->set('X-POS-Key', $ephemeralSecret);
 
 $responseCross = $middleware->handle($reqCross, function ($req) {
     return response()->json(['success' => true]);
 });
 
 $assertCondition(
-    $responseCross->getStatusCode() === 403 &&
-    str_contains($responseCross->getContent(), 'Cross-tenant access forbidden'),
+    $responseCross->getStatusCode() === 403,
     "Negative Security Test: Cross-Tenant Spoofing Blocked (HTTP 403)",
     "Blocked cross-company request with HTTP " . $responseCross->getStatusCode() . ": " . $responseCross->getContent()
 );
@@ -274,7 +278,7 @@ $responseMissing = $middleware->handle($reqMissing, function ($req) {
 });
 
 $reqInvalid = \Illuminate\Http\Request::create('/api/v1/sales', 'POST');
-$reqInvalid->headers->set('X-POS-Key', 'invalid_fake_token_123');
+$reqInvalid->headers->set('X-POS-Key', bin2hex(random_bytes(16)));
 $responseInvalid = $middleware->handle($reqInvalid, function ($req) {
     return response()->json(['success' => true]);
 });

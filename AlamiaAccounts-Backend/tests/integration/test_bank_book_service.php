@@ -33,7 +33,7 @@ if (!empty($bankBookAll['bank_accounts'])) {
     $targetBankCode = $bankBookAll['bank_accounts'][0]['code'];
 } else {
     $accService = app(\AlamiaSoft\AlamiaAccounts\Services\AccountService::class);
-    $existing = \Abivia\Ledger\Models\LedgerAccount::where('code', '1121')->first();
+    $existing = $accService->getAccountByCode('1121');
     if (!$existing) {
         $accService->createAccount([
             'code' => '1121',

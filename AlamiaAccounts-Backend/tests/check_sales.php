@@ -4,7 +4,8 @@ $app = require_once 'bootstrap/app.php';
 $kernel = $app->make(Illuminate\Contracts\Console\Kernel::class);
 $kernel->bootstrap();
 
-$domains = \Abivia\Ledger\Models\LedgerDomain::all();
+$companyService = app(\AlamiaSoft\AlamiaAccounts\Services\CompanyService::class);
+$domains = $companyService->listDomains();
 echo "Available Ledger Domains / Companies:\n";
 foreach ($domains as $d) {
     echo "- Code: {$d->code} | UUID: {$d->domainUuid}\n";
@@ -16,9 +17,10 @@ foreach (\AlamiaSoft\AlamiaAccounts\Models\OperationalSale::all() as $s) {
 }
 
 echo "\n--- Journal Entries in KAMAL_EXPRESS Domain ---\n";
-$keUuid = \Abivia\Ledger\Models\LedgerDomain::where('code', 'KAMAL_EXPRESS')->value('domainUuid');
-if ($keUuid) {
-    $entries = \Abivia\Ledger\Models\JournalEntry::where('domainUuid', $keUuid)->get();
+$domain = $companyService->getDomain('KAMAL_EXPRESS');
+if ($domain) {
+    \AlamiaSoft\AlamiaAccounts\Services\DomainContext::set('KAMAL_EXPRESS');
+    $entries = app(\AlamiaSoft\AlamiaAccounts\Services\VoucherService::class)->getJournalEntries();
     echo "Found " . $entries->count() . " journal entries in KAMAL_EXPRESS:\n";
     foreach ($entries as $e) {
         echo "Entry #{$e->journalEntryId} | Date: {$e->transDate} | Description: {$e->description} | Extra: {$e->extra}\n";

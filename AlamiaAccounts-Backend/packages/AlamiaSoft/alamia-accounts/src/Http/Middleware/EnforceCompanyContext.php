@@ -2,7 +2,7 @@
 
 namespace AlamiaSoft\AlamiaAccounts\Http\Middleware;
 
-use Abivia\Ledger\Models\LedgerDomain;
+use AlamiaSoft\AlamiaAccounts\Services\CompanyService;
 use AlamiaSoft\AlamiaAccounts\Services\DomainContext;
 use Closure;
 use Illuminate\Http\Request;

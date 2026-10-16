@@ -20,26 +20,35 @@ class DomainContext
      * @param string $code Domain code
      * @return void
      */
-    public static function set(string $code): void
+    public static function set(?string $code): void
     {
-        static::$currentDomain = $code;
+        static::$currentDomain = $code !== null ? strtoupper(trim($code)) : null;
+        if (function_exists('request') && request()) {
+            if (static::$currentDomain !== null) {
+                request()->attributes->set('tenant_company_code', static::$currentDomain);
+            } else {
+                request()->attributes->remove('tenant_company_code');
+            }
+        }
     }
 
+    /**
+     * Get the current active domain code.
+     * Returns null if no authorized company context is set. Never falls back to first domain or MAIN.
+     */
     public static function get(): ?string
     {
         if (function_exists('request') && request()) {
-            $headerDomain = request()->header('X-Company-Code');
-            if (!empty($headerDomain)) {
-                static::$currentDomain = strtoupper(trim((string) $headerDomain));
-                return static::$currentDomain;
+            $attributeDomain = request()->attributes->get('tenant_company_code');
+            if (!empty($attributeDomain)) {
+                return strtoupper(trim((string) $attributeDomain));
             }
         }
 
         if (function_exists('tenant') && tenant()) {
             $tenantKey = tenant()->getTenantKey();
             if (!empty($tenantKey)) {
-                static::$currentDomain = strtoupper(trim((string) $tenantKey));
-                return static::$currentDomain;
+                return strtoupper(trim((string) $tenantKey));
             }
         }
 
@@ -47,17 +56,34 @@ class DomainContext
             return static::$currentDomain;
         }
 
-        // Default to first domain if not set
-        $domain = LedgerDomain::first();
-        if ($domain) {
-            static::$currentDomain = $domain->code;
-        }
-        
-        return static::$currentDomain;
+        return null;
     }
 
     /**
-     * Get the current domain object.
+     * Check if an active company domain is set.
+     */
+    public static function has(): bool
+    {
+        return static::get() !== null;
+    }
+
+    /**
+     * Require an active domain code, failing closed if missing.
+     *
+     * @throws \RuntimeException
+     */
+    public static function require(): string
+    {
+        $code = static::get();
+        if ($code === null || $code === '') {
+            throw new \RuntimeException('Accounting company context is required but none was provided or authorized.');
+        }
+
+        return $code;
+    }
+
+    /**
+     * Get the current domain object or null if not set / not found.
      *
      * @return LedgerDomain|null Current domain object or null if not set
      */
@@ -72,22 +98,47 @@ class DomainContext
     }
 
     /**
-     * Execute a callback within a specific domain context.
+     * Require the active domain object, failing closed if missing or not found.
+     *
+     * @throws \RuntimeException
+     */
+    public static function requireDomain(): LedgerDomain
+    {
+        $code = static::require();
+        $domain = LedgerDomain::where('code', $code)->first();
+        if (!$domain) {
+            throw new \RuntimeException("Accounting domain '{$code}' could not be found.");
+        }
+
+        return $domain;
+    }
+
+    /**
+     * Execute a callback within a specific domain context, resetting in finally.
      * 
-     * @param string $domain
+     * @param string|null $domain
      * @param callable $callback
      * @return mixed
      */
-    public static function scope(string $domain, callable $callback): mixed
+    public static function scope(?string $domain, callable $callback): mixed
     {
-        $previousDomain = static::get();
+        $previousDomain = static::$currentDomain;
+        $previousRequestAttr = null;
+        if (function_exists('request') && request()) {
+            $previousRequestAttr = request()->attributes->get('tenant_company_code');
+        }
         
         try {
             static::set($domain);
             return $callback();
         } finally {
-            if ($previousDomain) {
-                static::set($previousDomain);
+            static::$currentDomain = $previousDomain;
+            if (function_exists('request') && request()) {
+                if ($previousRequestAttr !== null) {
+                    request()->attributes->set('tenant_company_code', $previousRequestAttr);
+                } else {
+                    request()->attributes->remove('tenant_company_code');
+                }
             }
         }
     }
@@ -116,10 +167,13 @@ class DomainContext
     }
 
     /**
-     * Reset to default domain.
+     * Reset domain context completely.
      */
     public static function reset(): void
     {
         static::$currentDomain = null;
+        if (function_exists('request') && request()) {
+            request()->attributes->remove('tenant_company_code');
+        }
     }
 }

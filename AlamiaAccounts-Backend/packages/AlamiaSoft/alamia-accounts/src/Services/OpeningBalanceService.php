@@ -25,12 +25,7 @@ class OpeningBalanceService
     {
         $code = DomainContext::get();
         if (!$code) {
-            $domain = LedgerDomain::first();
-            if ($domain) {
-                DomainContext::set($domain->code);
-                return $domain;
-            }
-            throw new Exception('No company domain found.');
+            throw new Exception('Company context is required for opening balance operations. No active company domain set.');
         }
 
         $domain = LedgerDomain::where('code', $code)->first();

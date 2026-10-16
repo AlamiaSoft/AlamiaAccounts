@@ -40,74 +40,77 @@ Route::middleware('auth:sanctum')->group(function () {
     // Users
     Route::apiResource('users', UserController::class);
     
-    // Accounts
-    Route::post('/accounts/{code}/opening-balance', [AccountController::class, 'setOpeningBalance']);
-    Route::apiResource('accounts', AccountController::class);
-    
-    // Vouchers
-    // Bulk ledger reset is intentionally not exposed through the application API.
-    Route::post('/vouchers/{reference}/reverse', [VoucherController::class, 'reverse']);
-    Route::apiResource('vouchers', VoucherController::class);
-    
-    // Custom Voucher Types
-    Route::apiResource('voucher-types', CustomVoucherTypeController::class);
-    Route::post('/voucher-types/{id}/validate', [CustomVoucherTypeController::class, 'validate']);
-    
-    // Search
-    Route::get('/search', [SearchController::class, 'search']);
-    Route::get('/search/vouchers', [SearchController::class, 'searchVouchers']);
-    Route::get('/search/accounts', [SearchController::class, 'searchAccounts']);
-    Route::get('/search/ledgers', [SearchController::class, 'searchLedgerEntries']);
-    
-    // Print
-    Route::get('/print/voucher/{id}', [PrintController::class, 'printVoucher']);
-    Route::post('/print/report', [PrintController::class, 'printReport']);
-    Route::get('/print/template', [PrintController::class, 'getTemplate']);
-    Route::post('/print/template', [PrintController::class, 'saveTemplate']);
-    Route::post('/print/upload-logo', [PrintController::class, 'uploadLogo']);
-    
-    // Reports
-    Route::get('/reports/trial-balance', [ReportController::class, 'trialBalance']);
-    Route::get('/reports/profit-loss', [ReportController::class, 'profitAndLoss']);
-    Route::get('/reports/balance-sheet', [ReportController::class, 'balanceSheet']);
-    Route::get('/reports/ledger', [ReportController::class, 'ledger']);
-    Route::get('/reports/bank-book', [ReportController::class, 'bankBook']);
-    Route::get('/reports/receivables', [ReportController::class, 'receivables']);
-    Route::get('/reports/payables', [ReportController::class, 'payables']);
-    Route::get('/reports/balance-sheet-diagnostics', [ReportController::class, 'balanceSheetDiagnostics']);
-    Route::get('/reports/ledger-integrity-audit', [ReportController::class, 'ledgerIntegrityAudit']);
-    
-    // Periods & Fiscal Controls
-    Route::get('/periods', [PeriodController::class, 'index']);
-    Route::post('/periods/{id}/close', [PeriodController::class, 'close']);
-    Route::post('/periods/{id}/reopen', [PeriodController::class, 'reopen']);
+    // Tenant-scoped Accounting Operations (Fail-Closed Company Context)
+    Route::middleware('accounts.company')->group(function () {
+        // Accounts
+        Route::post('/accounts/{code}/opening-balance', [AccountController::class, 'setOpeningBalance']);
+        Route::apiResource('accounts', AccountController::class);
+        
+        // Vouchers
+        // Bulk ledger reset is intentionally not exposed through the application API.
+        Route::post('/vouchers/{reference}/reverse', [VoucherController::class, 'reverse']);
+        Route::apiResource('vouchers', VoucherController::class);
+        
+        // Custom Voucher Types
+        Route::apiResource('voucher-types', CustomVoucherTypeController::class);
+        Route::post('/voucher-types/{id}/validate', [CustomVoucherTypeController::class, 'validate']);
+        
+        // Search
+        Route::get('/search', [SearchController::class, 'search']);
+        Route::get('/search/vouchers', [SearchController::class, 'searchVouchers']);
+        Route::get('/search/accounts', [SearchController::class, 'searchAccounts']);
+        Route::get('/search/ledgers', [SearchController::class, 'searchLedgerEntries']);
+        
+        // Print
+        Route::get('/print/voucher/{id}', [PrintController::class, 'printVoucher']);
+        Route::post('/print/report', [PrintController::class, 'printReport']);
+        Route::get('/print/template', [PrintController::class, 'getTemplate']);
+        Route::post('/print/template', [PrintController::class, 'saveTemplate']);
+        Route::post('/print/upload-logo', [PrintController::class, 'uploadLogo']);
+        
+        // Reports
+        Route::get('/reports/trial-balance', [ReportController::class, 'trialBalance']);
+        Route::get('/reports/profit-loss', [ReportController::class, 'profitAndLoss']);
+        Route::get('/reports/balance-sheet', [ReportController::class, 'balanceSheet']);
+        Route::get('/reports/ledger', [ReportController::class, 'ledger']);
+        Route::get('/reports/bank-book', [ReportController::class, 'bankBook']);
+        Route::get('/reports/receivables', [ReportController::class, 'receivables']);
+        Route::get('/reports/payables', [ReportController::class, 'payables']);
+        Route::get('/reports/balance-sheet-diagnostics', [ReportController::class, 'balanceSheetDiagnostics']);
+        Route::get('/reports/ledger-integrity-audit', [ReportController::class, 'ledgerIntegrityAudit']);
+        
+        // Periods & Fiscal Controls
+        Route::get('/periods', [PeriodController::class, 'index']);
+        Route::post('/periods/{id}/close', [PeriodController::class, 'close']);
+        Route::post('/periods/{id}/reopen', [PeriodController::class, 'reopen']);
 
-    // Opening Balances
-    Route::get('/opening-balances', [OpeningBalanceController::class, 'index']);
-    Route::post('/opening-balances', [OpeningBalanceController::class, 'store']);
+        // Opening Balances
+        Route::get('/opening-balances', [OpeningBalanceController::class, 'index']);
+        Route::post('/opening-balances', [OpeningBalanceController::class, 'store']);
 
-    // Audit Trail
-    Route::get('/audit-trail', [AuditTrailController::class, 'index']);
+        // Audit Trail
+        Route::get('/audit-trail', [AuditTrailController::class, 'index']);
 
-    // Copilot (Taliya AI) & Alamia 360 Capabilities
-    Route::post('/copilot/chat', [CopilotController::class, 'chat']);
-    Route::get('/copilot/capabilities', [CopilotController::class, 'capabilities']);
-    Route::get('/copilot/situations', [CopilotController::class, 'situations']);
-    Route::post('/copilot/capabilities/{capability}/execute', [CopilotController::class, 'executeCapability']);
-    Route::post('/alamia-360/capabilities/{capability}/execute', [CopilotController::class, 'executeCapability']);
+        // Copilot (Taliya AI) & Alamia 360 Capabilities
+        Route::post('/copilot/chat', [CopilotController::class, 'chat']);
+        Route::get('/copilot/capabilities', [CopilotController::class, 'capabilities']);
+        Route::get('/copilot/situations', [CopilotController::class, 'situations']);
+        Route::post('/copilot/capabilities/{capability}/execute', [CopilotController::class, 'executeCapability']);
+        Route::post('/alamia-360/capabilities/{capability}/execute', [CopilotController::class, 'executeCapability']);
 
-    // Copilot Diagnostics & Developer Observability
-    Route::get('/copilot/diagnostics', [CopilotController::class, 'diagnostics']);
-    Route::get('/copilot/diagnostics/export', [CopilotController::class, 'exportDiagnostics']);
-    Route::get('/copilot/diagnostics/{id}', [CopilotController::class, 'diagnosticTrace']);
-    Route::patch('/copilot/diagnostics/{id}/feedback', [CopilotController::class, 'updateDiagnosticFeedback']);
-    Route::post('/copilot/diagnostics/{id}/promote-to-guidance', [CopilotController::class, 'promoteDiagnosticToKnowledge']);
-    Route::delete('/copilot/diagnostics', [CopilotController::class, 'pruneDiagnostics']);
+        // Copilot Diagnostics & Developer Observability
+        Route::get('/copilot/diagnostics', [CopilotController::class, 'diagnostics']);
+        Route::get('/copilot/diagnostics/export', [CopilotController::class, 'exportDiagnostics']);
+        Route::get('/copilot/diagnostics/{id}', [CopilotController::class, 'diagnosticTrace']);
+        Route::patch('/copilot/diagnostics/{id}/feedback', [CopilotController::class, 'updateDiagnosticFeedback']);
+        Route::post('/copilot/diagnostics/{id}/promote-to-guidance', [CopilotController::class, 'promoteDiagnosticToKnowledge']);
+        Route::delete('/copilot/diagnostics', [CopilotController::class, 'pruneDiagnostics']);
 
-    // Copilot Knowledge Base (Self-Learning Guidance)
-    Route::get('/copilot/knowledge', [CopilotController::class, 'knowledgeList']);
-    Route::post('/copilot/knowledge', [CopilotController::class, 'knowledgeStore']);
-    Route::delete('/copilot/knowledge/{id}', [CopilotController::class, 'knowledgeDelete']);
+        // Copilot Knowledge Base (Self-Learning Guidance)
+        Route::get('/copilot/knowledge', [CopilotController::class, 'knowledgeList']);
+        Route::post('/copilot/knowledge', [CopilotController::class, 'knowledgeStore']);
+        Route::delete('/copilot/knowledge/{id}', [CopilotController::class, 'knowledgeDelete']);
+    });
 
     // Accountant Help & User Manual Portal API
     Route::get('/manual', [ManualController::class, 'index']);

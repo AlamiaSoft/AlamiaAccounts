@@ -39,19 +39,19 @@ class ExpenseIntegrationService
      */
     public function processExpense(array $payload, ?string $companyCode = null): array
     {
-        $companyCode = strtoupper(trim($companyCode ?: (DomainContext::get() ?: 'MAIN')));
+        $targetCompany = $companyCode ?: DomainContext::get();
+        if (empty($targetCompany)) {
+            throw new Exception("Explicit company context is required for expense integration. Missing or unassigned company.");
+        }
+        $companyCode = strtoupper(trim((string) $targetCompany));
         $domain = $this->companyService->getDomain($companyCode);
 
         if (!$domain) {
-            $companyCode = 'MAIN';
-            $domain = $this->companyService->getDomain('MAIN');
-            if (!$domain) {
-                throw new Exception("Ledger domain for company '{$companyCode}' could not be resolved.");
-            }
+            throw new Exception("Ledger domain for company '{$companyCode}' could not be resolved.");
         }
 
-        DomainContext::set($companyCode);
-        $domainUuid = $domain->domainUuid;
+        return DomainContext::scope($companyCode, function () use ($payload, $companyCode, $domain) {
+            $domainUuid = $domain->domainUuid;
 
         $reference = trim((string)($payload['reference'] ?? ''));
         if (empty($reference)) {
@@ -201,5 +201,6 @@ class ExpenseIntegrationService
 
             throw $e;
         }
+        });
     }
 }

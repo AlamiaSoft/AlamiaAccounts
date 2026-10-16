@@ -18,6 +18,7 @@ class ReportServiceTest extends TestCase
     {
         parent::setUp();
         $this->seed(\AlamiaSoft\AlamiaAccounts\Database\Seeders\LedgerInitializationSeeder::class);
+        \AlamiaSoft\AlamiaAccounts\Services\DomainContext::set('MAIN');
         $this->reportService = new ReportService();
         $this->voucherService = new VoucherService();
 

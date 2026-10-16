@@ -29,19 +29,13 @@ class AccountService
         $code = DomainContext::get();
         
         if (!$code) {
-            // Fallback to first domain if no context set
-            $domain = LedgerDomain::first();
-            if ($domain) {
-                DomainContext::set($domain->code);
-                return $domain;
-            }
-            throw new Exception('No domain found. Please create a company first.');
+            throw new Exception('Company context is required for account operations. No active company domain set.');
         }
         
         $domain = LedgerDomain::where('code', $code)->first();
         
         if (!$domain) {
-            throw new Exception("Domain with code {$code} not found");
+            throw new Exception("Domain with code '{$code}' not found.");
         }
         
         return $domain;

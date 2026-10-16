@@ -197,7 +197,7 @@ class CopilotController extends Controller
             'developer_notes' => 'nullable|string',
         ]);
 
-        $diagnosticsService = app(\App\Copilot\CopilotDiagnosticsService::class);
+        $diagnosticsService = app(\AlamiaSoft\AlamiaAccounts\Copilot\CopilotDiagnosticsService::class);
         $trace = $diagnosticsService->updateFeedback($id, $request->input('status'), $request->input('developer_notes'));
 
         return response()->json([
@@ -222,7 +222,7 @@ class CopilotController extends Controller
             'actions' => 'nullable|array',
         ]);
 
-        $diagnosticsService = app(\App\Copilot\CopilotDiagnosticsService::class);
+        $diagnosticsService = app(\AlamiaSoft\AlamiaAccounts\Copilot\CopilotDiagnosticsService::class);
         $entry = $diagnosticsService->promoteToKnowledge($id, $request->all());
 
         return response()->json([
@@ -237,7 +237,7 @@ class CopilotController extends Controller
      */
     public function exportDiagnostics(Request $request)
     {
-        $diagnosticsService = app(\App\Copilot\CopilotDiagnosticsService::class);
+        $diagnosticsService = app(\AlamiaSoft\AlamiaAccounts\Copilot\CopilotDiagnosticsService::class);
         $format = $request->input('format', 'jsonl');
 
         $filters = [

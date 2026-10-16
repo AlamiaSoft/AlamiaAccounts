@@ -57,8 +57,13 @@ class AuthenticateSalesOrSanctum
             $request->attributes->set('tenant_company_code', $effectiveCompany);
             $request->attributes->set('auth_mode', 'sanctum_user');
             $request->attributes->set('is_manager', $isAdminOrManager);
+            \AlamiaSoft\AlamiaAccounts\Services\DomainContext::set($effectiveCompany);
 
-            return $next($request);
+            try {
+                return $next($request);
+            } finally {
+                \AlamiaSoft\AlamiaAccounts\Services\DomainContext::reset();
+            }
         }
 
         // Machine credentials are represented by SHA-256 hashes in configuration.
@@ -108,7 +113,12 @@ class AuthenticateSalesOrSanctum
         $request->attributes->set('tenant_company_code', $authorizedCompany);
         $request->attributes->set('auth_mode', 'pos_gateway');
         $request->attributes->set('is_manager', false);
+        \AlamiaSoft\AlamiaAccounts\Services\DomainContext::set($authorizedCompany);
 
-        return $next($request);
+        try {
+            return $next($request);
+        } finally {
+            \AlamiaSoft\AlamiaAccounts\Services\DomainContext::reset();
+        }
     }
 }

@@ -1,0 +1,8 @@
+{
+  "task_id": "T-054",
+  "run_id": "002",
+  "timestamp": "2026-10-16T11:30:56.709Z",
+  "action": "FINISH",
+  "git_commit": "35f51ce",
+  "evidence": "ADR-008 published at docs/adr/ADR-008-durable-posting-identity-and-replay-contract.md; 7/7 architectural suites and 50/50 backend tests passing"
+}

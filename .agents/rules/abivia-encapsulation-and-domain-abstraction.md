@@ -8,7 +8,7 @@ A test for a public Alamia Accounts workflow must enter through the Alamia Accou
 
 ## Allowed internal boundary
 
-The current internal integration boundary is an explicit file-level allowlist in `scripts/abivia-boundary.js`. Do not add a directory-wide exemption. The approved files are existing Alamia-owned ledger/domain services and two Alamia-owned ORM relationship models that map to Abivia domain identity. Any new Abivia reference outside those files is a violation until reviewed and explicitly approved.
+The current internal integration boundary is an explicit file-level allowlist in `scripts/abivia-boundary.js`. Do not add a directory-wide exemption. The approved files are existing Alamia-owned ledger/domain services and explicitly listed Alamia-owned ORM/persistence mapping models that map to Abivia domain identity. Any new Abivia reference outside those files is a violation until reviewed and explicitly approved.
 
 Direct Abivia access in tests is permitted only under `AlamiaAccounts-Backend/packages/AlamiaSoft/alamia-accounts/tests/Adapters/Abivia/`, and only when the test specifically validates the Abivia adapter boundary. Such tests do not replace public-contract tests. Do not create a generic adapter-test exception or rename ordinary feature tests to evade the rule.
 

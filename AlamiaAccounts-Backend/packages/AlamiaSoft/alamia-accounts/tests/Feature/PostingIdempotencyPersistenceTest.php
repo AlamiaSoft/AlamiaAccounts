@@ -47,7 +47,7 @@ class PostingIdempotencyPersistenceTest extends TestCase
             'language' => 'en',
             'created_at' => now(),
             'updated_at' => now(),
-        ]);
+        ], 'journalEntryId');
     }
 
     /**
@@ -327,7 +327,7 @@ class PostingIdempotencyPersistenceTest extends TestCase
             'extra' => json_encode(['reference' => 'LEGACY-REF-999']),
             'created_at' => now(),
             'updated_at' => now(),
-        ]);
+        ], 'journalEntryId');
 
         // Create a journal entry without reference in extra
         $je2Id = DB::table('journal_entries')->insertGetId([
@@ -342,7 +342,7 @@ class PostingIdempotencyPersistenceTest extends TestCase
             'extra' => null,
             'created_at' => now(),
             'updated_at' => now(),
-        ]);
+        ], 'journalEntryId');
 
         // Temporarily insert domain entries without reference simulating legacy data prior to unique constraint
         $d1Id = DB::table('domain_journal_entries')->insertGetId([

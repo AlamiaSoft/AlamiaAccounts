@@ -183,7 +183,7 @@ class BulkLedgerResetRouteTest extends TestCase
         $reversalResponse->assertSee('reversed successfully');
 
         // 3. Verify original voucher still exists in database (historical immutability)
-        $domain = \Abivia\Ledger\Models\LedgerDomain::where('code', 'KAMAL_EXPRESS')->first();
+        $domain = app(\AlamiaSoft\AlamiaAccounts\Services\CompanyService::class)->getDomain('KAMAL_EXPRESS');
         $this->assertDatabaseHas('domain_journal_entries', [
             'domainUuid' => $domain->domainUuid,
             'journalEntryId' => $voucher->journalEntryId,
@@ -231,7 +231,7 @@ class BulkLedgerResetRouteTest extends TestCase
         $this->assertTrue($data['success']);
 
         // Check audit trail recorded
-        $domain = \Abivia\Ledger\Models\LedgerDomain::where('code', 'KAMAL_EXPRESS')->first();
+        $domain = app(\AlamiaSoft\AlamiaAccounts\Services\CompanyService::class)->getDomain('KAMAL_EXPRESS');
         $audit = AccountingAuditTrail::where('domain_uuid', $domain->domainUuid)
             ->where('action', 'RESET_ALL_TRANSACTIONS')
             ->first();

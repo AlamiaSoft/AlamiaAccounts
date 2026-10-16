@@ -9,7 +9,6 @@ use AlamiaSoft\AlamiaAccounts\Services\AccountService;
 use AlamiaSoft\AlamiaAccounts\Services\ReportService;
 use AlamiaSoft\AlamiaAccounts\Services\DomainContext;
 use AlamiaSoft\AlamiaAccounts\Enums\AccountClass;
-use Abivia\Ledger\Models\LedgerAccount;
 
 echo "========================================================================" . PHP_EOL;
 echo " TEST: FORMAL ACCOUNT CLASSIFICATION & DOUBLE-ENTRY NORMS" . PHP_EOL;

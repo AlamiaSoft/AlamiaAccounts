@@ -2,7 +2,6 @@
 
 namespace AlamiaSoft\AlamiaAccounts\Tests;
 
-use Abivia\Ledger\Models\JournalEntry;
 use AlamiaSoft\AlamiaAccounts\Models\DomainLedgerAccount;
 use AlamiaSoft\AlamiaAccounts\Services\AccountService;
 use AlamiaSoft\AlamiaAccounts\Services\CompanyService;
@@ -48,7 +47,7 @@ class VoucherServiceTest extends TestCase
             ],
         ]);
 
-        $this->assertInstanceOf(JournalEntry::class, $entry);
+        $this->assertIsObject($entry);
     }
 
     public function test_can_create_sales_voucher()
@@ -62,7 +61,7 @@ class VoucherServiceTest extends TestCase
             'voucher_number' => 'SV001',
         ]);
 
-        $this->assertInstanceOf(JournalEntry::class, $voucher);
+        $this->assertIsObject($voucher);
     }
 
     public function test_can_create_payment_voucher()
@@ -75,7 +74,13 @@ class VoucherServiceTest extends TestCase
             'voucher_number' => 'PV001',
         ]);
 
-        $this->assertInstanceOf(JournalEntry::class, $voucher);
+        $this->assertNotEmpty($voucher->journalEntryId, 'The Alamia voucher workflow must return a persisted journal entry ID.');
+
+        $retrieved = $this->voucherService->getVoucher('PV001');
+        $this->assertNotNull($retrieved, 'The payment voucher must be retrievable through VoucherService.');
+        $this->assertSame('PV001', $retrieved['reference']);
+        $this->assertSame(500.0, (float) collect($retrieved['line_items'])->sum('debit'));
+        $this->assertSame(500.0, (float) collect($retrieved['line_items'])->sum('credit'));
     }
 
     public function test_rejects_posting_to_category_accounts_without_writing_a_voucher()
@@ -216,10 +221,14 @@ class VoucherServiceTest extends TestCase
             ],
         ]);
 
-        $this->assertInstanceOf(JournalEntry::class, $voucher);
-        // Verify that the entry was saved and can be retrieved
+        $this->assertNotEmpty($voucher->journalEntryId, 'The multi-line voucher must return a persisted journal entry ID.');
+
+        // Verify the public Alamia service can retrieve the voucher and preserve balanced, netted entries.
         $retrieved = $this->voucherService->getVoucher('TKT-TEST-MULTI-ENTRY');
         $this->assertNotNull($retrieved);
         $this->assertSame('TKT-TEST-MULTI-ENTRY', $retrieved['reference']);
+        $this->assertCount(3, $retrieved['line_items'], 'Repeated account lines must be netted into three non-zero account lines.');
+        $this->assertSame(12345.0, (float) collect($retrieved['line_items'])->sum('debit'));
+        $this->assertSame(12345.0, (float) collect($retrieved['line_items'])->sum('credit'));
     }
 }

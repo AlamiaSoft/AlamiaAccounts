@@ -60,10 +60,19 @@ Welcome to **Alamia Accounts**. All AI agents operating on this repository must 
    - Reopening a locked period requires a documented business reason and is logged in the audit trail.
 7. **Permanent Accounting Audit Trail**:
    - All financial operations (`POST_OPENING_BALANCES`, `CREATE_VOUCHER`, `REVERSE_VOUCHER`, `CLOSE_PERIOD`, `REOPEN_PERIOD`) are recorded in `accounting_audit_trails` capturing user, action, timestamp, IP, entity, and reasons.
-8. **Abivia Kernel Encapsulation & Domain Services Mandate**:
-   - **NEVER** call or query underlying Abivia engine models (`\Abivia\Ledger\Models\...`) directly from HTTP controllers, UI endpoints, or feature scripts.
-   - All ledger access must be encapsulated behind Alamia domain services (`VoucherService`, `CompanyService`, `AccountService`, `ReportService`, `PeriodService`).
-   - Company attributes (such as configured default currency) must **ALWAYS** be resolved through centralized helpers (e.g. `DomainContext::getDefaultCurrency($companyCode)` or `CompanyService::getDefaultCurrency()`) rather than scattered ad-hoc database queries.
+8. **Abivia Kernel Encapsulation & Domain Services Mandate — HARD ARCHITECTURE BOUNDARY**:
+   - **ABSOLUTE RULE: no client/consumer code may EVER call the Abivia Ledger package directly.** All capabilities required by Alamia Accounts consumers must be exposed through dedicated, Alamia-owned public services/contracts.
+   - This prohibition applies to application code and to tests for public services, features, HTTP/API workflows, UI behavior, integrations, jobs, and end-to-end flows. Tests must enter through the Alamia Accounts public API and must not use Abivia as a shortcut for setup, execution, or assertions.
+   - Consumer code must not import, instantiate, query, mutate, or invoke Abivia package models, repositories, facades, services, helpers, domain/context resolvers, or package-specific APIs directly outside the approved integration boundary.
+   - Direct Abivia references are permitted only in the explicit file-level allowlist maintained by `scripts/abivia-boundary.js`. Do not broaden this to an entire directory. Any new reference requires a reviewed change to that allowlist and focused positive/negative tests.
+   - Direct Abivia access in tests is permitted only under `AlamiaAccounts-Backend/packages/AlamiaSoft/alamia-accounts/tests/Adapters/Abivia/`, and only when the test specifically validates the internal adapter boundary. Such tests do not replace public-contract tests.
+   - If consumers need audit records, ledger state, domain identity, reports, or other verification data, prefer a read-only Alamia-owned service/contract. A narrowly scoped read-only persistence assertion or test-fixture cleanup may use the test database when necessary, but must not call Abivia model/service APIs, must use isolated test-owned data, and must not bypass Alamia services to perform the business operation.
+   - `node scripts/test-abivia-boundary.js` must prove forbidden consumer/test references fail and approved paths pass. `node scripts/verify-architecture.js` must pass before a task can be considered verified.
+   - CI must run the scanner tests and architecture audit when backend/frontend code, scripts, these rules, or the workflow changes. Keep the allowlist explicit and minimal; never exempt an entire test suite to make checks pass.
+   - A test that directly calls Abivia to perform a public business operation is an architecture violation even if its assertions pass. A green test suite does not waive this rule.
+   - All ledger access must be encapsulated behind Alamia domain services (for example, `VoucherService`, `CompanyService`, `AccountService`, `ReportService`, and `PeriodService`). Extend an Alamia-owned service when a needed capability is missing; do not bypass the boundary.
+   - Company attributes (such as configured default currency) must ALWAYS be resolved through centralized helpers (e.g. `DomainContext::getDefaultCurrency($companyCode)` or `CompanyService::getDefaultCurrency()`) rather than scattered ad-hoc database queries.
+
 9. **Zero Hardcoded Account Codes & Zero Heuristic Guessing**:
    - **NEVER** hardcode fixed account numbers (e.g., `"5200"`, `"5100"`, `"1110"`, `"3100"`, `"4200"`) in frontend components, controllers, or service scripts.
    - **NEVER** use heuristic pattern matching (such as `startsWith('4')`, `includes('commission')`, `includes('expense')`) to infer or guess posting accounts.

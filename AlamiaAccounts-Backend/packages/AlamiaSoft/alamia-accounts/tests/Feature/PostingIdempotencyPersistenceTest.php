@@ -2,10 +2,9 @@
 
 namespace AlamiaSoft\AlamiaAccounts\Tests\Feature;
 
-use Abivia\Ledger\Models\LedgerDomain;
-use Abivia\Ledger\Models\JournalEntry;
 use AlamiaSoft\AlamiaAccounts\Models\DomainJournalEntry;
 use AlamiaSoft\AlamiaAccounts\Models\PostingIdempotencyRecord;
+use AlamiaSoft\AlamiaAccounts\Services\CompanyService;
 use AlamiaSoft\AlamiaAccounts\Services\DomainContext;
 use Carbon\Carbon;
 use Illuminate\Database\QueryException;
@@ -27,7 +26,7 @@ class PostingIdempotencyPersistenceTest extends TestCase
 
     protected function getDomainUuid(string $code): string
     {
-        $domain = LedgerDomain::where('code', $code)->first();
+        $domain = app(CompanyService::class)->getDomain($code);
         if (!$domain) {
             throw new \RuntimeException("Domain {$code} not found");
         }

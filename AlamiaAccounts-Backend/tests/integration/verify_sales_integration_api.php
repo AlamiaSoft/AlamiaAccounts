@@ -14,7 +14,6 @@ $kernel->bootstrap();
 use AlamiaSoft\AlamiaAccounts\Services\SalesIntegrationService;
 use AlamiaSoft\AlamiaAccounts\Services\DomainContext;
 use AlamiaSoft\AlamiaAccounts\Models\OperationalSale;
-use Abivia\Ledger\Models\JournalEntry;
 use Illuminate\Support\Facades\DB;
 
 echo "\n========================================================================\n";
@@ -94,8 +93,8 @@ $assertCondition(
 );
 
 // 2. Double-Entry Invariant Check on Generated Vouchers
-$svEntry = JournalEntry::where('extra', 'like', "%{$sale1->sales_voucher_ref}%")->first();
-$rvEntry = JournalEntry::where('extra', 'like', "%{$sale1->receipt_voucher_ref}%")->first();
+$svEntry = DB::table('journal_entries')->where('extra', 'like', "%{$sale1->sales_voucher_ref}%")->first();
+$rvEntry = DB::table('journal_entries')->where('extra', 'like', "%{$sale1->receipt_voucher_ref}%")->first();
 
 $assertCondition(
     $svEntry && $rvEntry,

@@ -30,7 +30,7 @@ class SalesIntegrationService
         ?string $userName = null
     ): array {
         $companyCode = $companyCode ?: (DomainContext::get() ?: 'MAIN');
-        $domain = \Abivia\Ledger\Models\LedgerDomain::where('code', $companyCode)->first();
+        $domain = app(CompanyService::class)->getDomain($companyCode);
         if (!$domain) {
             $companyService = app(CompanyService::class);
             try {

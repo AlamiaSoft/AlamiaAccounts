@@ -2,7 +2,7 @@
 
 namespace AlamiaSoft\AlamiaAccounts\Http\Middleware;
 
-use Abivia\Ledger\Models\LedgerDomain;
+use AlamiaSoft\AlamiaAccounts\Services\CompanyService;
 use AlamiaSoft\AlamiaAccounts\Services\DomainContext;
 use Closure;
 use Illuminate\Http\Request;
@@ -55,7 +55,7 @@ class EnforceCompanyContext
         }
 
         $effectiveCompany = $targetCompany;
-        $domain = LedgerDomain::where('code', $effectiveCompany)->first();
+        $domain = app(CompanyService::class)->getDomain($effectiveCompany);
         if (!$domain) {
             return response()->json([
                 'success' => false,

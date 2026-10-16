@@ -7,11 +7,10 @@ use Alamia360\Facades\Alamia360;
 use Alamia360\Situations\Situation;
 use Alamia360\Situations\SituationPriority;
 use AlamiaSoft\AlamiaAccounts\Services\AccountService;
+use AlamiaSoft\AlamiaAccounts\Services\CompanyService;
 use AlamiaSoft\AlamiaAccounts\Services\VoucherService;
 use AlamiaSoft\AlamiaAccounts\Services\ReportService;
 use AlamiaSoft\AlamiaAccounts\Services\DomainContext;
-use Abivia\Ledger\Models\LedgerAccount;
-use Abivia\Ledger\Models\LedgerDomain;
 use Carbon\Carbon;
 use Exception;
 
@@ -44,7 +43,7 @@ class AccountsCopilotBridge
             ->attribute('category', ['type' => 'boolean', 'label' => 'Is Folder Category'])
             ->attribute('debit', ['type' => 'boolean', 'label' => 'Normal Debit'])
             ->attribute('credit', ['type' => 'boolean', 'label' => 'Normal Credit'])
-            ->resolveUsing(fn ($code) => LedgerAccount::where('code', $code)->first());
+            ->resolveUsing(fn ($code) => app(AccountService::class)->getAccountByCode($code));
 
         Alamia360::entity('voucher')
             ->describe('Double-entry balanced accounting journal voucher')
@@ -57,7 +56,7 @@ class AccountsCopilotBridge
             ->describe('Multi-tenant company domain')
             ->attribute('code', ['type' => 'string', 'label' => 'Company Code'])
             ->attribute('name', ['type' => 'string', 'label' => 'Company Name'])
-            ->resolveUsing(fn ($code) => LedgerDomain::where('code', $code)->first());
+            ->resolveUsing(fn ($code) => app(CompanyService::class)->getDomain($code));
     }
 
     protected static function registerCapabilities(): void
@@ -195,7 +194,7 @@ class AccountsCopilotBridge
                     $dr = (float) ($line['debit'] ?? ($line['type'] === 'debit' ? $line['amount'] ?? 0 : 0));
                     $cr = (float) ($line['credit'] ?? ($line['type'] === 'credit' ? $line['amount'] ?? 0 : 0));
 
-                    $account = LedgerAccount::where('code', $code)->first();
+                    $account = app(AccountService::class)->getAccountByCode($code);
                     if (!$account) {
                         $errors[] = "Line " . ($idx + 1) . ": Account code '{$code}' not found in Chart of Accounts.";
                         continue;

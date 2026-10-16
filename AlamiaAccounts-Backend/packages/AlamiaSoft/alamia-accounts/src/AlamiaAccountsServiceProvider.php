@@ -19,7 +19,8 @@ use AlamiaSoft\AlamiaAccounts\Services\{
     AccountingDiagnosticService,
     AccountingIntegrityGuard,
     OpeningBalanceService,
-    PeriodService
+    PeriodService,
+    PostingIdempotencyService
 };
 use AlamiaSoft\AlamiaAccounts\Copilot\{
     CopilotService,
@@ -43,6 +44,7 @@ class AlamiaAccountsServiceProvider extends ServiceProvider
         $this->app->singleton(ReportService::class);
         $this->app->singleton(OpeningBalanceService::class);
         $this->app->singleton(PeriodService::class);
+        $this->app->singleton(PostingIdempotencyService::class);
         
         // Extended voucher & automation services
         $this->app->singleton(CustomVoucherTypeService::class);

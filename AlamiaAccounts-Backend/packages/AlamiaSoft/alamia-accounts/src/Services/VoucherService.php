@@ -227,10 +227,15 @@ class VoucherService
                 throw new \Exception(!empty($errors) ? implode(', ', $errors) : $b->getMessage());
             }
 
-            // Associate with domain via pivot table
+            // Associate with domain via pivot table with reference enforcement
+            $voucherRef = trim((string)($data['reference'] ?? $data['voucher_number'] ?? ''));
+            if ($voucherRef === '') {
+                $voucherRef = 'JV-' . $journalEntry->journalEntryId;
+            }
             DomainJournalEntry::create([
                 'domainUuid' => $domain->domainUuid,
                 'journalEntryId' => $journalEntry->journalEntryId,
+                'reference' => $voucherRef,
             ]);
 
             // Record in accounting audit trail

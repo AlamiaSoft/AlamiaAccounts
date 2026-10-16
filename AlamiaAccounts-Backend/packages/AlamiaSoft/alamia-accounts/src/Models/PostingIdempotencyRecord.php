@@ -99,6 +99,30 @@ class PostingIdempotencyRecord extends Model
     }
 
     /**
+     * Mark record as committed with voucher reference, journal entry id, and response data.
+     */
+    public function markCommitted(string $voucherReference, int|string $journalEntryId, array $responseData = []): bool
+    {
+        return $this->update([
+            'status' => 'committed',
+            'voucher_reference' => $voucherReference,
+            'journal_entry_id' => (int)$journalEntryId,
+            'response_data' => $responseData,
+        ]);
+    }
+
+    /**
+     * Mark record as failed with an error message.
+     */
+    public function markFailed(string $errorMessage): bool
+    {
+        return $this->update([
+            'status' => 'failed',
+            'error_message' => $errorMessage,
+        ]);
+    }
+
+    /**
      * Check if record has failed.
      */
     public function isFailed(): bool

@@ -14,4 +14,10 @@ return [
         (string) env('ALAMIA_ACCOUNTS_POS_API_KEY_HASHES', '{}'),
         true
     ) ?: [],
+
+    /*
+     * Destructive bulk ledger reset feature flag.
+     * Strictly disabled (false) by default. Must never be enabled in production environments.
+     */
+    'allow_destructive_reset' => (bool) env('ALAMIA_ACCOUNTS_ALLOW_DESTRUCTIVE_RESET', false),
 ];

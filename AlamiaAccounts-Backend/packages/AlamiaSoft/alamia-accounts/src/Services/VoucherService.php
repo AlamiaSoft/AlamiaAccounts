@@ -617,13 +617,26 @@ class VoucherService
 
     /**
      * Clear / Reset all transactions and vouchers for the current tenant domain.
+     * Strictly prohibited in production environments or when allow_destructive_reset is false.
      * Preserves Chart of Accounts, settings, custom voucher types, and periods.
      *
      * @param string|null $domainCode
+     * @param string|null $confirmationToken
+     * @param string $auditActor
      * @return int Count of deleted journal entries
      */
-    public function clearAllTransactions(?string $domainCode = null): int
+    public function clearAllTransactions(?string $domainCode = null, ?string $confirmationToken = null, string $auditActor = 'system'): int
     {
+        // P0 Security Guard 1: Hard Environment Check (Cannot be invoked in production)
+        if (app()->environment('production')) {
+            throw new \RuntimeException('Destructive bulk ledger reset is strictly prohibited in production environments.');
+        }
+
+        // P0 Security Guard 2: Explicit Feature Flag Check (defaults to false)
+        if (!config('alamia-accounts.allow_destructive_reset', false)) {
+            throw new \RuntimeException('Destructive bulk ledger reset feature flag (alamia-accounts.allow_destructive_reset) is disabled.');
+        }
+
         $domain = $domainCode
             ? LedgerDomain::where('code', $domainCode)->first()
             : $this->getCurrentDomain();
@@ -632,13 +645,23 @@ class VoucherService
             $domain = $this->getCurrentDomain();
         }
 
+        if (!$domain) {
+            throw new \RuntimeException('No active domain resolved for transaction reset.');
+        }
+
+        // P0 Security Guard 3: Explicit Confirmation Token Check
+        $expectedToken = 'CONFIRM_RESET_' . strtoupper(trim($domain->code));
+        if ($confirmationToken !== $expectedToken) {
+            throw new \InvalidArgumentException("Invalid reset confirmation token. Expected: [{$expectedToken}].");
+        }
+
         $entryIds = DomainJournalEntry::where('domainUuid', $domain->domainUuid)
             ->pluck('journalEntryId')
             ->toArray();
 
         $count = count($entryIds);
 
-        DB::transaction(function () use ($domain, $entryIds, $count) {
+        DB::transaction(function () use ($domain, $entryIds, $count, $auditActor) {
             if ($count > 0) {
                 // Delete details from journal_details
                 DB::table('journal_details')->whereIn('journalEntryId', $entryIds)->delete();
@@ -665,12 +688,12 @@ class VoucherService
             AccountingAuditTrail::record(
                 $domain->domainUuid,
                 'RESET_ALL_TRANSACTIONS',
-                'system',
+                $auditActor,
                 'ALL',
                 [
                     'cleared_vouchers_count' => $count,
                     'cleared_sales_count' => count($saleIds ?? []),
-                    'reason' => 'Administrator reset all tenant transactions'
+                    'reason' => "Administrator [{$auditActor}] reset tenant transactions"
                 ]
             );
         });

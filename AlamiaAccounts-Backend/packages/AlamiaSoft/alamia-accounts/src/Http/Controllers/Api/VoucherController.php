@@ -4,6 +4,7 @@ namespace AlamiaSoft\AlamiaAccounts\Http\Controllers\Api;
 
 use AlamiaSoft\AlamiaAccounts\Http\Controllers\Controller;
 use Illuminate\Http\Request;
+use Illuminate\Http\JsonResponse;
 use AlamiaSoft\AlamiaAccounts\Services\VoucherService;
 
 /**
@@ -181,7 +182,9 @@ class VoucherController extends Controller
     public function destroy($reference)
     {
         return response()->json([
-            'message' => 'Posted accounting vouchers cannot be physically deleted. Use voucher reversal to maintain double-entry audit history.'
+            'success' => false,
+            'message' => 'Posted accounting vouchers cannot be physically deleted. Use voucher reversal to maintain double-entry audit history.',
+            'error' => 'CANNOT_DELETE_POSTED_VOUCHER',
         ], 422);
     }
 
@@ -207,24 +210,99 @@ class VoucherController extends Controller
     }
 
     /**
-     * Clear / Reset all transactions for the current tenant company
+     * Clear / Reset all transactions for the current tenant company.
+     * Strictly disabled in production. Requires explicit feature flag, elevated admin,
+     * tenant verification, and confirmation token.
      */
-    public function clearAll(Request $request)
+    public function clearAll(Request $request): JsonResponse
     {
+        // P0 Security Guard 1: Hard Environment Check
+        if (app()->environment('production')) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Destructive bulk ledger reset is strictly prohibited in production environments.',
+                'error' => 'production_reset_prohibited',
+            ], 403);
+        }
+
+        // P0 Security Guard 2: Feature Flag Check
+        if (!config('alamia-accounts.allow_destructive_reset', false)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Destructive bulk ledger reset feature flag is disabled.',
+                'error' => 'feature_flag_disabled',
+            ], 403);
+        }
+
+        // P0 Security Guard 3: Elevated Administrator Role Check
+        $user = $request->user() ?? auth('sanctum')->user();
+        if (!$user) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Authentication required.',
+                'error' => 'authentication_required',
+            ], 401);
+        }
+
+        $role = strtolower((string) ($user->role ?? ''));
+        if (!in_array($role, ['admin', 'owner', 'super_admin'], true)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Administrative privileges required for destructive ledger reset.',
+                'error' => 'insufficient_privileges',
+            ], 403);
+        }
+
+        // P0 Security Guard 4: Tenant Boundary Enforcement
+        $effectiveCompany = strtoupper(trim((string) (
+            $request->attributes->get('tenant_company_code') ??
+            \AlamiaSoft\AlamiaAccounts\Services\DomainContext::get() ??
+            ''
+        )));
+
+        $requestedCompany = strtoupper(trim((string) (
+            $request->input('company_code') ??
+            $request->header('X-Company-Code') ??
+            ''
+        )));
+
+        if ($requestedCompany !== '' && $requestedCompany !== $effectiveCompany) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Access denied for the requested company.',
+                'error' => 'company_access_denied',
+            ], 403);
+        }
+
+        // P0 Security Guard 5: Explicit Confirmation Token
+        $confirmationToken = $request->input('confirmation_token');
+        $expectedToken = 'CONFIRM_RESET_' . $effectiveCompany;
+        if ($confirmationToken !== $expectedToken) {
+            return response()->json([
+                'success' => false,
+                'message' => "Invalid confirmation token. You must explicitly pass confirmation_token: '{$expectedToken}'.",
+                'error' => 'invalid_confirmation_token',
+            ], 422);
+        }
+
         try {
-            $companyCode = $request->header('X-Company-Code');
-            $count = $this->voucherService->clearAllTransactions($companyCode);
+            $count = $this->voucherService->clearAllTransactions(
+                $effectiveCompany,
+                $confirmationToken,
+                (string) ($user->id ?? 'admin')
+            );
 
             return response()->json([
                 'success' => true,
-                'message' => "Successfully cleared {$count} transactions for company.",
+                'message' => "Successfully cleared {$count} transactions for company {$effectiveCompany}.",
                 'cleared_count' => $count,
             ], 200);
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
             return response()->json([
                 'success' => false,
                 'message' => $e->getMessage(),
-            ], 500);
+                'error' => 'reset_failed',
+            ], 422);
         }
     }
 }

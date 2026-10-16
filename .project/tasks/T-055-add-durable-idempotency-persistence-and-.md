@@ -1,7 +1,7 @@
 ---
 id: "T-055"
 title: "Add durable idempotency persistence and unique identity constraint"
-status: "in_progress"
+status: "done"
 priority: "high"
 epic: ""
 assigned_to: "agent"
@@ -27,9 +27,9 @@ claimed_by: "agent"
 started_at: "2026-10-16T12:28:54.764Z"
 start_git_commit: "a2730fc"
 start_git_branch: "task/issue-37-idempotency-persistence"
-completed_at: ""
-completed_git_commit: ""
-verification_evidence: "PostingIdempotencyPersistenceTest passing 8/8 assertions; backend full suite passing 58/58 tests; architectural auditor passing 7/7 suites"
+completed_at: "2026-10-16T12:39:24.950Z"
+completed_git_commit: "1e7f688"
+verification_evidence: "PR #46 opened with 8/8 feature tests, 58/58 backend tests, 7/7 architecture suites"
 ---
 
 ## Objective

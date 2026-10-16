@@ -41,10 +41,10 @@ $voucherService = app(\AlamiaSoft\AlamiaAccounts\Services\VoucherService::class)
 foreach (['ALAMIASOFT', 'MAIN'] as $dCode) {
     try {
         \AlamiaSoft\AlamiaAccounts\Services\DomainContext::set($dCode);
-        $domain = \Abivia\Ledger\Models\LedgerDomain::where('code', $dCode)->first();
+        $domain = app(\AlamiaSoft\AlamiaAccounts\Services\CompanyService::class)->getDomain($dCode);
         if ($domain) {
             $domainEntryIds = \AlamiaSoft\AlamiaAccounts\Models\DomainJournalEntry::getEntryIdsForDomain($domain->domainUuid);
-            $existingEntries = \Abivia\Ledger\Models\JournalEntry::whereIn('journalEntryId', $domainEntryIds)
+            $existingEntries = \Illuminate\Support\Facades\DB::table('journal_entries')->whereIn('journalEntryId', $domainEntryIds)
                 ->where(function($q) {
                     $q->where('extra', 'like', '%OB-2026-001%')
                       ->orWhere('extra', 'like', '%SV-2026-112%')
@@ -52,7 +52,7 @@ foreach (['ALAMIASOFT', 'MAIN'] as $dCode) {
                       ->orWhere('extra', 'like', '%GT-RENT-01%');
                 })->get();
             foreach ($existingEntries as $entry) {
-                \Abivia\Ledger\Models\JournalDetail::where('journalEntryId', $entry->journalEntryId)->delete();
+                \Illuminate\Support\Facades\DB::table('journal_details')->where('journalEntryId', $entry->journalEntryId)->delete();
                 \AlamiaSoft\AlamiaAccounts\Models\DomainJournalEntry::where('journalEntryId', $entry->journalEntryId)->delete();
                 $entry->delete();
             }
@@ -1101,7 +1101,7 @@ echo "------------------------------------------------------------------------\n
 echo "Test " . (count($tests) + 31) . " [Ground-Truth Report]: Profit & Loss Net Profit calculation (Revenue 100k - Expense 25k -> 75k Net Profit)\n";
 
 // Seed known test transactions if needed in current domain
-$domain = \Abivia\Ledger\Models\LedgerDomain::where('code', 'MAIN')->first();
+$domain = app(\AlamiaSoft\AlamiaAccounts\Services\CompanyService::class)->getDomain('MAIN');
 if ($domain) {
     \AlamiaSoft\AlamiaAccounts\Services\DomainContext::set('MAIN');
 }
@@ -1165,7 +1165,7 @@ echo "------------------------------------------------------------------------\n
 echo "Test " . (count($tests) + 33) . " [Zero-Total Anomaly Guard]: Empty period report suppresses false 'Mathematically Valid' state\n";
 try {
     $companyService = app(\AlamiaSoft\AlamiaAccounts\Services\CompanyService::class);
-    $emptyDomain = \Abivia\Ledger\Models\LedgerDomain::where('code', 'EMPTY_TEST_COMPANY')->first();
+    $emptyDomain = app(\AlamiaSoft\AlamiaAccounts\Services\CompanyService::class)->getDomain('EMPTY_TEST_COMPANY');
     if (!$emptyDomain) {
         $emptyDomain = $companyService->createCompany('EMPTY_TEST_COMPANY', 'Empty Test Company', ['currency' => 'PKR']);
     }

@@ -1,28 +1,26 @@
-# Architectural Abstraction & Abivia Kernel Encapsulation Rule
+# Alamia Accounts — Abivia Boundary (Hard Rule)
 
-## Mandate & Directive
-All AI agents and developers operating on this repository must strictly obey these architectural boundaries:
+## Non-negotiable contract
 
-1. **Zero Direct Abivia Calls from HTTP Controllers & Feature Layers**:
-   - **NEVER** query or instantiate `\Abivia\Ledger\Models\...` (such as `LedgerDomain`, `LedgerAccount`, `JournalEntry`) directly in HTTP Controllers, Middleware, UI routes, or frontline business logic.
-   - **ALWAYS** access ledger functionality through designated Alamia domain services:
-     - `VoucherService` for vouchers and journal transactions.
-     - `CompanyService` / `DomainContext` for multi-tenant domain and company configurations.
-     - `AccountService` for chart of accounts and subledger lookups.
-     - `ReportService` for trial balance, P&L, balance sheet, and ledgers.
-     - `PeriodService` for fiscal year and accounting period locks.
-     - `OpeningBalanceService` for compound opening balances.
+Client/consumer code must **never** call the Abivia Ledger package directly. Consumers use Alamia Accounts-owned services and contracts. This applies to controllers, middleware, jobs, commands, Copilot/AI adapters, integrations, frontend code, feature tests, end-to-end tests, and manual verification scripts.
 
-2. **Centralized Domain & Company Helpers (DRY Principle)**:
-   - **NEVER** write scattered, ad-hoc database lookups for company settings (e.g. querying currency, domain codes, UUIDs) across multiple files.
-   - **ALWAYS** use centralized context and domain helpers:
-     - `DomainContext::getDefaultCurrency(?string $companyCode = null)` / `CompanyService::getDefaultCurrency()`
-     - `DomainContext::get()` / `DomainContext::getDomain()` / `DomainContext::set()`
-     - `DomainContext::scope($companyCode, fn() => ...)`
+A test for a public Alamia Accounts workflow must enter through the Alamia Accounts public contract. It must not import/query Abivia models or call Abivia services to arrange, execute, or assert the workflow. Use Alamia-owned services for operations and Alamia-owned read-only contracts or narrow persistence assertions for verification.
 
-3. **Authentication & Authorization Boundary**:
-   - Authentication and tenant boundary checks belong strictly at the HTTP middleware pipeline (`AuthenticateSalesOrSanctum`, `auth:sanctum`), never embedded inside core accounting domain services.
+## Allowed internal boundary
 
-4. **Automated Architectural Conformance Verification**:
-   - Run `node scripts/verify-architecture.js` to automatically audit the codebase against these encapsulation rules, detect direct Abivia model imports, hardcoded account heuristics, and shadowed workspace drift.
+The current internal integration boundary is an explicit file-level allowlist in `scripts/abivia-boundary.js`. Do not add a directory-wide exemption. The approved files are existing Alamia-owned ledger/domain services and two Alamia-owned ORM relationship models that map to Abivia domain identity. Any new Abivia reference outside those files is a violation until reviewed and explicitly approved.
 
+Direct Abivia access in tests is permitted only under `AlamiaAccounts-Backend/packages/AlamiaSoft/alamia-accounts/tests/Adapters/Abivia/`, and only when the test specifically validates the Abivia adapter boundary. Such tests do not replace public-contract tests. Do not create a generic adapter-test exception or rename ordinary feature tests to evade the rule.
+
+## Automated enforcement
+
+- `node scripts/test-abivia-boundary.js` must pass. It contains negative fixtures proving that consumer imports, fully qualified model calls, and non-model package APIs fail the scanner, plus positive fixtures for the narrow approved boundary.
+- `node scripts/verify-architecture.js` must pass before a task can be considered verified.
+- CI must run the scanner tests and repository-wide architecture audit when backend/frontend code, scripts, these rules, or the workflow changes.
+- The scanner reports file and line for every violation. Do not weaken the pattern, broaden the allowlist, or suppress an entire test suite to obtain green CI.
+- Comments/documentation mentioning Abivia are not code dependencies and should not trigger the scanner.
+- A green result means only that the automated checks passed; it does not replace human architecture review.
+
+## Required behavior when a capability is missing
+
+Add or extend an Alamia Accounts-owned service/contract. Do not bypass the boundary for convenience, even in tests. Before adding an exception, explain why the operation is truly part of the internal integration adapter and add a focused positive/negative test for that exception.

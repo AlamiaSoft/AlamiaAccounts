@@ -23,8 +23,9 @@ DomainContext::set('KAMAL_EXPRESS');
 $vouchersBefore = $voucherService->getVouchers();
 echo " [INFO] Found " . count($vouchersBefore) . " vouchers before clearing.\n";
 
-// 2. Perform Clear All Transactions
-$clearedCount = $voucherService->clearAllTransactions('KAMAL_EXPRESS');
+// 2. Perform Clear All Transactions (Non-production with explicit confirmation)
+config(['alamia-accounts.allow_destructive_reset' => true]);
+$clearedCount = $voucherService->clearAllTransactions('KAMAL_EXPRESS', 'CONFIRM_RESET_KAMAL_EXPRESS', 'test_runner');
 echo " [PASS] Cleared {$clearedCount} transactions.\n";
 
 // 3. Verify zero vouchers remain

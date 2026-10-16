@@ -47,7 +47,10 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::apiResource('accounts', AccountController::class);
         
         // Vouchers
-        // Bulk ledger reset is intentionally not exposed through the application API.
+        // Destructive bulk ledger reset is strictly excluded from production and requires explicit feature flag.
+        if (!app()->environment('production') && config('alamia-accounts.allow_destructive_reset', false)) {
+            Route::post('/vouchers/clear-all', [VoucherController::class, 'clearAll']);
+        }
         Route::post('/vouchers/{reference}/reverse', [VoucherController::class, 'reverse']);
         Route::apiResource('vouchers', VoucherController::class);
         

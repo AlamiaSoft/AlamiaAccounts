@@ -4,10 +4,18 @@ on:
   push:
     paths:
       - 'AlamiaAccounts-Backend/**'
+      - 'AlamiaAccounts-Frontend/**'
+      - 'scripts/**'
+      - 'AGENTS.md'
+      - '.agents/**'
       - '.github/workflows/alamia-accounts-ci.yml'
   pull_request:
     paths:
       - 'AlamiaAccounts-Backend/**'
+      - 'AlamiaAccounts-Frontend/**'
+      - 'scripts/**'
+      - 'AGENTS.md'
+      - '.agents/**'
       - '.github/workflows/alamia-accounts-ci.yml'
   workflow_dispatch:
 
@@ -47,6 +55,9 @@ jobs:
 
       - name: Audit Composer dependencies
         run: composer audit --no-interaction --abandoned=report
+
+      - name: Test Abivia boundary scanner (negative and allowlist fixtures)
+        run: node ../scripts/test-abivia-boundary.js
 
       - name: Check repository architecture
         run: node ../scripts/verify-architecture.js

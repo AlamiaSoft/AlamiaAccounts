@@ -10,6 +10,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { scanAbiviaBoundary } = require('./abivia-boundary');
 
 const ROOT_DIR = path.resolve(__dirname, '..');
 const BACKEND_DIR = path.join(ROOT_DIR, 'AlamiaAccounts-Backend');
@@ -78,49 +79,33 @@ function walkDir(dir, filterExts = ['.php', '.ts', '.tsx', '.js'], excludeDirs =
 }
 
 // ----------------------------------------------------------------------------
-// SUITE 1: Abivia Ledger Kernel Encapsulation (AGENTS.md Rule 8 & .agents/rules)
+// SUITE 1: Repository-wide Abivia Package Boundary
 // ----------------------------------------------------------------------------
 function checkAbiviaEncapsulation() {
     totalChecks++;
-    logHeader('SUITE 1: Abivia Ledger Kernel Encapsulation (AGENTS.md Rule 8)');
+    logHeader('SUITE 1: Repository-wide Abivia Package Boundary');
 
-    const controllerDirs = [
-        path.join(BACKEND_DIR, 'app', 'Http', 'Controllers'),
-        path.join(PACKAGE_DIR, 'src', 'Http', 'Controllers')
-    ];
-
-    let filesToScan = [];
-    for (const cDir of controllerDirs) {
-        filesToScan = filesToScan.concat(walkDir(cDir, ['.php']));
-    }
-    // Also include Frontend files
-    filesToScan = filesToScan.concat(walkDir(FRONTEND_DIR, ['.ts', '.tsx', '.js']));
-
+    const result = scanAbiviaBoundary(ROOT_DIR);
     let violationsInSuite = 0;
-    const forbiddenPattern = /(use\s+Abivia\\Ledger\\Models|\\Abivia\\Ledger\\Models\\)/i;
 
-    for (const file of filesToScan) {
-        const content = fs.readFileSync(file, 'utf8');
-        const lines = content.split('\n');
+    console.log(`  Files scanned: ${result.filesScanned}`);
+    console.log(`  Approved internal references: ${result.approvedReferences.length}`);
 
-        lines.forEach((lineText, idx) => {
-            if (forbiddenPattern.test(lineText)) {
-                violationsInSuite++;
-                recordViolation(
-                    'Abivia-Encapsulation',
-                    file,
-                    idx + 1,
-                    'Direct access/import of Abivia Ledger Models is forbidden in HTTP Controllers and UI.',
-                    lineText,
-                    'Delegate all ledger queries and domain operations to Alamia Domain Services (VoucherService, AccountService, CompanyService).'
-                );
-            }
-        });
+    for (const finding of result.violations) {
+        violationsInSuite++;
+        recordViolation(
+            'Abivia-Encapsulation',
+            path.join(ROOT_DIR, finding.file),
+            finding.line,
+            finding.message,
+            finding.snippet,
+            'Use an Alamia Accounts-owned service/contract. Direct Abivia access is allowed only in explicitly approved internal integration files or dedicated tests under tests/Adapters/Abivia/.'
+        );
     }
 
     if (violationsInSuite === 0) {
         passedChecks++;
-        console.log(`  ${colors.green}✔ PASS${colors.reset}: All ${filesToScan.length} controllers and UI files strictly respect Abivia kernel encapsulation.`);
+        console.log(`  ${colors.green}✔ PASS${colors.reset}: No direct Abivia references found outside the approved integration boundary.`);
     }
 }
 

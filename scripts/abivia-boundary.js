@@ -80,7 +80,13 @@ function isApprovedPath(relativePath, approvedProductionFiles, approvedAdapterTe
 
 function scanAbiviaBoundary(rootDir, options = {}) {
     const roots = options.roots || [
-        'AlamiaAccounts-Backend',
+        'AlamiaAccounts-Backend/app',
+        'AlamiaAccounts-Backend/bootstrap',
+        'AlamiaAccounts-Backend/config',
+        'AlamiaAccounts-Backend/routes',
+        'AlamiaAccounts-Backend/packages/AlamiaSoft/alamia-accounts/src',
+        'AlamiaAccounts-Backend/packages/AlamiaSoft/alamia-accounts/tests',
+        'AlamiaAccounts-Backend/tests',
         'AlamiaAccounts-Frontend',
         'scripts',
     ];

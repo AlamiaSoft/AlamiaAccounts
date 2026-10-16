@@ -14,7 +14,7 @@ use Abivia\Ledger\Models\LedgerDomain;
  */
 class DomainJournalEntry extends Model
 {
-    protected $fillable = ['domainUuid', 'journalEntryId'];
+    protected $fillable = ['domainUuid', 'journalEntryId', 'reference'];
 
     /**
      * Get the domain that owns this association.

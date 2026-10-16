@@ -55,7 +55,7 @@ class EnforceCompanyContext
         }
 
         $effectiveCompany = $targetCompany;
-        $domain = LedgerDomain::where('code', $effectiveCompany)->first();
+        $domain = app(CompanyService::class)->getDomain($effectiveCompany);
         if (!$domain) {
             return response()->json([
                 'success' => false,

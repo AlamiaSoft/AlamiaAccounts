@@ -2,8 +2,7 @@
 
 namespace AlamiaSoft\AlamiaAccounts\Tests\Feature;
 
-use Abivia\Ledger\Models\JournalEntry;
-use Abivia\Ledger\Models\LedgerDomain;
+use AlamiaSoft\AlamiaAccounts\Services\CompanyService;
 use AlamiaSoft\AlamiaAccounts\Exceptions\IdempotencyPayloadMismatchException;
 use AlamiaSoft\AlamiaAccounts\Models\AccountingAuditTrail;
 use AlamiaSoft\AlamiaAccounts\Models\DomainJournalEntry;
@@ -32,7 +31,7 @@ class ExpenseIdempotencySequentialReplayTest extends TestCase
 
     protected function getDomainUuid(string $code): string
     {
-        $domain = LedgerDomain::where('code', $code)->first();
+        $domain = app(CompanyService::class)->getDomain($code);
         if (!$domain) {
             throw new \RuntimeException("Domain {$code} not found");
         }

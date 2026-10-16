@@ -3,9 +3,9 @@
 namespace AlamiaSoft\AlamiaAccounts\Console\Commands;
 
 use Illuminate\Console\Command;
-use Abivia\Ledger\Models\LedgerAccount;
-use Abivia\Ledger\Models\LedgerDomain;
-use App\Services\Accounting\TallyAccountingService;
+use AlamiaSoft\AlamiaAccounts\Services\AccountService;
+use AlamiaSoft\AlamiaAccounts\Services\CompanyService;
+use AlamiaSoft\AlamiaAccounts\Services\DomainContext;
 
 class TestLedger extends Command
 {

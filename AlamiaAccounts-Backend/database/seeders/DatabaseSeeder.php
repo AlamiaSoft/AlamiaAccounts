@@ -15,16 +15,16 @@ class DatabaseSeeder extends Seeder
     {
         // User::factory(10)->create();
 
-        \App\Models\User::firstOrCreate(
-            ['email' => 'admin@admin.com'],
-            [
-                'name' => 'Ali',
-                'password' => bcrypt('password'),
-                'role' => 'admin',
-                'status' => 'active',
-                'company_code' => 'MAIN',
-            ]
-        );
+        $admin = \App\Models\User::firstOrNew(['email' => 'admin@admin.com']);
+        $admin->fill([
+            'name' => 'Ali',
+            'password' => bcrypt('password'),
+            'role' => 'admin',
+            'status' => 'active',
+        ]);
+        $admin->company_code = 'MAIN';
+        $admin->allowed_companies = ['*'];
+        $admin->save();
 
         $this->call([
             \AlamiaSoft\AlamiaAccounts\Database\Seeders\LedgerInitializationSeeder::class,

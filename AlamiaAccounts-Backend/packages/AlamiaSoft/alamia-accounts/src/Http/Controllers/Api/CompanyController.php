@@ -43,6 +43,10 @@ class CompanyController extends Controller
     public function index()
     {
         $companies = $this->companyService->listCompanies();
+        $user = request()->user() ?? auth('sanctum')->user();
+        if ($user && method_exists($user, 'canAccessCompany')) {
+            $companies = $companies->filter(fn($c) => $user->canAccessCompany($c->code))->values();
+        }
         
         return response()->json([
             'data' => $companies->map(function($company) {
@@ -274,13 +278,13 @@ class CompanyController extends Controller
             return response()->json(['message' => 'Company not found'], 404);
         }
 
-        $user = $request->user();
+        $user = $request->user() ?? auth('sanctum')->user();
         if ($user) {
-            $role = strtolower((string)($user->role ?? 'staff'));
-            $isAdmin = in_array($role, ['admin', 'owner', 'lead_accountant'], true);
-            $userCompany = strtoupper(trim((string)($user->company_code ?? '')));
+            $hasAccess = method_exists($user, 'canAccessCompany')
+                ? $user->canAccessCompany($targetCode)
+                : (in_array(strtolower((string)($user->role ?? '')), ['admin', 'owner', 'lead_accountant', 'super_admin'], true) || ($user->company_code ?? '') === $targetCode);
 
-            if (!$isAdmin && $userCompany !== '' && $userCompany !== $targetCode) {
+            if (!$hasAccess) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Access denied for the requested company.',
@@ -288,7 +292,7 @@ class CompanyController extends Controller
                 ], 403);
             }
 
-            if (isset($user->company_code)) {
+            if (isset($user->company_code) || property_exists($user, 'company_code')) {
                 $user->company_code = $targetCode;
                 $user->save();
             }

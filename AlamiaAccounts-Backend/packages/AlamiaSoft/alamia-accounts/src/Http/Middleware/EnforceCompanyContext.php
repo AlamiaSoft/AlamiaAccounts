@@ -24,15 +24,6 @@ class EnforceCompanyContext
             ], 401);
         }
 
-        $userCompany = strtoupper(trim((string) ($user->company_code ?? '')));
-        if ($userCompany === '') {
-            return response()->json([
-                'success' => false,
-                'message' => 'No company is assigned to this account.',
-                'error' => 'user_company_unassigned',
-            ], 403);
-        }
-
         $requestedCompany = strtoupper(trim(
             $request->header('X-Company-Code') ??
             $request->input('company_code') ??
@@ -40,7 +31,22 @@ class EnforceCompanyContext
             ''
         ));
 
-        if ($requestedCompany !== '' && $userCompany !== $requestedCompany) {
+        $userCompany = strtoupper(trim((string) ($user->company_code ?? '')));
+        $targetCompany = $requestedCompany !== '' ? $requestedCompany : $userCompany;
+
+        if ($targetCompany === '') {
+            return response()->json([
+                'success' => false,
+                'message' => 'No company is assigned or selected for this account.',
+                'error' => 'user_company_unassigned',
+            ], 403);
+        }
+
+        $hasAccess = method_exists($user, 'canAccessCompany')
+            ? $user->canAccessCompany($targetCompany)
+            : ($userCompany === $targetCompany);
+
+        if (!$hasAccess) {
             return response()->json([
                 'success' => false,
                 'message' => 'Access denied for the requested company.',
@@ -48,7 +54,7 @@ class EnforceCompanyContext
             ], 403);
         }
 
-        $effectiveCompany = $userCompany;
+        $effectiveCompany = $targetCompany;
         $domain = LedgerDomain::where('code', $effectiveCompany)->first();
         if (!$domain) {
             return response()->json([

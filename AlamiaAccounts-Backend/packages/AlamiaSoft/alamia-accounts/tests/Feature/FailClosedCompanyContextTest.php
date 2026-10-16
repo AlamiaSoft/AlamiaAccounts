@@ -27,7 +27,7 @@ class FailClosedCompanyContextTest extends TestCase
         DomainContext::reset();
     }
 
-    protected function makeUser(string $companyCode = 'MAIN', string $role = 'staff'): User
+    protected function makeUser(string $companyCode = 'MAIN', string $role = 'staff', ?array $allowedCompanies = null): User
     {
         $user = new User();
         $user->forceFill([
@@ -37,6 +37,7 @@ class FailClosedCompanyContextTest extends TestCase
             'role' => $role,
             'status' => 'active',
             'company_code' => $companyCode,
+            'allowed_companies' => $allowedCompanies,
         ]);
         $user->exists = true;
 
@@ -270,5 +271,157 @@ class FailClosedCompanyContextTest extends TestCase
         // 3. Can read trial balance
         $this->getJson('/api/reports/trial-balance?as_of_date=2026-10-16&currency=PKR')
             ->assertOk();
+    }
+
+    public function test_company_code_and_allowed_companies_are_not_mass_assignable(): void
+    {
+        $user = new User([
+            'name' => 'Test User',
+            'email' => 'test@example.com',
+            'company_code' => 'MAIN',
+            'allowed_companies' => ['*'],
+        ]);
+
+        $this->assertNull($user->company_code, 'company_code must not be mass-assignable via fill/constructor');
+        $this->assertNull($user->allowed_companies, 'allowed_companies must not be mass-assignable via fill/constructor');
+
+        $user->fill([
+            'company_code' => 'KAMAL_EXPRESS',
+            'allowed_companies' => ['MAIN'],
+        ]);
+
+        $this->assertNull($user->company_code, 'company_code must not be mass-assignable via fill()');
+        $this->assertNull($user->allowed_companies, 'allowed_companies must not be mass-assignable via fill()');
+    }
+
+    public function test_ordinary_user_update_endpoint_cannot_alter_company_assignment(): void
+    {
+        $targetUser = new User();
+        $targetUser->name = 'Staff Member';
+        $targetUser->email = 'staff_' . uniqid() . '@example.invalid';
+        $targetUser->password = bcrypt('password');
+        $targetUser->role = 'viewer';
+        $targetUser->status = 'active';
+        $targetUser->company_code = 'KAMAL_EXPRESS';
+        $targetUser->allowed_companies = ['KAMAL_EXPRESS'];
+        $targetUser->save();
+
+        $adminUser = $this->makeUser('MAIN', 'admin');
+        Sanctum::actingAs($adminUser);
+
+        // Attempt to update target user and smuggle company_code and allowed_companies
+        $response = $this->putJson("/api/users/{$targetUser->id}", [
+            'name' => 'Updated Staff Name',
+            'company_code' => 'MAIN',
+            'allowed_companies' => ['*'],
+        ]);
+
+        $response->assertOk();
+        $targetUser->refresh();
+
+        $this->assertEquals('Updated Staff Name', $targetUser->name);
+        $this->assertEquals('KAMAL_EXPRESS', $targetUser->company_code, 'Target user company_code must remain unchanged');
+        $this->assertEquals(['KAMAL_EXPRESS'], $targetUser->allowed_companies, 'Target user allowed_companies must remain unchanged');
+    }
+
+    public function test_multi_company_authorized_user_can_access_any_permitted_company_via_header(): void
+    {
+        // User assigned to MAIN, with authorization for both MAIN and KAMAL_EXPRESS
+        $multiUser = $this->makeUser('MAIN', 'staff', ['MAIN', 'KAMAL_EXPRESS']);
+        Sanctum::actingAs($multiUser);
+
+        // 1. Default request uses selected company (MAIN)
+        $this->getJson('/api/accounts')
+            ->assertOk();
+
+        // 2. Explicit header selects permitted company (KAMAL_EXPRESS)
+        $this->withHeader('X-Company-Code', 'KAMAL_EXPRESS')
+            ->getJson('/api/accounts')
+            ->assertOk();
+    }
+
+    public function test_multi_company_authorized_user_is_denied_access_to_unpermitted_company(): void
+    {
+        // User authorized only for MAIN and KAMAL_EXPRESS
+        $multiUser = $this->makeUser('MAIN', 'staff', ['MAIN', 'KAMAL_EXPRESS']);
+        Sanctum::actingAs($multiUser);
+
+        // Attempt to access unpermitted company domain
+        $this->withHeader('X-Company-Code', 'UNAUTHORIZED_CORP')
+            ->getJson('/api/accounts')
+            ->assertForbidden()
+            ->assertJsonPath('error', 'company_access_denied');
+    }
+
+    public function test_multi_company_user_can_switch_active_company_via_switch_endpoint(): void
+    {
+        $user = new User();
+        $user->name = 'Multi Tenant Accountant';
+        $user->email = 'accountant_' . uniqid() . '@example.invalid';
+        $user->password = bcrypt('password');
+        $user->role = 'accountant';
+        $user->status = 'active';
+        $user->company_code = 'MAIN';
+        $user->allowed_companies = ['MAIN', 'KAMAL_EXPRESS'];
+        $user->save();
+
+        Sanctum::actingAs($user);
+
+        // 1. Switch to authorized company KAMAL_EXPRESS
+        $switchRes = $this->postJson('/api/companies/KAMAL_EXPRESS/switch');
+        $switchRes->assertOk()
+            ->assertJsonPath('current_company', 'KAMAL_EXPRESS');
+
+        $user->refresh();
+        $this->assertEquals('KAMAL_EXPRESS', $user->company_code);
+
+        // 2. Next request without headers defaults to the newly selected company (KAMAL_EXPRESS)
+        $this->getJson('/api/accounts')
+            ->assertOk();
+    }
+
+    public function test_single_tenant_user_cannot_switch_to_another_company(): void
+    {
+        $singleUser = new User();
+        $singleUser->name = 'Single Company Clerk';
+        $singleUser->email = 'single_' . uniqid() . '@example.invalid';
+        $singleUser->password = bcrypt('password');
+        $singleUser->role = 'accountant';
+        $singleUser->status = 'active';
+        $singleUser->company_code = 'MAIN';
+        $singleUser->allowed_companies = null;
+        $singleUser->save();
+
+        Sanctum::actingAs($singleUser);
+
+        $switchRes = $this->postJson('/api/companies/KAMAL_EXPRESS/switch');
+        $switchRes->assertForbidden()
+            ->assertJsonPath('error', 'company_access_denied');
+
+        $singleUser->refresh();
+        $this->assertEquals('MAIN', $singleUser->company_code);
+    }
+
+    public function test_company_index_returns_only_authorized_companies_for_user(): void
+    {
+        // 1. Scoped user authorized only for KAMAL_EXPRESS
+        $scopedUser = $this->makeUser('KAMAL_EXPRESS', 'staff', ['KAMAL_EXPRESS']);
+        Sanctum::actingAs($scopedUser);
+
+        $res = $this->getJson('/api/companies');
+        $res->assertOk();
+        $codes = collect($res->json('data'))->pluck('code')->all();
+        $this->assertContains('KAMAL_EXPRESS', $codes);
+        $this->assertNotContains('MAIN', $codes);
+
+        // 2. Admin user sees all companies
+        $adminUser = $this->makeUser('MAIN', 'admin');
+        Sanctum::actingAs($adminUser);
+
+        $adminRes = $this->getJson('/api/companies');
+        $adminRes->assertOk();
+        $adminCodes = collect($adminRes->json('data'))->pluck('code')->all();
+        $this->assertContains('MAIN', $adminCodes);
+        $this->assertContains('KAMAL_EXPRESS', $adminCodes);
     }
 }

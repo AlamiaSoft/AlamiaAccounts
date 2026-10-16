@@ -15,6 +15,9 @@ return new class extends Migration
             if (!Schema::hasColumn('users', 'company_code')) {
                 $table->string('company_code', 50)->nullable()->after('role')->index();
             }
+            if (!Schema::hasColumn('users', 'allowed_companies')) {
+                $table->json('allowed_companies')->nullable()->after('company_code');
+            }
         });
     }
 
@@ -24,6 +27,9 @@ return new class extends Migration
     public function down(): void
     {
         Schema::table('users', function (Blueprint $table) {
+            if (Schema::hasColumn('users', 'allowed_companies')) {
+                $table->dropColumn('allowed_companies');
+            }
             if (Schema::hasColumn('users', 'company_code')) {
                 $table->dropColumn('company_code');
             }

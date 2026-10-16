@@ -22,6 +22,7 @@ auth.json
 # Dependencies
 **/node_modules/
 **/vendor/
+!Alamia-Skills-System/vendor/
 
 # Build & Cache
 **/.next/

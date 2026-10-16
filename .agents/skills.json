@@ -8,6 +8,12 @@
     },
     {
       "path": "E:/Alamia/Alamia-Skills-System/vendor/agent-pm/.agents/skills/agent-pm"
+    },
+    {
+      "path": "E:/Alamia/Alamia-Skills-System/skills/dag-task-planning"
+    },
+    {
+      "path": "E:/Alamia/Alamia-Skills-System/skills/persistent-operational-tooling"
     }
   ]
 }

@@ -1,7 +1,7 @@
 ---
 id: "T-054"
 title: "Specify durable posting identity and replay contract"
-status: "in_progress"
+status: "done"
 priority: "high"
 epic: ""
 assigned_to: "agent"
@@ -24,9 +24,9 @@ claimed_by: "agent"
 started_at: "2026-10-16T11:29:38.265Z"
 start_git_commit: "35f51ce"
 start_git_branch: "task/issue-36-posting-identity-contract"
-completed_at: ""
-completed_git_commit: ""
-verification_evidence: "ADR-008 published at docs/adr/ADR-008-durable-posting-identity-and-replay-contract.md; PR #44 under active review; 7/7 architectural suites and 50/50 backend tests passing"
+completed_at: "2026-10-16T12:39:17.913Z"
+completed_git_commit: "1e7f688"
+verification_evidence: "PR #44 merged to main (a2730fc)"
 ---
 
 ## Objective

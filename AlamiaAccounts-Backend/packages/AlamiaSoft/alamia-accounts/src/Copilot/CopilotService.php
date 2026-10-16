@@ -6,8 +6,6 @@ use Alamia360\Actors\Actor;
 use Alamia360\Facades\Alamia360;
 use AlamiaSoft\AlamiaAccounts\Services\DomainContext;
 use AlamiaSoft\AlamiaAccounts\Services\SearchService;
-use Abivia\Ledger\Models\LedgerDomain;
-use Abivia\Ledger\Models\LedgerAccount;
 use Carbon\Carbon;
 
 class CopilotService

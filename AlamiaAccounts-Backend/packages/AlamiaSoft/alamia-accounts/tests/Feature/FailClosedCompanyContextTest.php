@@ -2,7 +2,6 @@
 
 namespace AlamiaSoft\AlamiaAccounts\Tests\Feature;
 
-use Abivia\Ledger\Models\LedgerDomain;
 use AlamiaSoft\AlamiaAccounts\Services\AccountService;
 use AlamiaSoft\AlamiaAccounts\Services\DomainContext;
 use AlamiaSoft\AlamiaAccounts\Services\ExpenseIntegrationService;

@@ -75,4 +75,24 @@ class SalesApprovalAuthorizationTest extends TestCase
             ->assertJsonPath('error', 'company_context_required');
     }
 
+    public function test_staff_cannot_select_another_company_for_sale_details(): void
+    {
+        $this->actingAsStaffInCompany();
+
+        $this->withHeader('X-Company-Code', 'OTHER_COMPANY')
+            ->getJson('/api/v1/sales/123')
+            ->assertForbidden()
+            ->assertJsonPath('error', 'company_access_denied');
+    }
+
+    public function test_staff_cannot_select_another_company_for_receipt_printing(): void
+    {
+        $this->actingAsStaffInCompany();
+
+        $this->withHeader('X-Company-Code', 'OTHER_COMPANY')
+            ->get('/api/v1/receipts/123/print')
+            ->assertForbidden()
+            ->assertJsonPath('error', 'company_access_denied');
+    }
+
 }

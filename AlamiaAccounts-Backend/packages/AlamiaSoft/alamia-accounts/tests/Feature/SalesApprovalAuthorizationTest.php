@@ -1,10 +1,10 @@
 <?php
 
-namespace AlamiaSoft\AlamiaAccounts\Tests\Feature;
+namespace AlamiaSoft\\AlamiaAccounts\\Tests\\Feature;
 
-use App\Models\User;
-use Laravel\Sanctum\Sanctum;
-use Tests\TestCase;
+use App\\Models\\User;
+use Laravel\\Sanctum\\Sanctum;
+use Tests\\TestCase;
 
 class SalesApprovalAuthorizationTest extends TestCase
 {
@@ -50,4 +50,49 @@ class SalesApprovalAuthorizationTest extends TestCase
         $response->assertForbidden()
             ->assertJsonPath('error', 'company_context_required');
     }
+
+    public function test_sale_details_require_an_authorized_company_context(): void
+    {
+        $this->withoutMiddleware()
+            ->getJson('/api/v1/sales/123')
+            ->assertForbidden()
+            ->assertJsonPath('error', 'company_context_required');
+    }
+
+    public function test_receipt_printing_requires_an_authorized_company_context(): void
+    {
+        $response = $this->withoutMiddleware()
+            ->get('/api/v1/receipts/123/print');
+
+        $this->assertSame(403, $response->getStatusCode());
+        $this->assertSame('An authorized company context is required.', $response->getContent());
+    }
+    public function test_reconciliation_requires_trusted_company_context_even_if_request_supplies_company_code(): void
+    {
+        $this->withoutMiddleware()
+            ->postJson('/api/v1/sales/reconcile', ['company_code' => 'OTHER_COMPANY'])
+            ->assertForbidden()
+            ->assertJsonPath('error', 'company_context_required');
+    }
+
+    public function test_staff_cannot_select_another_company_for_sale_details(): void
+    {
+        $this->actingAsStaffInCompany();
+
+        $this->withHeader('X-Company-Code', 'OTHER_COMPANY')
+            ->getJson('/api/v1/sales/123')
+            ->assertForbidden()
+            ->assertJsonPath('error', 'company_access_denied');
+    }
+
+    public function test_staff_cannot_select_another_company_for_receipt_printing(): void
+    {
+        $this->actingAsStaffInCompany();
+
+        $this->withHeader('X-Company-Code', 'OTHER_COMPANY')
+            ->get('/api/v1/receipts/123/print')
+            ->assertForbidden()
+            ->assertJsonPath('error', 'company_access_denied');
+    }
+
 }

@@ -201,7 +201,10 @@ class SalesIntegrationController extends Controller
      */
     public function reconcileShift(Request $request): JsonResponse
     {
-        $companyCode = $request->attributes->get('tenant_company_code') ?? $request->input('company_code') ?? 'MAIN';
+        $companyCode = $request->attributes->get('tenant_company_code');
+        if (!$companyCode) {
+            return response()->json(['success' => false, 'error' => 'company_context_required'], 403);
+        }
         $user = $request->user();
         $userId = $user ? (string) $user->id : ($request->input('agent_id') ?? null);
         $date = $request->input('date') ?? date('Y-m-d');

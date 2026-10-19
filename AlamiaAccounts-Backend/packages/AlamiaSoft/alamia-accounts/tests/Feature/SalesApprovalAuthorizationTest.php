@@ -67,4 +67,12 @@ class SalesApprovalAuthorizationTest extends TestCase
         $this->assertSame(403, $response->getStatusCode());
         $this->assertSame('An authorized company context is required.', $response->getContent());
     }
+    public function test_reconciliation_requires_trusted_company_context_even_if_request_supplies_company_code(): void
+    {
+        $this->withoutMiddleware()
+            ->postJson('/api/v1/sales/reconcile', ['company_code' => 'OTHER_COMPANY'])
+            ->assertForbidden()
+            ->assertJsonPath('error', 'company_context_required');
+    }
+
 }

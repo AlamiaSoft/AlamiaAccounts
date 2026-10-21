@@ -3,6 +3,8 @@
 namespace AlamiaSoft\AlamiaAccounts\Services;
 
 use AlamiaSoft\AlamiaAccounts\Exceptions\IdempotencyPayloadMismatchException;
+use AlamiaSoft\AlamiaAccounts\Exceptions\ConcurrentPostingInProgressException;
+use AlamiaSoft\AlamiaAccounts\Exceptions\IdempotencyLeaseFencingException;
 use AlamiaSoft\AlamiaAccounts\Models\AccountingAuditTrail;
 use AlamiaSoft\AlamiaAccounts\Models\PostingIdempotencyRecord;
 use AlamiaSoft\AlamiaAccounts\Models\UnpostedIntegrationEntry;
@@ -96,92 +98,80 @@ class ExpenseIntegrationService
                 ]
             );
 
-            // 3. Durable Idempotency Check (Zero SQL LIKE Scans)
-            $existingRecord = $this->idempotencyService->findExistingRecord(
-                $domainUuid,
-                $idempotencyKey,
-                $canonicalIdentity
+            // 3. Concurrency-Safe Durable Idempotency Reservation
+            $reservation = $this->idempotencyService->acquireReservation(
+                $canonicalIdentity,
+                $payloadHash,
+                $payload
             );
 
-            if ($existingRecord) {
-                $eval = $this->idempotencyService->evaluateReplay($existingRecord, $payloadHash);
+            if ($reservation['status'] === 'replay') {
+                // Valid identical sequential replay: return original committed posting without creating a second entry
+                UnpostedIntegrationEntry::where('idempotency_key', $idempotencyKey)
+                    ->where('status', 'failed')
+                    ->update([
+                        'status' => 'resolved',
+                        'resolved_voucher_ref' => (string)($reservation['record']->journal_entry_id ?? $reservation['record']->voucher_reference),
+                        'resolved_at' => now(),
+                    ]);
 
-                if ($eval['action'] === 'replay') {
-                    // Valid identical sequential replay: return original committed posting without creating a second entry
-                    UnpostedIntegrationEntry::where('idempotency_key', $idempotencyKey)
-                        ->where('status', 'failed')
-                        ->update([
-                            'status' => 'resolved',
-                            'resolved_voucher_ref' => (string)($existingRecord->journal_entry_id ?? $existingRecord->voucher_reference),
-                            'resolved_at' => now(),
-                        ]);
+                $cachedResponse = $reservation['response'] ?? $reservation['record']->response_data ?? [];
+                return array_merge([
+                    'status' => 'posted',
+                    'is_idempotent_replay' => true,
+                    'voucher_reference' => $reservation['record']->voucher_reference ?? $reference,
+                    'journal_entry_id' => $reservation['record']->journal_entry_id,
+                    'debit_account' => $debitAccountCode,
+                    'credit_account' => $creditAccountCode,
+                    'amount' => $amount,
+                    'message' => 'Expense voucher already committed (Idempotent replay).',
+                ], $cachedResponse, ['is_idempotent_replay' => true]);
+            }
 
-                    $cachedResponse = $existingRecord->response_data ?? [];
-                    return array_merge([
-                        'status' => 'posted',
-                        'is_idempotent_replay' => true,
-                        'voucher_reference' => $existingRecord->voucher_reference ?? $reference,
-                        'journal_entry_id' => $existingRecord->journal_entry_id,
-                        'debit_account' => $debitAccountCode,
-                        'credit_account' => $creditAccountCode,
-                        'amount' => $amount,
-                        'message' => 'Expense voucher already committed (Idempotent replay).',
-                    ], $cachedResponse, ['is_idempotent_replay' => true]);
-                }
-
-                if ($eval['action'] === 'conflict') {
-                    // Conflicting payload fingerprint under same identity: reject and audit as a security/conflict violation
-                    if (class_exists(AccountingAuditTrail::class)) {
-                        AccountingAuditTrail::record(
-                            $domainUuid,
-                            'IDEMPOTENCY_PAYLOAD_MISMATCH',
-                            'expense_voucher',
-                            $reference,
-                            [
-                                'error' => "Idempotency key '{$idempotencyKey}' reused with conflicting payload",
-                                'idempotency_key' => $idempotencyKey,
-                                'original_payload_hash' => $existingRecord->payload_hash,
-                                'attempted_payload_hash' => $payloadHash,
-                                'original_voucher_ref' => $existingRecord->voucher_reference,
-                                'original_journal_entry_id' => $existingRecord->journal_entry_id,
-                                'attempted_payload' => $payload,
-                            ],
-                            $userId,
-                            $userName
-                        );
-                    }
-
-                    throw new IdempotencyPayloadMismatchException(
-                        $idempotencyKey,
-                        $existingRecord->payload_hash,
-                        $payloadHash,
+            if ($reservation['status'] === 'conflict') {
+                $existingRecord = $reservation['record'];
+                // Conflicting payload fingerprint under same identity: reject and audit as a security/conflict violation
+                if (class_exists(AccountingAuditTrail::class)) {
+                    AccountingAuditTrail::record(
                         $domainUuid,
-                        $companyCode,
-                        $reference
+                        'IDEMPOTENCY_PAYLOAD_MISMATCH',
+                        'expense_voucher',
+                        $reference,
+                        [
+                            'error' => "Idempotency key '{$idempotencyKey}' reused with conflicting payload",
+                            'idempotency_key' => $idempotencyKey,
+                            'original_payload_hash' => $existingRecord->payload_hash,
+                            'attempted_payload_hash' => $payloadHash,
+                            'original_voucher_ref' => $existingRecord->voucher_reference,
+                            'original_journal_entry_id' => $existingRecord->journal_entry_id,
+                            'attempted_payload' => $payload,
+                        ],
+                        $userId,
+                        $userName
                     );
                 }
-            }
 
-            // 4. Pre-reserve or Re-reserve Idempotency Record (status: 'in_flight')
-            $idempotencyRecord = null;
-            if ($existingRecord && $existingRecord->status === 'failed') {
-                $existingRecord->update([
-                    'status' => 'in_flight',
-                    'payload_hash' => $payloadHash,
-                    'request_payload' => $payload,
-                    'lease_token' => (string) Str::uuid(),
-                    'lease_generation' => $existingRecord->lease_generation + 1,
-                    'lease_expires_at' => now()->addSeconds(60),
-                    'error_message' => null,
-                ]);
-                $idempotencyRecord = $existingRecord;
-            } else {
-                $idempotencyRecord = $this->idempotencyService->reserveInFlight(
-                    $canonicalIdentity,
+                throw new IdempotencyPayloadMismatchException(
+                    $idempotencyKey,
+                    $existingRecord->payload_hash,
                     $payloadHash,
-                    $payload
+                    $domainUuid,
+                    $companyCode,
+                    $reference
                 );
             }
+
+            if ($reservation['status'] === 'in_progress') {
+                throw new ConcurrentPostingInProgressException(
+                    $idempotencyKey,
+                    $domainUuid,
+                    $companyCode,
+                    $reference,
+                    2
+                );
+            }
+
+            $idempotencyRecord = $reservation['record'];
 
             try {
                 // 5. Post Balanced Double-Entry Voucher
@@ -219,8 +209,8 @@ class ExpenseIntegrationService
                     'amount' => $amount,
                 ];
 
-                // 6. Transition Idempotency Record to 'committed'
-                $idempotencyRecord->markCommitted($reference, $journalEntryId, $responseData);
+                // 6. Transition Idempotency Record to 'committed' using optimistic lease fencing
+                $idempotencyRecord->markCommittedFenced($reference, $journalEntryId, $responseData);
 
                 // 7. Log to Audit Trail
                 if (class_exists(AccountingAuditTrail::class)) {

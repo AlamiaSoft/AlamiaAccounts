@@ -6,6 +6,7 @@ use AlamiaSoft\AlamiaAccounts\Exceptions\IdempotencyPayloadMismatchException;
 use AlamiaSoft\AlamiaAccounts\Models\AccountingAuditTrail;
 use AlamiaSoft\AlamiaAccounts\Models\PostingIdempotencyRecord;
 use Carbon\Carbon;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Str;
 use InvalidArgumentException;
 
@@ -405,5 +406,230 @@ class PostingIdempotencyService
             'lease_generation' => 1,
             'lease_expires_at' => Carbon::now()->addSeconds(60),
         ]);
+    }
+
+    /**
+     * Determine whether a QueryException represents a unique constraint violation.
+     * Strictly supports the repository's target engines: PostgreSQL (23505) and SQLite (19 / 2067).
+     *
+     * @param QueryException $e
+     * @return bool
+     */
+    public static function isUniqueConstraintViolation(QueryException $e): bool
+    {
+        $code = (string)$e->getCode();
+        $message = strtolower($e->getMessage());
+
+        // PostgreSQL: SQLSTATE 23505
+        if ($code === '23505' || str_contains($message, '23505') || str_contains($message, 'unique constraint')) {
+            return true;
+        }
+
+        // SQLite: error code 19 (or 2067 SQLITE_CONSTRAINT_UNIQUE)
+        if ($code === '19' || $code === '2067' || str_contains($message, 'unique constraint failed')) {
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * Concurrency-safe reservation acquisition and unique constraint collision recovery.
+     *
+     * @param array $canonicalIdentity
+     * @param string $payloadHash
+     * @param array $requestPayload
+     * @param int $maxWaitMs Maximum milliseconds to poll/wait for an in-flight competing worker
+     * @return array{
+     *     status: 'acquired'|'replay'|'conflict'|'in_progress',
+     *     record?: PostingIdempotencyRecord,
+     *     response?: array
+     * }
+     */
+    public function acquireReservation(
+        array $canonicalIdentity,
+        string $payloadHash,
+        array $requestPayload,
+        int $maxWaitMs = 500
+    ): array {
+        $domainUuid = $canonicalIdentity['domain_uuid'];
+        $idempotencyKey = $canonicalIdentity['idempotency_key'];
+
+        // 1. Initial lookup
+        $record = $this->findExistingRecord($domainUuid, $idempotencyKey, $canonicalIdentity);
+
+        if ($record) {
+            return $this->resolveExistingReservation($record, $canonicalIdentity, $payloadHash, $requestPayload, $maxWaitMs);
+        }
+
+        // 2. Pre-reserve via INSERT
+        try {
+            $record = $this->reserveInFlight($canonicalIdentity, $payloadHash, $requestPayload);
+            return [
+                'status' => 'acquired',
+                'record' => $record,
+            ];
+        } catch (QueryException $e) {
+            // Check if this is truly a unique constraint violation
+            if (!self::isUniqueConstraintViolation($e)) {
+                // DO NOT SWALLOW UNRELATED DATABASE ERRORS
+                throw $e;
+            }
+
+            // We lost the concurrent insert race!
+            $winnerRecord = $this->findExistingRecord($domainUuid, $idempotencyKey, $canonicalIdentity);
+
+            if (!$winnerRecord) {
+                // In the rare event the winner rolled back and vanished, attempt insert once more
+                $record = $this->reserveInFlight($canonicalIdentity, $payloadHash, $requestPayload);
+                return [
+                    'status' => 'acquired',
+                    'record' => $record,
+                ];
+            }
+
+            return $this->resolveExistingReservation($winnerRecord, $canonicalIdentity, $payloadHash, $requestPayload, $maxWaitMs);
+        }
+    }
+
+    /**
+     * Resolve an existing reservation record against the current request.
+     *
+     * @param PostingIdempotencyRecord $record
+     * @param array $canonicalIdentity
+     * @param string $payloadHash
+     * @param array $requestPayload
+     * @param int $maxWaitMs
+     * @return array{
+     *     status: 'acquired'|'replay'|'conflict'|'in_progress',
+     *     record?: PostingIdempotencyRecord,
+     *     response?: array
+     * }
+     */
+    protected function resolveExistingReservation(
+        PostingIdempotencyRecord $record,
+        array $canonicalIdentity,
+        string $payloadHash,
+        array $requestPayload,
+        int $maxWaitMs
+    ): array {
+        // Case A: Record already committed
+        if ($record->isCommitted()) {
+            if ($record->payload_hash === $payloadHash) {
+                return [
+                    'status' => 'replay',
+                    'record' => $record,
+                    'response' => $record->response_data ?? [
+                        'status' => 'posted',
+                        'is_idempotent_replay' => true,
+                        'voucher_reference' => $record->voucher_reference,
+                        'journal_entry_id' => $record->journal_entry_id,
+                        'message' => 'Expense voucher already committed (Idempotent replay).',
+                    ],
+                ];
+            }
+
+            return [
+                'status' => 'conflict',
+                'record' => $record,
+            ];
+        }
+
+        // Case B: Record failed - can be retried / re-reserved
+        if ($record->isFailed()) {
+            $updated = PostingIdempotencyRecord::whereKey($record->id)
+                ->where('status', 'failed')
+                ->update([
+                    'status' => 'in_flight',
+                    'payload_hash' => $payloadHash,
+                    'request_payload' => $requestPayload,
+                    'lease_token' => (string) Str::uuid(),
+                    'lease_generation' => $record->lease_generation + 1,
+                    'lease_expires_at' => Carbon::now()->addSeconds(60),
+                    'error_message' => null,
+                    'updated_at' => now(),
+                ]);
+
+            if ($updated > 0) {
+                $record->refresh();
+                return [
+                    'status' => 'acquired',
+                    'record' => $record,
+                ];
+            }
+        }
+
+        // Case C: Record is currently in-flight
+        if ($record->isInFlight()) {
+            // If the payload hash differs, this is an immediate conflict under the same identity
+            if ($record->payload_hash !== $payloadHash) {
+                return [
+                    'status' => 'conflict',
+                    'record' => $record,
+                ];
+            }
+
+            // If lease has expired, attempt stale lease takeover
+            if ($record->isLeaseExpired()) {
+                $newToken = (string) Str::uuid();
+                $updated = PostingIdempotencyRecord::whereKey($record->id)
+                    ->where('status', 'in_flight')
+                    ->where('lease_token', $record->lease_token)
+                    ->where('lease_expires_at', '<', Carbon::now())
+                    ->update([
+                        'lease_token' => $newToken,
+                        'lease_generation' => $record->lease_generation + 1,
+                        'lease_expires_at' => Carbon::now()->addSeconds(60),
+                        'payload_hash' => $payloadHash,
+                        'request_payload' => $requestPayload,
+                        'updated_at' => now(),
+                    ]);
+
+                if ($updated > 0) {
+                    $record->refresh();
+                    return [
+                        'status' => 'acquired',
+                        'record' => $record,
+                    ];
+                }
+            }
+
+            // Polling loop for active in-flight worker
+            if ($maxWaitMs > 0) {
+                $start = microtime(true);
+                while ((microtime(true) - $start) * 1000 < $maxWaitMs) {
+                    usleep(25000); // 25ms
+                    $record->refresh();
+
+                    if ($record->isCommitted()) {
+                        if ($record->payload_hash === $payloadHash) {
+                            return [
+                                'status' => 'replay',
+                                'record' => $record,
+                                'response' => $record->response_data ?? [],
+                            ];
+                        }
+                        return [
+                            'status' => 'conflict',
+                            'record' => $record,
+                        ];
+                    }
+
+                    if ($record->isFailed()) {
+                        break;
+                    }
+                }
+            }
+
+            return [
+                'status' => 'in_progress',
+                'record' => $record,
+            ];
+        }
+
+        return [
+            'status' => 'in_progress',
+            'record' => $record,
+        ];
     }
 }

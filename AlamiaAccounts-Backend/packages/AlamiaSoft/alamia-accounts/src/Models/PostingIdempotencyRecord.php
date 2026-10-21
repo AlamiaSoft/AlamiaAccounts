@@ -112,6 +112,35 @@ class PostingIdempotencyRecord extends Model
     }
 
     /**
+     * Mark record as committed using optimistic lease fencing.
+     * Throws IdempotencyLeaseFencingException if lease was preempted or lost.
+     *
+     * @throws \AlamiaSoft\AlamiaAccounts\Exceptions\IdempotencyLeaseFencingException
+     */
+    public function markCommittedFenced(string $voucherReference, int|string $journalEntryId, array $responseData = []): bool
+    {
+        $affected = static::whereKey($this->id)
+            ->where('lease_token', $this->lease_token)
+            ->where('status', 'in_flight')
+            ->update([
+                'status' => 'committed',
+                'voucher_reference' => $voucherReference,
+                'journal_entry_id' => (int)$journalEntryId,
+                'response_data' => $responseData,
+                'updated_at' => now(),
+            ]);
+
+        if ($affected === 0) {
+            throw new \AlamiaSoft\AlamiaAccounts\Exceptions\IdempotencyLeaseFencingException(
+                "Lease lost or preempted for idempotency record {$this->id} (token: {$this->lease_token}). Transaction aborted."
+            );
+        }
+
+        $this->refresh();
+        return true;
+    }
+
+    /**
      * Mark record as failed with an error message.
      */
     public function markFailed(string $errorMessage): bool

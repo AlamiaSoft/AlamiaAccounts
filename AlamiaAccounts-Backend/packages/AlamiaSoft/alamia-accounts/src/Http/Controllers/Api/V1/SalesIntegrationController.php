@@ -5,9 +5,15 @@ namespace AlamiaSoft\AlamiaAccounts\Http\Controllers\Api\V1;
 use AlamiaSoft\AlamiaAccounts\Http\Controllers\Controller;
 use AlamiaSoft\AlamiaAccounts\Services\SalesIntegrationService;
 use AlamiaSoft\AlamiaAccounts\Models\OperationalSale;
-use Illuminate\Http\Request;
+use Carbon\Carbon;
+use DomainException;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Http\Response;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Validator;
+use Throwable;
 
 class SalesIntegrationController extends Controller
 {
@@ -59,7 +65,7 @@ class SalesIntegrationController extends Controller
             ];
         }
 
-        $validator = \Illuminate\Support\Facades\Validator::make($payload, [
+        $validator = Validator::make($payload, [
             'customer' => 'required|array',
             'customer.name' => 'required|string',
             'line_items' => 'required|array|min:1',
@@ -80,7 +86,15 @@ class SalesIntegrationController extends Controller
         }
 
         // Context supplied by AuthenticateSalesOrSanctum middleware
-        $companyCode = $request->attributes->get('tenant_company_code') ?? 'MAIN';
+        $companyCode = $request->attributes->get('tenant_company_code');
+        if (!$companyCode) {
+            return response()->json([
+                'success' => false,
+                'error' => 'company_context_required',
+                'message' => 'An authorized company context is required.',
+            ], 403);
+        }
+
         $user = $request->user();
         $userId = $user ? (string) $user->id : ($request->input('agent_id') ?? 'counter_agent');
         $userName = $user ? $user->name : ($request->input('agent_name') ?? 'Counter Staff');
@@ -96,11 +110,15 @@ class SalesIntegrationController extends Controller
                 'message' => ($result['status'] === 'posted') ? 'Sale posted and vouchers created successfully.' : 'Sale staged pending manager approval.',
                 'data' => $result,
             ], $statusCode);
-        } catch (\Throwable $e) {
+        } catch (Throwable $e) {
+            Log::error('Sale processing failed', [
+                'company_code' => $companyCode,
+                'error' => $e->getMessage(),
+            ]);
             return response()->json([
                 'success' => false,
-                'message' => 'Failed to process sale: ' . $e->getMessage(),
-                'error' => $e->getMessage(),
+                'error' => 'sale_processing_failed',
+                'message' => 'Failed to process sale. Please verify transaction details and try again.',
             ], 422);
         }
     }
@@ -111,7 +129,15 @@ class SalesIntegrationController extends Controller
     public function index(Request $request): JsonResponse
     {
         // Context supplied by AuthenticateSalesOrSanctum middleware
-        $companyCode = $request->attributes->get('tenant_company_code') ?? 'MAIN';
+        $companyCode = $request->attributes->get('tenant_company_code');
+        if (!$companyCode) {
+            return response()->json([
+                'success' => false,
+                'error' => 'company_context_required',
+                'message' => 'An authorized company context is required.',
+            ], 403);
+        }
+
         $user = $request->user();
         $currentUserId = $user ? (string) $user->id : ($request->input('agent_id') ?? null);
         $isManager = (bool) $request->attributes->get('is_manager', false);
@@ -146,7 +172,11 @@ class SalesIntegrationController extends Controller
     {
         $companyCode = $request->attributes->get('tenant_company_code');
         if (!$companyCode) {
-            return response()->json(['success' => false, 'error' => 'company_context_required'], 403);
+            return response()->json([
+                'success' => false,
+                'error' => 'company_context_required',
+                'message' => 'An authorized company context is required.',
+            ], 403);
         }
 
         $query = OperationalSale::with('items')
@@ -159,7 +189,11 @@ class SalesIntegrationController extends Controller
 
         $sale = $query->first();
         if (!$sale) {
-            return response()->json(['success' => false, 'message' => 'Sale not found.'], 404);
+            return response()->json([
+                'success' => false,
+                'error' => 'sale_not_found',
+                'message' => 'Sale not found.',
+            ], 404);
         }
 
         return response()->json(['success' => true, 'data' => $sale]);
@@ -172,10 +206,18 @@ class SalesIntegrationController extends Controller
     {
         $companyCode = $request->attributes->get('tenant_company_code');
         if (!$companyCode) {
-            return response()->json(['success' => false, 'error' => 'company_context_required'], 403);
+            return response()->json([
+                'success' => false,
+                'error' => 'company_context_required',
+                'message' => 'An authorized company context is required.',
+            ], 403);
         }
         if (!$request->attributes->get('is_manager', false)) {
-            return response()->json(['success' => false, 'error' => 'approval_forbidden'], 403);
+            return response()->json([
+                'success' => false,
+                'error' => 'approval_forbidden',
+                'message' => 'User does not possess manager or administrator approval privileges.',
+            ], 403);
         }
 
         $user = $request->user();
@@ -187,7 +229,25 @@ class SalesIntegrationController extends Controller
                 'message' => 'Sale approved and committed to ledger.',
                 'data' => $result,
             ]);
-        } catch (\Throwable $e) {
+        } catch (ModelNotFoundException $e) {
+            return response()->json([
+                'success' => false,
+                'error' => 'sale_not_found',
+                'message' => 'Sale not found.',
+            ], 404);
+        } catch (DomainException $e) {
+            $isAlreadyApproved = str_contains(strtolower($e->getMessage()), 'already been approved');
+            return response()->json([
+                'success' => false,
+                'error' => $isAlreadyApproved ? 'sale_already_approved' : 'invalid_sale_state',
+                'message' => $e->getMessage(),
+            ], 422);
+        } catch (Throwable $e) {
+            Log::error('Sale approval failed', [
+                'sale_id' => $id,
+                'company_code' => $companyCode,
+                'error' => $e->getMessage(),
+            ]);
             return response()->json([
                 'success' => false,
                 'error' => 'sale_approval_failed',
@@ -201,27 +261,94 @@ class SalesIntegrationController extends Controller
      */
     public function reconcileShift(Request $request): JsonResponse
     {
-        $companyCode = $request->attributes->get('tenant_company_code') ?? $request->input('company_code') ?? 'MAIN';
+        $companyCode = $request->attributes->get('tenant_company_code');
+        if (!$companyCode) {
+            return response()->json([
+                'success' => false,
+                'error' => 'company_context_required',
+                'message' => 'An authorized company context is required.',
+            ], 403);
+        }
+
         $user = $request->user();
-        $userId = $user ? (string) $user->id : ($request->input('agent_id') ?? null);
-        $date = $request->input('date') ?? date('Y-m-d');
-        $cashCounted = (float) ($request->input('actual_cash') ?? $request->input('actual_cash_counted') ?? 0);
+        $isManager = (bool) $request->attributes->get('is_manager', false);
 
-        $report = $this->salesService->reconcileShift($companyCode, $date, $userId, $cashCounted);
+        if ($user && !$isManager) {
+            $requestedAgent = $request->input('agent_id');
+            if ($requestedAgent !== null && (string) $requestedAgent !== (string) $user->id) {
+                return response()->json([
+                    'success' => false,
+                    'error' => 'shift_reconciliation_forbidden',
+                    'message' => 'Staff members are only permitted to reconcile their own shift.',
+                ], 403);
+            }
+            $userId = (string) $user->id;
+        } else {
+            // Managers can reconcile all cashiers across the company (null) or a specific cashier
+            $requestedAgent = $request->input('agent_id');
+            $userId = ($requestedAgent !== null && $requestedAgent !== 'all' && $requestedAgent !== '')
+                ? (string) $requestedAgent
+                : null;
+        }
 
-        return response()->json([
-            'success' => true,
-            'data' => $report,
-        ]);
+        $rawDate = $request->input('date');
+        $date = null;
+        if ($rawDate && is_string($rawDate)) {
+            try {
+                $date = Carbon::parse($rawDate)->toDateString();
+            } catch (Throwable $e) {
+                return response()->json([
+                    'success' => false,
+                    'error' => 'invalid_date_format',
+                    'message' => 'The provided reconciliation date is invalid.',
+                ], 422);
+            }
+        }
+
+        $cashInput = $request->input('actual_cash') ?? $request->input('actual_cash_counted') ?? 0;
+        if (!is_numeric($cashInput) || (float) $cashInput < 0) {
+            return response()->json([
+                'success' => false,
+                'error' => 'invalid_cash_amount',
+                'message' => 'Actual cash counted must be a non-negative number.',
+            ], 422);
+        }
+        $cashCounted = (float) $cashInput;
+
+        try {
+            $report = $this->salesService->reconcileShift($companyCode, $date, $userId, $cashCounted);
+
+            return response()->json([
+                'success' => true,
+                'data' => $report,
+            ]);
+        } catch (Throwable $e) {
+            Log::error('Shift reconciliation failed', [
+                'company_code' => $companyCode,
+                'error' => $e->getMessage(),
+            ]);
+            return response()->json([
+                'success' => false,
+                'error' => 'reconciliation_failed',
+                'message' => 'Shift reconciliation could not be computed.',
+            ], 422);
+        }
     }
 
     /**
      * Print thermal receipt (58mm or 80mm).
      */
-    public function printReceipt(Request $request, $id): Response
+    public function printReceipt(Request $request, $id): Response|JsonResponse
     {
         $companyCode = $request->attributes->get('tenant_company_code');
         if (!$companyCode) {
+            if ($request->expectsJson()) {
+                return response()->json([
+                    'success' => false,
+                    'error' => 'company_context_required',
+                    'message' => 'An authorized company context is required.',
+                ], 403);
+            }
             return response('An authorized company context is required.', 403);
         }
 
@@ -235,6 +362,13 @@ class SalesIntegrationController extends Controller
 
         $sale = $query->first();
         if (!$sale) {
+            if ($request->expectsJson()) {
+                return response()->json([
+                    'success' => false,
+                    'error' => 'sale_not_found',
+                    'message' => 'Sale receipt not found.',
+                ], 404);
+            }
             return response('Sale receipt not found.', 404);
         }
 

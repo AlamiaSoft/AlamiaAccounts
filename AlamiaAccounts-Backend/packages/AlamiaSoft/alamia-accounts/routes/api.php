@@ -126,7 +126,7 @@ Route::middleware([AuthenticateSalesOrSanctum::class])->group(function () {
     Route::post('/v1/sales/{id}/approve', [SalesIntegrationController::class, 'approve'])->whereNumber('id');
     Route::post('/v1/sales/reconcile', [SalesIntegrationController::class, 'reconcileShift']);
     Route::get('/v1/sales/reconcile-shift', [SalesIntegrationController::class, 'reconcileShift']);
-    Route::get('/v1/receipts/{id}/print', [SalesIntegrationController::class, 'printReceipt']);
+    Route::get('/v1/receipts/{id}/print', [SalesIntegrationController::class, 'printReceipt'])->whereNumber('id');
 });
 
 // Diagnostic and knowledge-management endpoints are intentionally not exposed publicly.

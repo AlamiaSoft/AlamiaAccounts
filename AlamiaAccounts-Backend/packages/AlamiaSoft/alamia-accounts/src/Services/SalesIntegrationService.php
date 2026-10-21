@@ -346,13 +346,16 @@ class SalesIntegrationService
             if ($authorizedCompanyCode !== null && trim($authorizedCompanyCode) !== '') {
                 $query->where('company_code', strtoupper(trim($authorizedCompanyCode)));
             }
-            $sale = $query->firstOrFail();
+            $sale = $query->first();
+            if (!$sale) {
+                throw new \Illuminate\Database\Eloquent\ModelNotFoundException("Sale {$saleId} not found.");
+            }
 
             if ($sale->status === 'posted') {
-                return $this->formatSaleResponse($sale);
+                throw new \DomainException('The sale has already been approved and committed to the ledger.');
             }
             if (!in_array($sale->status, ['staged', 'pending_approval'], true)) {
-                throw new Exception('Sale is not in an approvable state.');
+                throw new \DomainException('Sale is not in an approvable state.');
             }
 
             DomainContext::set($sale->company_code);
@@ -433,6 +436,25 @@ class SalesIntegrationService
                 'sales_voucher_ref' => $salesVoucherRef,
                 'receipt_voucher_ref' => $receiptVoucherRef,
             ]);
+
+            // Record Accounting Audit Trail
+            if (class_exists(AccountingAuditTrail::class)) {
+                $companyService = app(CompanyService::class);
+                $company = $companyService->getCompanyByCode($sale->company_code);
+                $domainUuid = $company ? $company->domainUuid : $sale->company_code;
+                AccountingAuditTrail::record(
+                    $domainUuid,
+                    'SALE_APPROVED',
+                    'operational_sales',
+                    (string) $sale->id,
+                    [
+                        'approved_by' => $approverName,
+                        'sales_voucher_ref' => $salesVoucherRef,
+                        'receipt_voucher_ref' => $receiptVoucherRef,
+                        'net_amount' => $sale->net_amount,
+                    ]
+                );
+            }
 
             return $this->formatSaleResponse($sale);
         });

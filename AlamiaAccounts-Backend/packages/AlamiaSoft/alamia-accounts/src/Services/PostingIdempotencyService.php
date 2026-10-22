@@ -4,7 +4,9 @@ namespace AlamiaSoft\AlamiaAccounts\Services;
 
 use AlamiaSoft\AlamiaAccounts\Exceptions\IdempotencyPayloadMismatchException;
 use AlamiaSoft\AlamiaAccounts\Models\AccountingAuditTrail;
+use AlamiaSoft\AlamiaAccounts\Models\DomainJournalEntry;
 use AlamiaSoft\AlamiaAccounts\Models\PostingIdempotencyRecord;
+use AlamiaSoft\AlamiaAccounts\Models\UnpostedIntegrationEntry;
 use Carbon\Carbon;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Str;
@@ -535,28 +537,9 @@ class PostingIdempotencyService
             ];
         }
 
-        // Case B: Record failed - can be retried / re-reserved
+        // Case B: Record failed - can be retried / re-reserved if request payload matches
         if ($record->isFailed()) {
-            $updated = PostingIdempotencyRecord::whereKey($record->id)
-                ->where('status', 'failed')
-                ->update([
-                    'status' => 'in_flight',
-                    'payload_hash' => $payloadHash,
-                    'request_payload' => $requestPayload,
-                    'lease_token' => (string) Str::uuid(),
-                    'lease_generation' => $record->lease_generation + 1,
-                    'lease_expires_at' => Carbon::now()->addSeconds(60),
-                    'error_message' => null,
-                    'updated_at' => now(),
-                ]);
-
-            if ($updated > 0) {
-                $record->refresh();
-                return [
-                    'status' => 'acquired',
-                    'record' => $record,
-                ];
-            }
+            return $this->tryAcquireFailedRecord($record, $canonicalIdentity, $payloadHash, $requestPayload);
         }
 
         // Case C: Record is currently in-flight
@@ -616,7 +599,7 @@ class PostingIdempotencyService
                     }
 
                     if ($record->isFailed()) {
-                        break;
+                        return $this->tryAcquireFailedRecord($record, $canonicalIdentity, $payloadHash, $requestPayload);
                     }
                 }
             }
@@ -630,6 +613,252 @@ class PostingIdempotencyService
         return [
             'status' => 'in_progress',
             'record' => $record,
+        ];
+    }
+
+    /**
+     * Attempt to re-acquire a failed idempotency record for retry.
+     * Rejects with 'conflict' if the caller mutated the canonical business request payload
+     * under the same identity, while allowing retry if only resolved account mapping context
+     * was repaired by an administrator.
+     *
+     * @param PostingIdempotencyRecord $record
+     * @param array $canonicalIdentity
+     * @param string $payloadHash
+     * @param array $requestPayload
+     * @return array{
+     *     status: 'acquired'|'conflict'|'in_progress',
+     *     record: PostingIdempotencyRecord
+     * }
+     */
+    protected function tryAcquireFailedRecord(
+        PostingIdempotencyRecord $record,
+        array $canonicalIdentity,
+        string $payloadHash,
+        array $requestPayload
+    ): array {
+        if ($record->payload_hash !== $payloadHash) {
+            $companyCode = (string) ($canonicalIdentity['company_code'] ?? $record->company_code ?? '');
+            if (!empty($record->request_payload) && is_array($record->request_payload)) {
+                $existingBaseHash = $this->computePayloadHash($record->request_payload, $companyCode);
+                $attemptedBaseHash = $this->computePayloadHash($requestPayload, $companyCode);
+
+                if ($existingBaseHash !== $attemptedBaseHash) {
+                    return [
+                        'status' => 'conflict',
+                        'record' => $record,
+                    ];
+                }
+            } else {
+                return [
+                    'status' => 'conflict',
+                    'record' => $record,
+                ];
+            }
+        }
+
+        $updated = PostingIdempotencyRecord::whereKey($record->id)
+            ->where('status', 'failed')
+            ->update([
+                'status' => 'in_flight',
+                'payload_hash' => $payloadHash,
+                'request_payload' => $requestPayload,
+                'lease_token' => (string) Str::uuid(),
+                'lease_generation' => $record->lease_generation + 1,
+                'lease_expires_at' => Carbon::now()->addSeconds(60),
+                'error_message' => null,
+                'updated_at' => now(),
+            ]);
+
+        if ($updated > 0) {
+            $record->refresh();
+            return [
+                'status' => 'acquired',
+                'record' => $record,
+            ];
+        }
+
+        $record->refresh();
+        return [
+            'status' => 'in_progress',
+            'record' => $record,
+        ];
+    }
+
+    /**
+     * Sweep stranded in-flight idempotency reservations whose leases have expired
+     * (e.g. when a worker crashed hard during execution or inside the post-rollback handler).
+     *
+     * Invariants enforced:
+     * 1. NEVER steals a live (unexpired) lease.
+     * 2. NEVER contradicts or alters a committed record.
+     * 3. Uses optimistic lease-token and expiration fencing on the status update.
+     * 4. Synchronizes unposted_integration_entries and accounting_audit_trails with the
+     *    swept failure or reconciliation_required state.
+     *
+     * @param string|null $domainUuid Optional tenant domain filter
+     * @param int $graceSeconds Additional grace period beyond lease_expires_at
+     * @return array{
+     *     swept_count: int,
+     *     reconciliation_required_count: int,
+     *     skipped_count: int,
+     *     records: array<int, array<string, mixed>>
+     * }
+     */
+    public function sweepStaleInFlightRecords(?string $domainUuid = null, int $graceSeconds = 0): array
+    {
+        $cutoff = Carbon::now()->subSeconds(max(0, $graceSeconds));
+
+        $query = PostingIdempotencyRecord::where('status', 'in_flight')
+            ->whereNotNull('lease_expires_at')
+            ->where('lease_expires_at', '<', $cutoff);
+
+        if (!empty($domainUuid)) {
+            $query->where('domain_uuid', $domainUuid);
+        }
+
+        $candidates = $query->get();
+
+        $sweptCount = 0;
+        $reconciliationRequiredCount = 0;
+        $skippedCount = 0;
+        $results = [];
+
+        foreach ($candidates as $candidate) {
+            $fresh = $candidate->fresh();
+            if (!$fresh || !$fresh->isInFlight() || !$fresh->isLeaseExpired()) {
+                $skippedCount++;
+                continue;
+            }
+
+            $observedToken = $fresh->lease_token;
+            $reference = (string) ($fresh->voucher_reference ?: $fresh->source_transaction_id ?: ($fresh->request_payload['reference'] ?? ''));
+
+            // Check whether a DomainJournalEntry already exists for this (domain_uuid, reference)
+            $existingDomainEntry = null;
+            if ($reference !== '') {
+                $existingDomainEntry = DomainJournalEntry::where('domainUuid', $fresh->domain_uuid)
+                    ->where('reference', $reference)
+                    ->first();
+            }
+
+            if ($existingDomainEntry) {
+                $errorMsg = "Ambiguous state: voucher reference '{$reference}' already exists in domain_journal_entries (journalEntryId={$existingDomainEntry->journalEntryId}) while idempotency record '{$fresh->idempotency_key}' was stranded in-flight. Manual reconciliation required.";
+
+                $affected = PostingIdempotencyRecord::whereKey($fresh->id)
+                    ->where('status', 'in_flight')
+                    ->where('lease_token', $observedToken)
+                    ->where('lease_expires_at', '<', Carbon::now())
+                    ->update([
+                        'status' => 'failed',
+                        'error_message' => $errorMsg,
+                        'updated_at' => now(),
+                    ]);
+
+                if ($affected === 0) {
+                    $skippedCount++;
+                    continue;
+                }
+
+                UnpostedIntegrationEntry::recordFailure(
+                    $fresh->domain_uuid,
+                    $fresh->company_code,
+                    $fresh->source_module,
+                    $reference,
+                    $fresh->idempotency_key,
+                    'expense',
+                    is_array($fresh->request_payload) ? $fresh->request_payload : [],
+                    $errorMsg,
+                    'reconciliation_required'
+                );
+
+                if (class_exists(AccountingAuditTrail::class)) {
+                    AccountingAuditTrail::record(
+                        $fresh->domain_uuid,
+                        'IDEMPOTENCY_RECONCILIATION_REQUIRED',
+                        'expense_voucher',
+                        $reference,
+                        [
+                            'idempotency_key' => $fresh->idempotency_key,
+                            'conflicting_journal_entry_id' => $existingDomainEntry->journalEntryId,
+                            'error' => $errorMsg,
+                        ],
+                        'system',
+                        'Idempotency Recovery Sweeper'
+                    );
+                }
+
+                $reconciliationRequiredCount++;
+                $results[] = [
+                    'id' => $fresh->id,
+                    'idempotency_key' => $fresh->idempotency_key,
+                    'reference' => $reference,
+                    'outcome' => 'reconciliation_required',
+                    'conflicting_journal_entry_id' => $existingDomainEntry->journalEntryId,
+                ];
+                continue;
+            }
+
+            $errorMsg = 'Stale in-flight reservation expired before commit; marked failed by recovery sweeper.';
+
+            $affected = PostingIdempotencyRecord::whereKey($fresh->id)
+                ->where('status', 'in_flight')
+                ->where('lease_token', $observedToken)
+                ->where('lease_expires_at', '<', Carbon::now())
+                ->update([
+                    'status' => 'failed',
+                    'error_message' => $errorMsg,
+                    'updated_at' => now(),
+                ]);
+
+            if ($affected === 0) {
+                $skippedCount++;
+                continue;
+            }
+
+            UnpostedIntegrationEntry::recordFailure(
+                $fresh->domain_uuid,
+                $fresh->company_code,
+                $fresh->source_module,
+                $reference !== '' ? $reference : $fresh->idempotency_key,
+                $fresh->idempotency_key,
+                'expense',
+                is_array($fresh->request_payload) ? $fresh->request_payload : [],
+                $errorMsg,
+                'failed'
+            );
+
+            if (class_exists(AccountingAuditTrail::class)) {
+                AccountingAuditTrail::record(
+                    $fresh->domain_uuid,
+                    'IDEMPOTENCY_STALE_LEASE_SWEPT',
+                    'expense_voucher',
+                    $reference !== '' ? $reference : $fresh->idempotency_key,
+                    [
+                        'idempotency_key' => $fresh->idempotency_key,
+                        'expired_lease_token' => $observedToken,
+                        'lease_generation' => $fresh->lease_generation,
+                        'error' => $errorMsg,
+                    ],
+                    'system',
+                    'Idempotency Recovery Sweeper'
+                );
+            }
+
+            $sweptCount++;
+            $results[] = [
+                'id' => $fresh->id,
+                'idempotency_key' => $fresh->idempotency_key,
+                'reference' => $reference,
+                'outcome' => 'failed',
+            ];
+        }
+
+        return [
+            'swept_count' => $sweptCount,
+            'reconciliation_required_count' => $reconciliationRequiredCount,
+            'skipped_count' => $skippedCount,
+            'records' => $results,
         ];
     }
 }

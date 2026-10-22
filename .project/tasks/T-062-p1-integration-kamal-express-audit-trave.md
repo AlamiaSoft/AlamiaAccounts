@@ -1,7 +1,7 @@
 ---
 id: "T-062"
 title: "[P1][Integration][Kamal Express] Audit TravelOS adapter and plan end-to-end accounting proof (#59)"
-status: "in_progress"
+status: "done"
 priority: "high"
 epic: ""
 assigned_to: "agent"
@@ -18,6 +18,9 @@ claimed_by: "agent"
 started_at: "2026-10-22T11:14:26.013Z"
 start_git_commit: "478d71e"
 start_git_branch: "task/issue-59-travelos-integration-audit"
+completed_at: "2026-10-22T11:39:38.632Z"
+completed_git_commit: "70d60ba"
+verification_evidence: "Merged PR #68 (70d60ba13a60e6fc91a1fccb34f84e46f79a4c4e) with green CI run 39771356484"
 ---
 
 ## Objective

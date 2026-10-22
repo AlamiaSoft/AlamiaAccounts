@@ -472,29 +472,31 @@ class VoucherService
             ];
         }
 
-        $reversalEntry = $this->createJournalEntry([
-            'reference' => $revRef,
-            'voucher_type' => 'Journal',
-            'description' => $revDesc,
-            'date' => $date ?? date('Y-m-d'),
-            'currency' => $voucher['currency'] ?? 'PKR',
-            'entries' => $entries,
-        ]);
+        return DB::transaction(function () use ($revRef, $revDesc, $date, $voucher, $entries, $currentDomain, $reference, $reason) {
+            $reversalEntry = $this->createJournalEntry([
+                'reference' => $revRef,
+                'voucher_type' => 'Journal',
+                'description' => $revDesc,
+                'date' => $date ?? date('Y-m-d'),
+                'currency' => $voucher['currency'] ?? 'PKR',
+                'entries' => $entries,
+            ]);
 
-        // Audit Trail
-        AccountingAuditTrail::record(
-            $currentDomain->domainUuid,
-            'REVERSE_VOUCHER',
-            'voucher',
-            $reference,
-            [
-                'reversal_reference' => $revRef,
-                'reason' => $reason ?? 'Voucher correction',
-                'reversal_date' => $date ?? date('Y-m-d'),
-            ]
-        );
+            // Audit Trail
+            AccountingAuditTrail::record(
+                $currentDomain->domainUuid,
+                'REVERSE_VOUCHER',
+                'voucher',
+                $reference,
+                [
+                    'reversal_reference' => $revRef,
+                    'reason' => $reason ?? 'Voucher correction',
+                    'reversal_date' => $date ?? date('Y-m-d'),
+                ]
+            );
 
-        return $reversalEntry;
+            return $reversalEntry;
+        });
     }
 
     public function createSalesVoucher(array $data): JournalEntryModel

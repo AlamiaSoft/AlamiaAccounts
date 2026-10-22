@@ -38,7 +38,7 @@ class UnpostedIntegrationEntry extends Model
     }
 
     /**
-     * Record or update a failed integration attempt.
+     * Record or update a failed integration attempt scoped to the tenant domain.
      */
     public static function recordFailure(
         string $domainUuid,
@@ -48,9 +48,12 @@ class UnpostedIntegrationEntry extends Model
         string $idempotencyKey,
         string $eventType,
         array $payload,
-        string $errorMessage
+        string $errorMessage,
+        string $status = 'failed'
     ): self {
-        $existing = static::where('idempotency_key', $idempotencyKey)->first();
+        $existing = static::where('domain_uuid', $domainUuid)
+            ->where('idempotency_key', $idempotencyKey)
+            ->first();
 
         if ($existing) {
             $existing->update([
@@ -61,7 +64,7 @@ class UnpostedIntegrationEntry extends Model
                 'event_type' => $eventType,
                 'payload' => $payload,
                 'error_message' => $errorMessage,
-                'status' => 'failed',
+                'status' => $status,
                 'retry_count' => $existing->retry_count + 1,
                 'last_attempted_at' => now(),
             ]);
@@ -77,7 +80,7 @@ class UnpostedIntegrationEntry extends Model
             'event_type' => $eventType,
             'payload' => $payload,
             'error_message' => $errorMessage,
-            'status' => 'failed',
+            'status' => $status,
             'retry_count' => 1,
             'last_attempted_at' => now(),
         ]);
@@ -94,5 +97,28 @@ class UnpostedIntegrationEntry extends Model
             'resolved_at' => now(),
             'error_message' => null,
         ]);
+    }
+
+    /**
+     * Mark an entry as requiring manual accountant reconciliation when automatic
+     * resolution is blocked by an ambiguous or conflicting ledger state.
+     */
+    public function markReconciliationRequired(string $reason): void
+    {
+        $this->update([
+            'status' => 'reconciliation_required',
+            'error_message' => $reason,
+            'last_attempted_at' => now(),
+        ]);
+    }
+
+    public function isResolved(): bool
+    {
+        return $this->status === 'resolved';
+    }
+
+    public function isReconciliationRequired(): bool
+    {
+        return $this->status === 'reconciliation_required';
     }
 }

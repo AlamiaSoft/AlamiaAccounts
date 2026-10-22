@@ -6,8 +6,10 @@ use AlamiaSoft\AlamiaAccounts\Exceptions\IdempotencyPayloadMismatchException;
 use AlamiaSoft\AlamiaAccounts\Exceptions\ConcurrentPostingInProgressException;
 use AlamiaSoft\AlamiaAccounts\Exceptions\IdempotencyLeaseFencingException;
 use AlamiaSoft\AlamiaAccounts\Models\AccountingAuditTrail;
+use AlamiaSoft\AlamiaAccounts\Models\DomainJournalEntry;
 use AlamiaSoft\AlamiaAccounts\Models\PostingIdempotencyRecord;
 use AlamiaSoft\AlamiaAccounts\Models\UnpostedIntegrationEntry;
+use Closure;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Exception;
@@ -15,6 +17,13 @@ use Throwable;
 
 class ExpenseIntegrationService
 {
+    /**
+     * Optional post-commit callback invoked after the outer DB::transaction commits
+     * and before the response is returned to the caller. Used for post-commit
+     * observability and deterministic response/timeout fault-injection testing.
+     */
+    protected ?Closure $afterCommitObserver = null;
+
     public function __construct(
         protected VoucherService $voucherService,
         protected AccountMappingResolver $mappingResolver,
@@ -22,6 +31,14 @@ class ExpenseIntegrationService
         protected ?PostingIdempotencyService $idempotencyService = null
     ) {
         $this->idempotencyService = $idempotencyService ?? app(PostingIdempotencyService::class);
+    }
+
+    /**
+     * Register or clear a post-commit observer callback.
+     */
+    public function onAfterCommit(?Closure $observer): void
+    {
+        $this->afterCommitObserver = $observer;
     }
 
     /**
@@ -108,12 +125,14 @@ class ExpenseIntegrationService
 
             if ($reservation['status'] === 'replay') {
                 // Valid identical sequential replay: return original committed posting without creating a second entry
-                UnpostedIntegrationEntry::where('idempotency_key', $idempotencyKey)
-                    ->where('status', 'failed')
+                UnpostedIntegrationEntry::where('domain_uuid', $domainUuid)
+                    ->where('idempotency_key', $idempotencyKey)
+                    ->whereIn('status', ['failed', 'reconciliation_required'])
                     ->update([
                         'status' => 'resolved',
                         'resolved_voucher_ref' => (string)($reservation['record']->journal_entry_id ?? $reservation['record']->voucher_reference),
                         'resolved_at' => now(),
+                        'error_message' => null,
                     ]);
 
                 $cachedResponse = $reservation['response'] ?? $reservation['record']->response_data ?? [];
@@ -180,7 +199,7 @@ class ExpenseIntegrationService
                 // and VoucherService::createJournalEntry), DomainJournalEntry association, CREATE_VOUCHER audit,
                 // fenced idempotency 'committed' transition, INTEGRATION_EXPENSE_POSTED audit, and unposted-queue
                 // resolution either all commit together at transaction depth 0 or all roll back together.
-                return DB::transaction(function () use (
+                $responseData = DB::transaction(function () use (
                     $desc,
                     $vendorName,
                     $reference,
@@ -257,16 +276,24 @@ class ExpenseIntegrationService
                     }
 
                     // 8. Clear any prior failure in unposted queue
-                    UnpostedIntegrationEntry::where('idempotency_key', $idempotencyKey)
-                        ->where('status', 'failed')
+                    UnpostedIntegrationEntry::where('domain_uuid', $domainUuid)
+                        ->where('idempotency_key', $idempotencyKey)
+                        ->whereIn('status', ['failed', 'reconciliation_required'])
                         ->update([
                             'status' => 'resolved',
                             'resolved_voucher_ref' => (string)($journalEntryId ?? $reference),
                             'resolved_at' => now(),
+                            'error_message' => null,
                         ]);
 
                     return $responseData;
                 });
+
+                if ($this->afterCommitObserver !== null) {
+                    ($this->afterCommitObserver)($responseData, $idempotencyRecord);
+                }
+
+                return $responseData;
             } catch (\AlamiaSoft\AlamiaAccounts\Exceptions\IdempotencyLeaseFencingException $e) {
                 // Lease was lost/preempted before commit; outer DB::transaction has rolled back the journal entry
                 // and domain association. Do not overwrite the new lease holder's idempotency record.
@@ -291,6 +318,36 @@ class ExpenseIntegrationService
 
                 throw $e;
             } catch (Throwable $e) {
+                // Guard against post-commit response/delivery timeouts:
+                // If the outer DB::transaction already committed, the ledger entry, domain association,
+                // idempotency 'committed' status, and INTEGRATION_EXPENSE_POSTED audit are permanently persisted.
+                // We must NEVER contradict a committed transaction by recording UnpostedIntegrationEntry::recordFailure
+                // or INTEGRATION_POSTING_FAILED.
+                $freshIdempotency = $idempotencyRecord ? $idempotencyRecord->fresh() : null;
+                if ($freshIdempotency && $freshIdempotency->isCommitted()) {
+                    try {
+                        if (class_exists(AccountingAuditTrail::class)) {
+                            AccountingAuditTrail::record(
+                                $domainUuid,
+                                'INTEGRATION_POST_COMMIT_DELIVERY_TIMEOUT',
+                                'expense_voucher',
+                                $reference,
+                                [
+                                    'error' => $e->getMessage(),
+                                    'idempotency_key' => $idempotencyKey,
+                                    'journal_entry_id' => $freshIdempotency->journal_entry_id,
+                                ],
+                                $userId,
+                                $userName
+                            );
+                        }
+                    } catch (Throwable $auditEx) {
+                        \Log::warning('Failed to record INTEGRATION_POST_COMMIT_DELIVERY_TIMEOUT audit trail: ' . $auditEx->getMessage());
+                    }
+
+                    throw $e;
+                }
+
                 // Outer DB::transaction has rolled back all partial ledger, domain, idempotency-commit, and success-audit writes.
                 // Record failure on the reserved idempotency record (fenced by lease_token and in_flight status).
                 try {
@@ -340,5 +397,196 @@ class ExpenseIntegrationService
                 throw $e;
             }
         });
+    }
+
+    /**
+     * Deterministically reconcile a failed or unposted integration entry without creating
+     * ambiguous duplicate postings. Returns actionable stable status codes for both
+     * auto-resolved and non-auto-resolvable states.
+     *
+     * @param int|UnpostedIntegrationEntry $entry
+     * @return array{
+     *     status: string,
+     *     actionable_code: string,
+     *     reconciled: bool,
+     *     voucher_reference?: string,
+     *     journal_entry_id?: int|string|null,
+     *     conflicting_journal_entry_id?: int|string|null,
+     *     retry_after_seconds?: int,
+     *     retry_count?: int,
+     *     error_message?: string|null,
+     *     message?: string
+     * }
+     */
+    public function reconcileUnpostedEntry(int|UnpostedIntegrationEntry $entry): array
+    {
+        $unposted = $entry instanceof UnpostedIntegrationEntry
+            ? ($entry->fresh() ?? $entry)
+            : UnpostedIntegrationEntry::findOrFail($entry);
+
+        if ($unposted->isResolved()) {
+            return [
+                'status' => 'already_resolved',
+                'actionable_code' => 'ALREADY_RESOLVED',
+                'reconciled' => true,
+                'voucher_reference' => $unposted->source_reference,
+                'resolved_voucher_ref' => $unposted->resolved_voucher_ref,
+                'message' => 'Unposted integration entry was already resolved.',
+            ];
+        }
+
+        $domainUuid = $unposted->domain_uuid;
+        $companyCode = $unposted->company_code;
+        $reference = trim((string) ($unposted->source_reference ?: ($unposted->payload['reference'] ?? '')));
+        $payload = is_array($unposted->payload) ? $unposted->payload : [];
+
+        $existingRecord = PostingIdempotencyRecord::forDomain($domainUuid)
+            ->where('idempotency_key', $unposted->idempotency_key)
+            ->first();
+
+        // 1. If the idempotency record is already committed, verify payload agreement and resolve without re-posting
+        if ($existingRecord && $existingRecord->isCommitted()) {
+            $existingBaseHash = !empty($existingRecord->request_payload) && is_array($existingRecord->request_payload)
+                ? $this->idempotencyService->computePayloadHash($existingRecord->request_payload, $companyCode)
+                : $existingRecord->payload_hash;
+            $unpostedBaseHash = $this->idempotencyService->computePayloadHash($payload, $companyCode);
+
+            if ($existingBaseHash !== $unpostedBaseHash && $existingRecord->payload_hash !== $unpostedBaseHash) {
+                $reason = "Payload in unposted queue conflicts with already-committed idempotency record '{$unposted->idempotency_key}' (voucher '{$existingRecord->voucher_reference}', journalEntryId={$existingRecord->journal_entry_id}). Manual review required.";
+                $unposted->markReconciliationRequired($reason);
+
+                if (class_exists(AccountingAuditTrail::class)) {
+                    AccountingAuditTrail::record(
+                        $domainUuid,
+                        'UNPOSTED_RECONCILIATION_CONFLICT',
+                        'expense_voucher',
+                        $reference,
+                        [
+                            'idempotency_key' => $unposted->idempotency_key,
+                            'committed_journal_entry_id' => $existingRecord->journal_entry_id,
+                            'error' => $reason,
+                        ],
+                        'system',
+                        'Unposted Entry Reconciler'
+                    );
+                }
+
+                return [
+                    'status' => 'reconciliation_required',
+                    'actionable_code' => 'RECONCILIATION_PAYLOAD_CONFLICT',
+                    'reconciled' => false,
+                    'voucher_reference' => $reference,
+                    'conflicting_journal_entry_id' => $existingRecord->journal_entry_id,
+                    'error_message' => $reason,
+                    'message' => $reason,
+                ];
+            }
+
+            $resolvedRef = (string) ($existingRecord->journal_entry_id ?? $existingRecord->voucher_reference ?? $reference);
+            $unposted->markResolved($resolvedRef);
+
+            if (class_exists(AccountingAuditTrail::class)) {
+                AccountingAuditTrail::record(
+                    $domainUuid,
+                    'UNPOSTED_RECONCILED_EXISTING_COMMIT',
+                    'expense_voucher',
+                    $reference,
+                    [
+                        'idempotency_key' => $unposted->idempotency_key,
+                        'journal_entry_id' => $existingRecord->journal_entry_id,
+                        'voucher_reference' => $existingRecord->voucher_reference,
+                    ],
+                    'system',
+                    'Unposted Entry Reconciler'
+                );
+            }
+
+            return [
+                'status' => 'reconciled_from_committed',
+                'actionable_code' => 'RECONCILED_EXISTING_COMMIT',
+                'reconciled' => true,
+                'is_idempotent_replay' => true,
+                'voucher_reference' => $existingRecord->voucher_reference ?? $reference,
+                'journal_entry_id' => $existingRecord->journal_entry_id,
+                'message' => 'Reconciled against already-committed posting without duplicate ledger write.',
+            ];
+        }
+
+        // 2. If the idempotency record is currently in-flight with an active (unexpired) lease, do not steal it
+        if ($existingRecord && $existingRecord->isInFlight() && !$existingRecord->isLeaseExpired()) {
+            return [
+                'status' => 'in_progress',
+                'actionable_code' => 'ACTIVE_LEASE_IN_PROGRESS',
+                'reconciled' => false,
+                'voucher_reference' => $reference,
+                'retry_after_seconds' => 2,
+                'message' => 'Posting is currently in-flight under an active lease; retry after lease completion.',
+            ];
+        }
+
+        // 3. Check if a DomainJournalEntry with this reference already exists in the ledger without a committed idempotency link
+        if ($reference !== '') {
+            $existingDomainEntry = DomainJournalEntry::where('domainUuid', $domainUuid)
+                ->where('reference', $reference)
+                ->first();
+
+            if ($existingDomainEntry) {
+                $reason = "Voucher reference '{$reference}' already exists in ledger (journalEntryId={$existingDomainEntry->journalEntryId}) without a committed idempotency record for key '{$unposted->idempotency_key}'. Manual accountant review required.";
+                $unposted->markReconciliationRequired($reason);
+
+                if ($existingRecord && $existingRecord->isInFlight() && $existingRecord->isLeaseExpired()) {
+                    $existingRecord->markFailed($reason);
+                }
+
+                if (class_exists(AccountingAuditTrail::class)) {
+                    AccountingAuditTrail::record(
+                        $domainUuid,
+                        'UNPOSTED_RECONCILIATION_AMBIGUOUS_REFERENCE',
+                        'expense_voucher',
+                        $reference,
+                        [
+                            'idempotency_key' => $unposted->idempotency_key,
+                            'conflicting_journal_entry_id' => $existingDomainEntry->journalEntryId,
+                            'error' => $reason,
+                        ],
+                        'system',
+                        'Unposted Entry Reconciler'
+                    );
+                }
+
+                return [
+                    'status' => 'reconciliation_required',
+                    'actionable_code' => 'AMBIGUOUS_EXISTING_VOUCHER_REFERENCE',
+                    'reconciled' => false,
+                    'voucher_reference' => $reference,
+                    'conflicting_journal_entry_id' => $existingDomainEntry->journalEntryId,
+                    'error_message' => $reason,
+                    'message' => $reason,
+                ];
+            }
+        }
+
+        // 4. Attempt clean re-posting through the atomic processExpense pipeline
+        try {
+            $result = $this->processExpense($payload, $companyCode);
+
+            return array_merge($result, [
+                'status' => 'reconciled_posted',
+                'actionable_code' => 'RECONCILED_NEW_POSTING',
+                'reconciled' => true,
+            ]);
+        } catch (Throwable $e) {
+            $refreshed = $unposted->fresh();
+
+            return [
+                'status' => 'failed',
+                'actionable_code' => 'RECONCILIATION_POSTING_FAILED',
+                'reconciled' => false,
+                'voucher_reference' => $reference,
+                'retry_count' => $refreshed ? $refreshed->retry_count : $unposted->retry_count,
+                'error_message' => $e->getMessage(),
+                'message' => $e->getMessage(),
+            ];
+        }
     }
 }

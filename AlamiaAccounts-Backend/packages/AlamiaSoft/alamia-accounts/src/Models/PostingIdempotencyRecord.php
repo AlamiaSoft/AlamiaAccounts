@@ -142,9 +142,29 @@ class PostingIdempotencyRecord extends Model
 
     /**
      * Mark record as failed with an error message.
+     * When a lease_token is present, fences the update on lease_token and in_flight status
+     * so a rolled-back or preempted worker cannot overwrite another worker's lease or committed state.
      */
     public function markFailed(string $errorMessage): bool
     {
+        if (!empty($this->lease_token)) {
+            $affected = static::whereKey($this->id)
+                ->where('lease_token', $this->lease_token)
+                ->where('status', 'in_flight')
+                ->update([
+                    'status' => 'failed',
+                    'error_message' => $errorMessage,
+                    'updated_at' => now(),
+                ]);
+
+            if ($affected > 0) {
+                $this->refresh();
+                return true;
+            }
+
+            return false;
+        }
+
         return $this->update([
             'status' => 'failed',
             'error_message' => $errorMessage,

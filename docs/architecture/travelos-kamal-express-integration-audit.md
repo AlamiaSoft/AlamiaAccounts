@@ -175,20 +175,25 @@ All accounts are resolved via explicit tenant configuration (never hardcoded in 
 
 ---
 
-## 5. Dependency-Ordered One-Day Task DAG
+## 5. Dependency-Ordered One-Day Task DAG & Scheduling Review
 
 All follow-up work is decomposed into **single-repository**, **`≤ 1 working day`** issues (`#60`–`#67`) and sequenced behind the canonical core gates (`#40`–`#43`, `#9`, `#10`, `#15`, `#16`, `#21`) in [#18](https://github.com/AlamiaSoft/AlamiaAccounts/issues/18).
+
+### 5.1 Scheduling Analysis of `#60` and `#61` Relative to Core Sequence `#40`–`#43`
+- **Next Active Core Task:** **[#40](https://github.com/AlamiaSoft/AlamiaAccounts/issues/40)** (`[Task][Day 5][#8] Make posting identity, journal association and audit commit atomically`) is the immediate next executable implementation task on `main`.
+- **Why `#61` Is Gated Behind `#40` and `#41`:** [#61](https://github.com/AlamiaSoft/AlamiaAccounts/issues/61) modifies `ExpenseIntegrationService::processExpense()` validation and `UnpostedIntegrationEntry` failure recording. That exact method and error-handling boundary are the subject of `#40` (transaction boundary) and [#41](https://github.com/AlamiaSoft/AlamiaAccounts/issues/41) (failure recovery and timeout retry). Scheduling `#61` before `#40` and `#41` would cause merge conflicts and duplicate refactoring in `ExpenseIntegrationService`. Therefore, `#61` is strictly blocked until `#40` and `#41` are merged.
+- **Why `#60` Is Sequenced After `#41`/`#43`:** [#60](https://github.com/AlamiaSoft/AlamiaAccounts/issues/60) only touches the `down()` method of migration `2026_10_16_000001_create_posting_idempotency_records_and_enforce_unique_constraints.php` and has no runtime conflict with `#40` or `#41`. However, to avoid interrupting the active core posting-integrity sequence (`#40` → `#41` → `#42` → `#43`), `#60` and `#61` are scheduled after `#41` (or immediately after `#43` if keeping Epic `#8` unbroken).
 
 ```mermaid
 flowchart TD
     subgraph CoreTrack["1. Core Posting Integrity & Architecture Track (AlamiaAccounts)"]
-        I59["#59 (0.5d): TravelOS Integration Audit & DAG Plan\n[THIS ISSUE]"]
-        I40["#40 (1.0d): Atomic Posting + Domain + Idempotency + Audit\n[NEXT CORE TASK]"]
+        I59["#59 (0.5d): TravelOS Integration Audit & DAG Plan\n[CURRENT AUDIT / PLAN PR]"]
+        I40["#40 (1.0d): Atomic Posting + Domain + Idempotency + Audit\n[NEXT EXECUTABLE CORE TASK]"]
         I41["#41 (1.0d): Failure Recovery & Timeout Retry Semantics"]
         I42["#42 (1.0d): Company-Scoped Voucher Reference Uniqueness"]
         I43["#43 (1.0d): Production DB Engine (PostgreSQL 16) Certification"]
         I60["#60 (0.5d, AlamiaAccounts): Fix Migration Rollback Index Drop Order"]
-        I61["#61 (0.5d, AlamiaAccounts): Fix Pre-Validation Unposted Queue Capture"]
+        I61["#61 (0.5d, AlamiaAccounts): Fix Pre-Validation Unposted Queue Capture\n(Overlaps ExpenseIntegrationService in #40/#41)"]
         I9["#9: Authoritative Posting Validation & Approval Boundary"]
         I10["#10: Explicit Tenant-Scoped Fail-Closed Account Mapping"]
         I15["#15: Core vs. Optional Adapter Boundary"]
@@ -196,7 +201,7 @@ flowchart TD
         I21["#21: Integration Contract v1"]
     end
 
-    subgraph TravelOSTrack["2. Gated TravelOS Integration Track (Single-Repo <= 1d Tasks)"]
+    subgraph TravelOSTrack["2. Gated TravelOS Integration Backlog (Single-Repo <= 1d Tasks)"]
         I62["#62 (1.0d, TravelOS Repo): Assess Data/Report Impact & Align\nTravelOS COA Seeder to Canonical 1000-5000 Roots"]
         I63["#63 (0.5d, AlamiaAccounts): Validate Booking/Ticket/Payment/Refund\nAccounting Rules with Mr. Muzaffar"]
         I64["#64 (1.0d, AlamiaAccounts): Implement Validated TravelOS Operations\nin Public Integration Service"]
@@ -206,7 +211,7 @@ flowchart TD
     end
 
     I59 --> I40 --> I41 --> I42 --> I43
-    I59 --> I60 --> I61 --> I62
+    I41 --> I60 --> I61 --> I62
     I43 --> I21
     I9 --> I21
     I10 --> I21
@@ -221,8 +226,8 @@ flowchart TD
 
 | Issue | Title | Target Repository | Effort | Hard Dependencies | Required Verification Gate |
 | :--- | :--- | :--- | :---: | :--- | :--- |
-| **[#60](https://github.com/AlamiaSoft/AlamiaAccounts/issues/60)** | `[Task][#59][Day 1a] Fix domain_journal_entries_reference_index drop order on migration rollback` | `AlamiaAccounts` | `0.5d` | `#59` (keep `#40`–`#43` primary) | PHPUnit migration `migrate` → `migrate:rollback` → `migrate` regression test passing on SQLite & PostgreSQL 16. |
-| **[#61](https://github.com/AlamiaSoft/AlamiaAccounts/issues/61)** | `[Task][#59][Day 1b] Record UnpostedIntegrationEntry on pre-validation failure when fail_on_unmapped is false` | `AlamiaAccounts` | `0.5d` | `#60`, `#41` | PHPUnit regression test verifying `amount <= 0` / invalid mapping with `fail_on_unmapped = false` persists `UnpostedIntegrationEntry`. |
+| **[#60](https://github.com/AlamiaSoft/AlamiaAccounts/issues/60)** | `[Task][#59][Day 1a] Fix domain_journal_entries_reference_index drop order on migration rollback` | `AlamiaAccounts` | `0.5d` | `#59`, scheduled after `#41`/`#43` so `#40`–`#43` is undisrupted | PHPUnit migration `migrate` → `migrate:rollback` → `migrate` regression test passing on SQLite & PostgreSQL 16. |
+| **[#61](https://github.com/AlamiaSoft/AlamiaAccounts/issues/61)** | `[Task][#59][Day 1b] Record UnpostedIntegrationEntry on pre-validation failure when fail_on_unmapped is false` | `AlamiaAccounts` | `0.5d` | `#40`, `#41`, `#60` (overlaps `ExpenseIntegrationService` failure recovery in `#40`/`#41`) | PHPUnit regression test verifying `amount <= 0` / invalid mapping with `fail_on_unmapped = false` persists `UnpostedIntegrationEntry`. |
 | **[#62](https://github.com/AlamiaSoft/AlamiaAccounts/issues/62)** | `[Task][#59][Day 2] Assess TravelOS COA data impact and align seeder to canonical 1000-5000 roots via CompanyService/AccountService` | `Alamia-SaaS-Platform-Starter` | `1.0d` | `#60`, `#61` | Written data/report impact assessment + zero `Abivia\Ledger` imports in seeder + `ReportService` root classification test on SQLite & PostgreSQL 16. |
 | **[#63](https://github.com/AlamiaSoft/AlamiaAccounts/issues/63)** | `[Task][#59][Day 3] Validate TravelOS booking, ticket, payment, and refund accounting rules with Mr. Muzaffar` | `AlamiaAccounts` | `0.5d` | `#16`, `#21` | Stakeholder sign-off recorded resolving all open questions in `review0.1.md` §2. |
 | **[#64](https://github.com/AlamiaSoft/AlamiaAccounts/issues/64)** | `[Task][#59][Day 4] Implement validated TravelOS operations in Alamia public integration service with fail-closed mapping` | `AlamiaAccounts` | `1.0d` | `#40`–`#43`, `#9`, `#10`, `#15`, `#16`, `#21`, `#61`, `#63` | PHPUnit feature suite on SQLite & PostgreSQL 16 + `node scripts/verify-architecture.js` green. |

@@ -1,4 +1,4 @@
-﻿# ============================================================
+# ============================================================
 #  Alamia Accounts — Portainer Stack (Git Integration)
 # ============================================================
 #
@@ -49,7 +49,9 @@ services:
     image: alamia-accounts-backend:latest
     container_name: alamia-backend
     restart: unless-stopped
-    # NO host port — reachable ONLY via the internal Docker network.
+    ports:
+      # Optional host port for direct backend routing via Cloudflare Tunnel
+      - "127.0.0.1:${BACKEND_HOST_PORT:-8001}:8000"
     expose:
       - "8000"
     environment:

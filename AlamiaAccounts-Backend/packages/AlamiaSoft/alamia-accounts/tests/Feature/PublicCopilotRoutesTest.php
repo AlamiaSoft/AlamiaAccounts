@@ -5,6 +5,7 @@ namespace AlamiaSoft\AlamiaAccounts\Tests\Feature;
 use AlamiaSoft\AlamiaAccounts\Services\DomainContext;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Hash;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
@@ -20,19 +21,21 @@ class PublicCopilotRoutesTest extends TestCase
         DomainContext::reset();
     }
 
-    protected function makeUser(string $companyCode = 'KAMAL_EXPRESS', string $role = 'staff', ?array $allowedCompanies = null): User
+    protected function makeUser(string $companyCode = 'KAMAL_EXPRESS', string $role = 'staff', ?array $allowedCompanies = null, ?string $password = 'secret123'): User
     {
+        $id = rand(1000, 9999);
         $user = new User();
         $user->forceFill([
-            'id' => rand(1000, 9999),
+            'id' => $id,
             'name' => "Test User {$companyCode} {$role}",
             'email' => "user_{$companyCode}_{$role}_" . uniqid() . "@example.invalid",
+            'password' => Hash::make($password ?? 'secret123'),
             'role' => $role,
             'status' => 'active',
             'company_code' => $companyCode,
-            'allowed_companies' => $allowedCompanies,
+            'allowed_companies' => $allowedCompanies ?? [$companyCode],
         ]);
-        $user->exists = true;
+        $user->save();
 
         return $user;
     }
@@ -192,6 +195,7 @@ class PublicCopilotRoutesTest extends TestCase
     public function test_maker_checker_succeeds_with_valid_reason_and_exact_amount_reentry(): void
     {
         $accountant = $this->makeUser('KAMAL_EXPRESS', 'accountant');
+        $cfo = $this->makeUser('KAMAL_EXPRESS', 'cfo', null, 'CfoSecret123!');
         Sanctum::actingAs($accountant);
 
         $response = $this->withHeader('X-Company-Code', 'KAMAL_EXPRESS')
@@ -201,6 +205,8 @@ class PublicCopilotRoutesTest extends TestCase
                     'approval' => [
                         'reason' => 'Quarterly vendor payment approved by CFO and verified against invoice',
                         'reentered_amount' => 125000,
+                        'approver_id' => $cfo->id,
+                        'password' => 'CfoSecret123!',
                     ],
                     'details' => [
                         ['account_code' => '1121', 'amount' => 125000, 'type' => 'debit'],

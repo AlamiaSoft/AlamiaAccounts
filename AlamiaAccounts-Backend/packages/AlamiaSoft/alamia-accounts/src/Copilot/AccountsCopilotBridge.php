@@ -272,9 +272,12 @@ class AccountsCopilotBridge
                 $entries = $input['details'] ?? ($input['entries'] ?? []);
 
                 $actorId = is_object($actor) ? (string)($actor->id() ?? ($actor->id ?? '')) : (is_array($actor) ? (string)($actor['id'] ?? '') : (string)$actor);
+                $authenticatedUser = auth()->user() ?? (is_object($actor) && $actor instanceof \App\Models\User ? $actor : null);
                 $actorContext = [
                     'maker_id' => $actorId !== '' ? $actorId : null,
                     'user_name' => is_object($actor) ? ($actor->name ?? null) : (is_array($actor) ? ($actor['name'] ?? null) : null),
+                    'authenticated_user' => $authenticatedUser,
+                    'authenticated_user_id' => $authenticatedUser ? (string)$authenticatedUser->id : ($actorId !== '' ? $actorId : null),
                     'source' => 'copilot',
                     'correlation_id' => request() ? request()->header('X-Request-Id', request()->header('X-Correlation-Id', (string)\Illuminate\Support\Str::uuid())) : (string)\Illuminate\Support\Str::uuid(),
                     'approval' => $input['approval'] ?? null,

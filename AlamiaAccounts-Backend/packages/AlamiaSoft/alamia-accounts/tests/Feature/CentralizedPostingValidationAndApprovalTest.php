@@ -15,6 +15,7 @@ use Carbon\Carbon;
 use Exception;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
@@ -55,18 +56,23 @@ class CentralizedPostingValidationAndApprovalTest extends TestCase
         $this->validationService = app(PostingValidationService::class);
     }
 
-    protected function makeUser(string $companyCode = 'KAMAL_EXPRESS', string $role = 'accountant', int $id = 1001): User
+    protected function makeUser(string $companyCode = 'KAMAL_EXPRESS', string $role = 'accountant', int $id = 1001, ?string $password = 'secret123'): User
     {
-        $user = new User();
+        $user = User::find($id);
+        if (!$user) {
+            $user = new User();
+            $user->id = $id;
+        }
         $user->forceFill([
-            'id' => $id,
             'name' => "User {$id} ({$role})",
             'email' => "user_{$id}_{$companyCode}@example.invalid",
+            'password' => Hash::make($password ?? 'secret123'),
             'role' => $role,
             'status' => 'active',
             'company_code' => $companyCode,
+            'allowed_companies' => [$companyCode],
         ]);
-        $user->exists = true;
+        $user->save();
 
         return $user;
     }
@@ -387,12 +393,15 @@ class CentralizedPostingValidationAndApprovalTest extends TestCase
     }
 
     /**
-     * Test 6: Maker-checker succeeds with distinct approver and valid confirmation.
+     * Test 6: Maker-checker succeeds with distinct approver and valid authentication confirmation.
      */
     public function test_maker_checker_succeeds_with_distinct_approver(): void
     {
         $maker = $this->makeUser('KAMAL_EXPRESS', 'accountant', 4001);
         $checker = $this->makeUser('KAMAL_EXPRESS', 'manager', 4002);
+        $checker->password = bcrypt('ManagerSecret123!');
+        $checker->save();
+
         Sanctum::actingAs($maker);
 
         $response = $this->withHeader('X-Company-Code', 'KAMAL_EXPRESS')
@@ -406,6 +415,7 @@ class CentralizedPostingValidationAndApprovalTest extends TestCase
                     'reason' => 'Quarterly vendor audit settlement verified against contract number 7890',
                     'reentered_amount' => 250000,
                     'approver_id' => 4002, // Distinct approver!
+                    'password' => 'ManagerSecret123!', // Valid authentication proof!
                 ],
                 'entries' => [
                     ['account_code' => '1110', 'amount' => 250000, 'type' => 'debit'],
@@ -430,6 +440,202 @@ class CentralizedPostingValidationAndApprovalTest extends TestCase
         $this->assertEquals('CORR-MC-SUCCESS-001', $details['correlation_id']);
         $this->assertEquals(250000.0, (float) $details['total_amount']);
         $this->assertStringContainsString('Quarterly vendor audit settlement', $details['approval_reason']);
+    }
+
+    /**
+     * Test 6a: Client cannot influence or bypass distinct approver policy via request payload.
+     */
+    public function test_client_cannot_bypass_distinct_approver_policy_via_request_payload(): void
+    {
+        $maker = $this->makeUser('KAMAL_EXPRESS', 'accountant', 4003);
+        Sanctum::actingAs($maker);
+
+        // Attempting to post high-value voucher omitting approver while passing require_distinct_approver: false
+        $response = $this->withHeader('X-Company-Code', 'KAMAL_EXPRESS')
+            ->postJson('/api/vouchers', [
+                'reference' => 'JV-BYPASS-ATTEMPT-01',
+                'date' => '2026-10-16',
+                'currency' => 'PKR',
+                'description' => 'Attempt Policy Bypass',
+                'approval' => [
+                    'reason' => 'Substantive business reason for high value voucher testing bypass',
+                    'reentered_amount' => 150000,
+                    'require_distinct_approver' => false, // Attempted client-side override!
+                ],
+                'entries' => [
+                    ['account_code' => '1110', 'amount' => 150000, 'type' => 'debit'],
+                    ['account_code' => '3100', 'amount' => 150000, 'type' => 'credit'],
+                ],
+            ]);
+
+        $response->assertStatus(422);
+        $response->assertSee('Maker-checker policy requires an explicit distinct approver for this transaction');
+    }
+
+    /**
+     * Test 6b: Forged non-existent approver ID is rejected.
+     */
+    public function test_forged_non_existent_approver_id_is_rejected(): void
+    {
+        $maker = $this->makeUser('KAMAL_EXPRESS', 'accountant', 4004);
+        Sanctum::actingAs($maker);
+
+        $response = $this->withHeader('X-Company-Code', 'KAMAL_EXPRESS')
+            ->postJson('/api/vouchers', [
+                'reference' => 'JV-FORGED-NONEXISTENT',
+                'date' => '2026-10-16',
+                'currency' => 'PKR',
+                'description' => 'Forged Non Existent Approver',
+                'approval' => [
+                    'reason' => 'Quarterly vendor reconciliation authorized per invoice review',
+                    'reentered_amount' => 150000,
+                    'approver_id' => 999999, // Non-existent user ID!
+                    'password' => 'AnyPassword',
+                ],
+                'entries' => [
+                    ['account_code' => '1110', 'amount' => 150000, 'type' => 'debit'],
+                    ['account_code' => '3100', 'amount' => 150000, 'type' => 'credit'],
+                ],
+            ]);
+
+        $response->assertStatus(422);
+        $response->assertSee("Approver ID '999999' does not exist or is not an active user", false);
+    }
+
+    /**
+     * Test 6c: Forged cross-tenant approver ID is rejected.
+     */
+    public function test_forged_cross_tenant_approver_id_is_rejected(): void
+    {
+        $maker = $this->makeUser('KAMAL_EXPRESS', 'accountant', 4005);
+        $foreignManager = $this->makeUser('MAIN', 'manager', 4006); // Assigned exclusively to MAIN!
+        $foreignManager->password = bcrypt('ManagerSecret123!');
+        $foreignManager->save();
+
+        Sanctum::actingAs($maker);
+
+        $response = $this->withHeader('X-Company-Code', 'KAMAL_EXPRESS')
+            ->postJson('/api/vouchers', [
+                'reference' => 'JV-FORGED-CROSSTENANT',
+                'date' => '2026-10-16',
+                'currency' => 'PKR',
+                'description' => 'Forged Cross Tenant Approver',
+                'approval' => [
+                    'reason' => 'Quarterly vendor reconciliation authorized per invoice review',
+                    'reentered_amount' => 150000,
+                    'approver_id' => 4006, // Cross-tenant manager!
+                    'password' => 'ManagerSecret123!',
+                ],
+                'entries' => [
+                    ['account_code' => '1110', 'amount' => 150000, 'type' => 'debit'],
+                    ['account_code' => '3100', 'amount' => 150000, 'type' => 'credit'],
+                ],
+            ]);
+
+        $response->assertStatus(422);
+        $response->assertSee("Approver ID '4006' is not authorized for company domain 'KAMAL_EXPRESS'", false);
+    }
+
+    /**
+     * Test 6d: Unprivileged approver role is rejected.
+     */
+    public function test_unprivileged_approver_role_is_rejected(): void
+    {
+        $maker = $this->makeUser('KAMAL_EXPRESS', 'accountant', 4007);
+        $staffUser = $this->makeUser('KAMAL_EXPRESS', 'staff', 4008); // Ordinary unprivileged staff!
+        $staffUser->password = bcrypt('StaffSecret123!');
+        $staffUser->save();
+
+        Sanctum::actingAs($maker);
+
+        $response = $this->withHeader('X-Company-Code', 'KAMAL_EXPRESS')
+            ->postJson('/api/vouchers', [
+                'reference' => 'JV-UNPRIVILEGED-ROLE',
+                'date' => '2026-10-16',
+                'currency' => 'PKR',
+                'description' => 'Unprivileged Role Approver',
+                'approval' => [
+                    'reason' => 'Quarterly vendor reconciliation authorized per invoice review',
+                    'reentered_amount' => 150000,
+                    'approver_id' => 4008, // Staff role!
+                    'password' => 'StaffSecret123!',
+                ],
+                'entries' => [
+                    ['account_code' => '1110', 'amount' => 150000, 'type' => 'debit'],
+                    ['account_code' => '3100', 'amount' => 150000, 'type' => 'credit'],
+                ],
+            ]);
+
+        $response->assertStatus(422);
+        $response->assertSee("does not have authority to approve high-value transactions");
+    }
+
+    /**
+     * Test 6e: Unverified approver without authentication proof is rejected.
+     */
+    public function test_unverified_approver_without_authentication_proof_is_rejected(): void
+    {
+        $maker = $this->makeUser('KAMAL_EXPRESS', 'accountant', 4009);
+        $manager = $this->makeUser('KAMAL_EXPRESS', 'manager', 4010);
+        $manager->password = bcrypt('ManagerSecret123!');
+        $manager->save();
+
+        Sanctum::actingAs($maker);
+
+        // Client supplies real manager ID 4010, but NO password, NO token
+        $response = $this->withHeader('X-Company-Code', 'KAMAL_EXPRESS')
+            ->postJson('/api/vouchers', [
+                'reference' => 'JV-UNVERIFIED-APPROVER',
+                'date' => '2026-10-16',
+                'currency' => 'PKR',
+                'description' => 'Unverified Approver Proof Missing',
+                'approval' => [
+                    'reason' => 'Quarterly vendor reconciliation authorized per invoice review',
+                    'reentered_amount' => 150000,
+                    'approver_id' => 4010, // Real manager, but no proof!
+                ],
+                'entries' => [
+                    ['account_code' => '1110', 'amount' => 150000, 'type' => 'debit'],
+                    ['account_code' => '3100', 'amount' => 150000, 'type' => 'credit'],
+                ],
+            ]);
+
+        $response->assertStatus(422);
+        $response->assertSee("explicit authentication proof (approver password confirmation, verified approver token, or authenticated supervisory session) is required");
+    }
+
+    /**
+     * Test 6f: Approver with wrong password confirmation is rejected.
+     */
+    public function test_approver_with_wrong_password_is_rejected(): void
+    {
+        $maker = $this->makeUser('KAMAL_EXPRESS', 'accountant', 4011);
+        $manager = $this->makeUser('KAMAL_EXPRESS', 'manager', 4012);
+        $manager->password = bcrypt('ManagerCorrectPassword!');
+        $manager->save();
+
+        Sanctum::actingAs($maker);
+
+        $response = $this->withHeader('X-Company-Code', 'KAMAL_EXPRESS')
+            ->postJson('/api/vouchers', [
+                'reference' => 'JV-WRONG-PASSWORD-01',
+                'date' => '2026-10-16',
+                'currency' => 'PKR',
+                'description' => 'Wrong Approver Password',
+                'approval' => [
+                    'reason' => 'Quarterly vendor reconciliation authorized per invoice review',
+                    'reentered_amount' => 150000,
+                    'approver_id' => 4012,
+                    'password' => 'WrongPasswordAttempt!',
+                ],
+                'entries' => [
+                    ['account_code' => '1110', 'amount' => 150000, 'type' => 'debit'],
+                    ['account_code' => '3100', 'amount' => 150000, 'type' => 'credit'],
+                ],
+            ]);
+
+        $response->assertStatus(422);
+        $response->assertSee("Approver authentication failed: invalid password confirmation");
     }
 
     /**

@@ -269,62 +269,29 @@ class AccountsCopilotBridge
                 $voucherService = app(VoucherService::class);
                 $ref = $input['reference'] ?? ('JV-' . Carbon::now()->format('Ymd-His'));
 
-                // Robust normalization: ensures $item['amount'] is ALWAYS > 0 on every line
-                $entries = [];
-                foreach ($input['details'] ?? [] as $line) {
-                    $code = $line['account_code'] ?? $line['account'] ?? null;
-                    $dr = (float) ($line['debit'] ?? 0);
-                    $cr = (float) ($line['credit'] ?? 0);
-                    $rawAmt = (float) ($line['amount'] ?? 0);
+                $entries = $input['details'] ?? ($input['entries'] ?? []);
 
-                    $amount = $rawAmt > 0 ? $rawAmt : ($dr > 0 ? $dr : $cr);
-                    $type = $line['type'] ?? ($cr > 0 ? 'credit' : 'debit');
-
-                    $entries[] = [
-                        'account' => $code,
-                        'account_code' => $code,
-                        'amount' => $amount,
-                        'type' => $type,
-                        'debit' => $type === 'debit',
-                        'credit' => $type === 'credit',
-                    ];
-                }
-
-                // P0 Institutional Gate: Enforce Maker-Checker Threshold at Posting Boundary
-                $totalDebit = 0.0;
-                foreach ($entries as $e) {
-                    if (!empty($e['debit'])) {
-                        $totalDebit += (float) $e['amount'];
-                    }
-                }
-
-                $makerCheckerThreshold = (float) config('copilot.maker_checker_threshold', 100000.0);
-                if ($totalDebit >= $makerCheckerThreshold) {
-                    $copilotService = app(\AlamiaSoft\AlamiaAccounts\Copilot\CopilotService::class);
-                    $reason = trim($input['approval']['reason'] ?? ($input['reason'] ?? ''));
-                    $reenteredAmount = isset($input['approval']['reentered_amount'])
-                        ? $input['approval']['reentered_amount']
-                        : ($input['reentered_amount'] ?? null);
-
-                    $approvalCheck = $copilotService->validateMakerCheckerApproval([
-                        'reason' => $reason,
-                        'amount' => $totalDebit,
-                        'reentered_amount' => $reenteredAmount,
-                    ]);
-
-                    if (!$approvalCheck['valid']) {
-                        throw new \Exception($approvalCheck['error']);
-                    }
-                }
+                $actorId = is_object($actor) ? (string)($actor->id() ?? ($actor->id ?? '')) : (is_array($actor) ? (string)($actor['id'] ?? '') : (string)$actor);
+                $actorContext = [
+                    'maker_id' => $actorId !== '' ? $actorId : null,
+                    'user_name' => is_object($actor) ? ($actor->name ?? null) : (is_array($actor) ? ($actor['name'] ?? null) : null),
+                    'source' => 'copilot',
+                    'correlation_id' => request() ? request()->header('X-Request-Id', request()->header('X-Correlation-Id', (string)\Illuminate\Support\Str::uuid())) : (string)\Illuminate\Support\Str::uuid(),
+                    'approval' => $input['approval'] ?? null,
+                ];
 
                 $payload = [
                     'reference' => $ref,
                     'description' => $input['description'] ?? 'Voucher posted via Taliya Copilot',
                     'date' => $input['date'] ?? Carbon::now()->toDateString(),
                     'entries' => $entries,
+                    'approval' => $input['approval'] ?? null,
+                    'reason' => $input['approval']['reason'] ?? ($input['reason'] ?? null),
+                    'reentered_amount' => $input['approval']['reentered_amount'] ?? ($input['reentered_amount'] ?? null),
+                    'approver_id' => $input['approval']['approver_id'] ?? ($input['approval']['approved_by'] ?? ($input['approver_id'] ?? null)),
                 ];
 
-                $entry = $voucherService->createJournalEntry($payload);
+                $entry = $voucherService->createJournalEntry($payload, null, $actorContext);
 
                 return [
                     'posted' => true,

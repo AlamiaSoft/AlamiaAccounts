@@ -20,10 +20,12 @@ use Exception;
 class VoucherService
 {
     protected JournalEntryController $journalController;
+    protected PostingValidationService $postingValidationService;
 
-    public function __construct()
+    public function __construct(?PostingValidationService $postingValidationService = null)
     {
         $this->journalController = new JournalEntryController();
+        $this->postingValidationService = $postingValidationService ?? app(PostingValidationService::class);
     }
 
     /**
@@ -51,10 +53,11 @@ class VoucherService
      * 
      * @param array $data Entry data
      * @param string|null $domainCode Optional domain code
+     * @param array|null $actorContext Optional authenticated actor and correlation context
      * @return JournalEntryModel
      * @throws Exception
      */
-    public function createJournalEntry(array $data, ?string $domainCode = null): JournalEntryModel
+    public function createJournalEntry(array $data, ?string $domainCode = null, ?array $actorContext = null): JournalEntryModel
     {
         // Get the domain
         if ($domainCode) {
@@ -63,18 +66,12 @@ class VoucherService
             $domain = $this->getCurrentDomain();
         }
 
-        return DomainContext::scope($domain->code, function () use ($data, $domain) {
-            $entries = $data['entries'] ?? $data['details'] ?? [];
-            if (empty($entries) || count($entries) < 2) {
-                throw new Exception('Voucher must contain at least two entries');
-            }
+        return DomainContext::scope($domain->code, function () use ($data, $domain, $actorContext) {
+            // Centralized authoritative write-boundary validation
+            $validated = $this->postingValidationService->validateVoucherPosting($domain, $data, $actorContext);
 
-            // Duplicate reference prevention (NEG-009, LIFE-011) — company-scoped & case-insensitive
-            $refToCheck = trim((string) ($data['reference'] ?? $data['voucher_number'] ?? ''));
+            $refToCheck = $validated['reference'];
             if ($refToCheck !== '') {
-                if (DomainJournalEntry::referenceExistsInDomain($domain->domainUuid, $refToCheck)) {
-                    throw new Exception("Duplicate voucher reference '{$refToCheck}' is not allowed for this company");
-                }
                 $existingVouchers = $this->getJournalEntries(['reference' => $refToCheck]);
                 foreach ($existingVouchers as $ev) {
                     if (strcasecmp($ev['reference'] ?? '', $refToCheck) === 0 || strcasecmp($ev['number'] ?? '', $refToCheck) === 0) {
@@ -83,85 +80,18 @@ class VoucherService
                 }
             }
 
-            // Verify non-zero amounts (NEG-004) and collect accounts
-            $accountCodes = [];
-            foreach ($entries as $item) {
-                $amt = (float)($item['amount'] ?? 0);
-                if ($amt <= 0) {
-                    $amt = max((float)($item['debit'] ?? 0), (float)($item['credit'] ?? 0));
-                }
-                if ($amt <= 0) {
-                    throw new Exception("Voucher line item amount must be greater than zero");
-                }
-                $code = $item['account_code'] ?? $item['account'] ?? null;
-                if ($code) {
-                    $accountCodes[] = $code;
-                }
-            }
-
-            $accountCodes = array_values(array_unique($accountCodes));
-            $accountUuids = DomainLedgerAccount::getAccountUuidsForDomain($domain->domainUuid);
-            $domainAccounts = \Abivia\Ledger\Models\LedgerAccount::whereIn('code', $accountCodes)
-                ->whereIn('ledgerUuid', $accountUuids)
-                ->get(['ledgerUuid', 'code', 'category'])
-                ->keyBy('code');
-
-            foreach ($accountCodes as $code) {
-                $account = $domainAccounts->get($code);
-                if (!$account) {
-                    throw new Exception('One or more accounts do not belong to the current domain');
-                }
-
-                if ($account->category) {
-                    throw new Exception("Account {$code} is a category account and cannot receive postings");
-                }
-            }
-
             $message = new Entry();
             $message->clearing = true;
-            $message->currency = $data['currency'] ?? $domain->currencyDefault ?? 'PKR';
+            $message->currency = $validated['currency'];
             $message->description = $data['description'] ?? 'Journal Voucher';
             $message->domain = new EntityRef($domain->code);
+            $message->transDate = $validated['trans_date'];
 
-            // Transaction date handling
-            if (isset($data['transDate'])) {
-                $message->transDate = Carbon::parse($data['transDate']);
-            } elseif (isset($data['date'])) {
-                $message->transDate = Carbon::parse($data['date']);
-            } else {
-                $message->transDate = Carbon::now();
-            }
-
-            if ($refToCheck !== '' || !empty($data['voucher_type'])) {
-                $voucherType = $data['voucher_type'] ?? null;
-                if (!$voucherType) {
-                    $ref = strtoupper($refToCheck);
-                    if (str_starts_with($ref, 'CV') || str_starts_with($ref, 'CONTRA')) {
-                        $voucherType = 'contra';
-                    } elseif (str_starts_with($ref, 'OB')) {
-                        $voucherType = 'opening';
-                    } elseif (str_starts_with($ref, 'PV')) {
-                        $voucherType = 'payment';
-                    } elseif (str_starts_with($ref, 'RV')) {
-                        $voucherType = 'receipt';
-                    } else {
-                        // Check if all accounts in entries are cash/bank (code starting with 11)
-                        $isAllCashOrBank = count($entries) >= 2;
-                        foreach ($entries as $e) {
-                            $c = $e['account_code'] ?? $e['account'] ?? '';
-                            if (!str_starts_with($c, '11')) {
-                                $isAllCashOrBank = false;
-                                break;
-                            }
-                        }
-                        $voucherType = $isAllCashOrBank ? 'contra' : 'journal';
-                    }
-                }
-
+            if ($refToCheck !== '' || !empty($validated['voucher_type'])) {
                 $extraData = [
-                    'reference' => isset($data['reference']) ? trim((string) $data['reference']) : null,
+                    'reference' => $refToCheck !== '' ? $refToCheck : null,
                     'voucher_number' => isset($data['voucher_number']) ? trim((string) $data['voucher_number']) : null,
-                    'voucher_type' => $voucherType,
+                    'voucher_type' => $validated['voucher_type'],
                 ];
                 if (!empty($data['custom_fields'])) {
                     $extraData['custom_fields'] = $data['custom_fields'];
@@ -172,36 +102,8 @@ class VoucherService
                 $message->extra = json_encode($extraData);
             }
 
-            // Consolidate net amounts by account code for Abivia's distinct account requirement
-            $accountNetAmounts = [];
-            foreach ($entries as $item) {
-                $accountCode = $item['account_code'] ?? $item['account'] ?? null;
-                if (!$accountCode) {
-                    continue;
-                }
-
-                $rawAmount = (float)($item['amount'] ?? 0);
-                if ($rawAmount <= 0) {
-                    $rawAmount = max((float)($item['debit'] ?? 0), (float)($item['credit'] ?? 0));
-                }
-                $isCredit = false;
-                if (isset($item['type'])) {
-                    $isCredit = strtolower($item['type']) === 'credit';
-                } elseif (isset($item['credit']) && (float)$item['credit'] > 0) {
-                    $isCredit = true;
-                } elseif (isset($item['debit']) && (float)$item['debit'] > 0) {
-                    $isCredit = false;
-                }
-
-                $signedAmount = $isCredit ? -abs($rawAmount) : abs($rawAmount);
-                if (!isset($accountNetAmounts[$accountCode])) {
-                    $accountNetAmounts[$accountCode] = 0.0;
-                }
-                $accountNetAmounts[$accountCode] += $signedAmount;
-            }
-
             $details = [];
-            foreach ($accountNetAmounts as $accountCode => $netAmount) {
+            foreach ($validated['account_net_amounts'] as $accountCode => $netAmount) {
                 if (abs($netAmount) < 0.0001) {
                     continue;
                 }
@@ -216,15 +118,11 @@ class VoucherService
             }
 
             $message->details = $details;
-
-            // Period validation
-            $transDateStr = $message->transDate instanceof Carbon ? $message->transDate->toDateString() : (string)$message->transDate;
-            $periodService = app(PeriodService::class);
-            $periodService->validatePostingDate($domain->domainUuid, $transDateStr);
-            $voucherType = $data['voucher_type'] ?? 'journal';
+            $transDateStr = $validated['trans_date_str'];
+            $voucherType = $validated['voucher_type'];
 
             // Create entry and domain association atomically inside DB::transaction
-            return DB::transaction(function () use ($message, $domain, $data, $entries, $voucherType, $transDateStr, $refToCheck) {
+            return DB::transaction(function () use ($message, $domain, $data, $validated, $voucherType, $transDateStr, $refToCheck) {
                 try {
                     $journalEntry = $this->journalController->add($message);
                 } catch (\Abivia\Ledger\Exceptions\Breaker $b) {
@@ -258,9 +156,17 @@ class VoucherService
                     [
                         'voucher_type' => $voucherType ?? 'journal',
                         'date' => $transDateStr,
-                        'currency' => $data['currency'] ?? 'PKR',
-                        'entries_count' => count($entries),
-                    ]
+                        'currency' => $validated['currency'],
+                        'entries_count' => count($validated['normalized_entries']),
+                        'total_amount' => $validated['total_amount'],
+                        'maker_id' => $validated['maker_id'],
+                        'approver_id' => $validated['approver_id'],
+                        'approval_reason' => $validated['approval_reason'],
+                        'source' => $validated['source'],
+                        'correlation_id' => $validated['correlation_id'],
+                    ],
+                    $validated['maker_id'],
+                    $validated['maker_name']
                 );
 
                 // Record transaction-level accounting integrity checkpoint
@@ -273,10 +179,11 @@ class VoucherService
                         $voucherType ?? ($data['custom_voucher_type_name'] ?? 'journal'),
                         $journalEntry->journalEntryId,
                         $transDateStr,
-                        $data['currency'] ?? $domain->currencyDefault ?? 'PKR',
+                        $validated['currency'],
                         [
                             'description' => $data['description'] ?? null,
-                            'entries_count' => count($entries),
+                            'entries_count' => count($validated['normalized_entries']),
+                            'total_amount' => $validated['total_amount'],
                         ]
                     );
                 } catch (\Throwable $e) {

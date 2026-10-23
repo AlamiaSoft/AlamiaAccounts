@@ -78,37 +78,12 @@ class VoucherController extends Controller
             ]);
         }
 
-        // 2. Normalize entries from lineItems, details, or line_items if entries is absent
-        if (!$request->filled('entries') && ($request->filled('lineItems') || $request->filled('details') || $request->filled('line_items'))) {
-            $rawLines = $request->input('lineItems') ?? $request->input('details') ?? $request->input('line_items') ?? [];
-            $normalizedEntries = [];
-            foreach ($rawLines as $line) {
-                $accountCode = $line['account_code'] ?? $line['account'] ?? '';
-                $debit = (float) ($line['debit'] ?? 0);
-                $credit = (float) ($line['credit'] ?? 0);
-                $amt = (float) ($line['amount'] ?? 0);
-                if ($amt <= 0) {
-                    $amt = $debit > 0 ? $debit : $credit;
-                }
-                $type = $line['type'] ?? ($debit > 0 ? 'debit' : 'credit');
-                $desc = $line['description'] ?? $line['memo'] ?? $request->input('narration') ?? $request->input('description') ?? null;
-
-                $normalizedEntries[] = [
-                    'account_code' => (string) $accountCode,
-                    'amount' => $amt,
-                    'type' => strtolower($type) === 'credit' ? 'credit' : 'debit',
-                    'description' => $desc,
-                ];
-            }
-            $request->merge(['entries' => $normalizedEntries]);
-        }
-
-        // 3. Normalize description from narration if absent
+        // 2. Normalize description from narration if absent
         if (!$request->filled('description') && $request->filled('narration')) {
             $request->merge(['description' => $request->input('narration')]);
         }
 
-        // 4. Normalize reference from number if absent
+        // 3. Normalize reference from number if absent
         if (!$request->filled('reference') && $request->filled('number')) {
             $request->merge(['reference' => $request->input('number')]);
         }
@@ -118,15 +93,32 @@ class VoucherController extends Controller
             'reference' => 'required|string',
             'description' => 'nullable|string',
             'currency' => 'required|string|size:3',
-            'entries' => 'required|array|min:2',
-            'entries.*.account_code' => 'required|string',
-            'entries.*.amount' => 'required|numeric|min:0.01',
-            'entries.*.type' => 'required|in:debit,credit',
-            'entries.*.description' => 'nullable|string',
+            'entries' => 'nullable|array',
+            'details' => 'nullable|array',
+            'lineItems' => 'nullable|array',
+            'line_items' => 'nullable|array',
             'custom_fields' => 'nullable|array',
             'voucher_type' => 'nullable|string',
             'type' => 'nullable|string',
+            'approval' => 'nullable|array',
+            'reason' => 'nullable|string',
+            'reentered_amount' => 'nullable|numeric',
+            'maker_id' => 'nullable',
+            'approver_id' => 'nullable',
         ]);
+
+        $rawEntries = $request->input('entries') ?? ($request->input('details') ?? ($request->input('lineItems') ?? ($request->input('line_items') ?? [])));
+
+        $user = $request->user();
+        $actorContext = [
+            'maker_id' => $user ? (string)$user->id : ($request->input('maker_id') ?? null),
+            'user_name' => $user ? $user->name : null,
+            'source' => 'api',
+            'correlation_id' => $request->header('X-Request-Id', $request->header('X-Correlation-Id', (string)\Illuminate\Support\Str::uuid())),
+            'approval' => $request->input('approval'),
+            'approver_id' => $request->input('approval.approver_id') ?? $request->input('approver_id'),
+            'require_distinct_approver' => $request->input('approval.require_distinct_approver') ?? $request->input('require_distinct_approver', false),
+        ];
 
         try {
             $voucher = $this->voucherService->createJournalEntry([
@@ -134,13 +126,24 @@ class VoucherController extends Controller
                 'reference' => $validated['reference'],
                 'description' => $validated['description'] ?? '',
                 'currency' => $validated['currency'],
-                'entries' => $validated['entries'],
+                'entries' => $rawEntries,
+                'approval' => $request->input('approval'),
+                'reason' => $request->input('reason'),
+                'reentered_amount' => $request->input('reentered_amount'),
+                'maker_id' => $request->input('maker_id'),
+                'approver_id' => $request->input('approver_id'),
                 'custom_fields' => $request->input('custom_fields'),
                 'voucher_type' => $request->input('voucher_type') ?? $request->input('type'),
                 'type' => $request->input('type'),
-            ]);
+            ], null, $actorContext);
 
-            return response()->json(['data' => $voucher], 201);
+            $extra = json_decode($voucher->extra ?? '{}', true) ?: [];
+            $reference = $extra['reference'] ?? ($validated['reference'] ?? ('JV-' . $voucher->journalEntryId));
+            $responseData = $voucher->toArray();
+            $responseData['reference'] = $reference;
+            $responseData['journal_entry_id'] = $voucher->journalEntryId;
+
+            return response()->json(['data' => $responseData], 201);
         } catch (\Exception $e) {
             return response()->json([
                 'message' => $e->getMessage()

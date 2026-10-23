@@ -35,3 +35,16 @@ Update Issue #18 to reflect the actual current main SHA and PR/issue states. Rem
 For each correction, provide the merged PR, actual commit SHA, required green CI links, regression-test results, and a short acceptance-criteria checklist. Clearly identify any behavior not tested or not verified.
 
 Do not deploy or grant pilot access based solely on green CI or closed issues.
+
+## Review after PR 74 merged:
+
+6. Two remaining actions before proceeding
+A. Correct Issue #18 again. Its latest recorded status still says PR #74 is in review and identifies b14c51e... as the current main SHA. Both became stale when PR #74 merged. Update the canonical DAG to record merge commit ed91c14... and Issue #9's new state.
+
+B. Resolve the approval-workflow design before production. The new checks materially improve authorization, but the current approach still accepts a reusable approver password or token in the posting request. Also, the controller sets the authenticated user as the maker, which means the authenticated-supervisor-session route cannot straightforwardly approve a transaction created by a different maker in that same request flow.
+
+This does not negate the security improvement, but it warrants a dedicated approval-flow review: ideally, a separately authenticated approval action bound to the exact pending voucher, amount, company and payload, with replay protection and auditable approval evidence. Avoid treating password/token submission as a fully designed maker-checker workflow.
+Decision
+Keep T-068 on hold. PR #74 is merged, and the specific forged-approver findings have regression coverage. Before moving to account mapping, update Issue #18, inspect the final merged approval behavior, and have a maintainer accept the remaining design risks.
+
+Issue #8 must remain open until its atomicity, failure recovery, reference uniqueness and production-engine certification evidence is formally reconciled. Once those gates and the approval review are resolved, Issue #10 can proceed without losing the coordinated execution order.

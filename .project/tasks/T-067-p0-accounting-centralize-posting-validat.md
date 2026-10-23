@@ -1,7 +1,7 @@
 ---
 id: "T-067"
 title: "[P0][Accounting] Centralize posting validation and enforce approval at the write boundary (Issue #9)"
-status: "in_progress"
+status: "done"
 priority: "critical"
 epic: "EP-09"
 assigned_to: "agent"
@@ -34,9 +34,9 @@ claimed_by: "agent"
 started_at: "2026-10-23T07:03:06.892Z"
 start_git_commit: "3ec0517"
 start_git_branch: "task/issue-9-centralize-posting-validation"
-completed_at: "2026-10-23T07:35:04.835Z"
-completed_git_commit: "3f1d0f0"
-verification_evidence: "PR #73 merged to main (3f1d0f0); CI run 39917687781 all 3 jobs green; CentralizedPostingValidationAndApprovalTest passes (8/8, 55 assertions); full test suite 145/145 pass; 0 architecture violations"
+completed_at: "2026-10-23T08:26:23.185Z"
+completed_git_commit: "ed91c14"
+verification_evidence: "PR #74 merged to main as ed91c142e03aaeb02d9bf86454dd7bf1219b1660. 151/151 PHPUnit tests passing. CI run 39923374005 green across all 3 jobs. Issue #9 closed."
 ---
 
 ## Objective

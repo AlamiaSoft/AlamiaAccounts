@@ -422,6 +422,14 @@ class PostingIdempotencyService
         $code = (string)$e->getCode();
         $message = strtolower($e->getMessage());
 
+        if (
+            str_contains($message, 'foreign key constraint')
+            || str_contains($message, 'not null constraint')
+            || str_contains($message, 'check constraint')
+        ) {
+            return false;
+        }
+
         // PostgreSQL: SQLSTATE 23505
         if ($code === '23505' || str_contains($message, '23505') || str_contains($message, 'unique constraint')) {
             return true;

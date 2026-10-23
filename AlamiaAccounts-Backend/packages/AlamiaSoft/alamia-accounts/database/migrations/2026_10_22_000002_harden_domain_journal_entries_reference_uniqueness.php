@@ -23,17 +23,8 @@ return new class extends Migration
         // Deterministically backfill NULL/blank references and disambiguate any historical duplicates
         DomainJournalEntry::reconcileAndBackfillReferences();
 
-        // Ensure standard composite unique index (domainUuid, reference) exists
-        try {
-            Schema::table('domain_journal_entries', function (Blueprint $table) {
-                $table->unique(['domainUuid', 'reference'], 'domain_reference_unique');
-            });
-        } catch (\Throwable $e) {
-            // Index already exists from 2026_10_16_000002_create_posting_idempotency_records_table
-        }
-
-        // Enforce case-insensitive company-scoped reference uniqueness at the DB boundary
-        // on both supported engines (SQLite and PostgreSQL)
+        // Enforce company-scoped reference uniqueness (both exact and case-insensitive) at the DB boundary
+        // on both supported engines (SQLite and PostgreSQL) without aborting PostgreSQL migration transactions
         $driver = Schema::getConnection()->getDriverName();
         if (in_array($driver, ['sqlite', 'pgsql'], true)) {
             DB::statement(

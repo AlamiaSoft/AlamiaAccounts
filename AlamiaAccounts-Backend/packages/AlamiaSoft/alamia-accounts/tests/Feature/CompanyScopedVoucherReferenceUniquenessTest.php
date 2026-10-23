@@ -188,9 +188,11 @@ class CompanyScopedVoucherReferenceUniquenessTest extends TestCase
         $this->assertNotNull($secondHolder->journalEntryId);
 
         try {
-            DB::table('domain_journal_entries')
-                ->where('journalEntryId', $secondHolder->journalEntryId)
-                ->update(['reference' => 'jv-db-boundary-01']);
+            DB::transaction(function () use ($secondHolder) {
+                DB::table('domain_journal_entries')
+                    ->where('journalEntryId', $secondHolder->journalEntryId)
+                    ->update(['reference' => 'jv-db-boundary-01']);
+            });
             $this->fail('Expected database unique index domain_reference_ci_unique to reject lowercase duplicate.');
         } catch (QueryException $qe) {
             $this->assertTrue(

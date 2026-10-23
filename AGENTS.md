@@ -151,6 +151,7 @@ node scripts/pm.js pause <task_id>            # Move task to ON_HOLD / PAUSED
 2. **Never read the entire `.project/` tree at once**: Always query targeted context via `node scripts/pm.js context <id>` or `node scripts/pm.js next`.
 3. **Architectural Conformance Gate**: Run `node scripts/verify-architecture.js` to ensure zero boundary breaches, zero raw Abivia model imports in controllers, zero hardcoded heuristics, and single source of truth.
 4. **Hard Verification Gate**: No task can transition to `DONE` without automated verification tests passing.
-5. **Traceable Handoffs**: Work sessions are recorded under `.project/runs/<task_id>/`.
-
-
+5. **Merge & CI-Gated Completion**: Record task/issue completion (`pm.js finish`, issue closure, DAG updates) **only** after the PR is merged to `main` with all 3 CI jobs (`PHPUnit (sqlite)`, `PHPUnit (pgsql)`, `Composer, syntax, and architecture checks`) green and evidence attached—never on issue creation or unmerged branches.
+6. **Target DB Engines (SQLite & PostgreSQL 16 Only)**: Never add MySQL/MariaDB error codes (`1062`), and never wrap failing migration DDL in PHP `try/catch` (which aborts PostgreSQL's transactional DDL context; use `IF NOT EXISTS` or `Schema::hasIndex`).
+7. **Cross-Repository Path**: When inspecting the TravelOS host app, always use `F:\Playgrounds\Alamia-SaaS-Platform-Starter` and query `codegraph_explore` first.
+8. **Traceable Handoffs**: Work sessions are recorded under `.project/runs/<task_id>/` and `docs/handoffs/`.

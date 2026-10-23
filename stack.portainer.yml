@@ -61,6 +61,7 @@ services:
       APP_KEY: "${APP_KEY}"
       APP_URL: "${APP_URL:-https://accounts.alamiaconnect.com}"
       FRONTEND_URL: "${FRONTEND_URL:-https://accounts.alamiaconnect.com}"
+      PHP_CLI_SERVER_WORKERS: "${PHP_CLI_SERVER_WORKERS:-8}"
       LOG_CHANNEL: stack
       LOG_LEVEL: "${LOG_LEVEL:-error}"
       DB_CONNECTION: sqlite

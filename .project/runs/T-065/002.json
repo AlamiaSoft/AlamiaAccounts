@@ -1,0 +1,8 @@
+{
+  "task_id": "T-065",
+  "run_id": "002",
+  "timestamp": "2026-10-23T06:46:34.449Z",
+  "action": "FINISH",
+  "git_commit": "5eccbfd",
+  "evidence": "PR #71 merged into main. CI Run 39913015497 100% green (sqlite, pgsql, syntax/architecture). 5/5 feature tests passing (42 assertions). Case-insensitive company-scoped voucher-reference uniqueness enforced at DB and service layer."
+}

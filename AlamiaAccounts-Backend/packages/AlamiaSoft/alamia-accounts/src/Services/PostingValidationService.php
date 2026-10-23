@@ -4,8 +4,11 @@ namespace AlamiaSoft\AlamiaAccounts\Services;
 
 use AlamiaSoft\AlamiaAccounts\Exceptions\PostingValidationException;
 use AlamiaSoft\AlamiaAccounts\Models\DomainJournalEntry;
+use App\Models\User;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
+use Laravel\Sanctum\PersonalAccessToken;
 
 class PostingValidationService
 {
@@ -269,32 +272,18 @@ class PostingValidationService
                 throw new PostingValidationException('Amount confirmation mismatch: For high-risk transactions (>= Rs. ' . number_format($makerCheckerThreshold, 2) . '), you must re-enter the exact amount (Rs. ' . number_format($totalDebit, 2) . ') to verify authorization.');
             }
 
-            $approverId = $approval['approver_id'] ?? ($approval['approved_by'] ?? ($data['approver_id'] ?? ($actorContext['approver_id'] ?? null)));
-
-            // Segregation of duties: Maker !== Approver
-            if ($makerId !== null && $approverId !== null) {
-                if ((string)$makerId === (string)$approverId) {
-                    throw new PostingValidationException('Self-approval prohibited: maker and approver cannot be the same user for transactions requiring maker-checker approval.');
-                }
-            }
-
-            $requireDistinct = (bool)($approval['require_distinct_approver'] ?? ($actorContext['require_distinct_approver'] ?? ($data['require_distinct_approver'] ?? false)));
-            if ($requireDistinct && empty($approverId)) {
-                throw new PostingValidationException('Maker-checker policy requires an explicit distinct approver for this transaction.');
-            }
-
+            // Verify approver identity, tenant authorization, role, and authentication proof
+            $approverUser = $this->verifyApproverAuthorization($domain, $makerId, $approval, $actorContext);
+            $approverId = $approverUser ? (string)$approverUser->id : null;
             $approvalReason = $reason;
         } elseif (!empty($approval) && is_array($approval)) {
             $approvalReason = !empty($approval['reason']) ? trim((string)$approval['reason']) : null;
-            $approverId = $approval['approver_id'] ?? ($approval['approved_by'] ?? ($data['approver_id'] ?? ($actorContext['approver_id'] ?? null)));
             if (!empty($approval['reentered_amount'])) {
                 $reenteredAmount = (float) str_replace(',', '', (string)$approval['reentered_amount']);
             }
-            if ($makerId !== null && $approverId !== null && (string)$makerId === (string)$approverId) {
-                $requireDistinct = (bool)($approval['require_distinct_approver'] ?? ($actorContext['require_distinct_approver'] ?? ($data['require_distinct_approver'] ?? false)));
-                if ($requireDistinct) {
-                    throw new PostingValidationException('Self-approval prohibited: maker and approver cannot be the same user for transactions requiring maker-checker approval.');
-                }
+            if (!empty($approval['approver_id']) || !empty($approval['approved_by'])) {
+                $approverUser = $this->verifyApproverAuthorization($domain, $makerId, $approval, $actorContext);
+                $approverId = $approverUser ? (string)$approverUser->id : null;
             }
         }
 
@@ -316,5 +305,111 @@ class PostingValidationService
             'source' => $actorContext['source'] ?? ($data['source'] ?? (request() ? (request()->is('api/copilot/*') ? 'copilot' : 'api') : 'system')),
             'correlation_id' => $actorContext['correlation_id'] ?? ($data['correlation_id'] ?? (request() ? request()->header('X-Request-Id', request()->header('X-Correlation-Id', (string)Str::uuid())) : (string)Str::uuid())),
         ];
+    }
+
+    /**
+     * Authoritative server-side verification of maker-checker approver identity,
+     * tenant authorization, supervisory privilege, and authentication proof.
+     *
+     * @param object $domain Company domain model
+     * @param string|null $makerId Authenticated maker ID
+     * @param array $approval Approval payload containing reason, amount, approver, etc.
+     * @param array|null $actorContext Context containing caller session and source
+     * @return User|null Verified approver model or null if not required
+     * @throws PostingValidationException
+     */
+    protected function verifyApproverAuthorization(
+        object $domain,
+        ?string $makerId,
+        array $approval,
+        ?array $actorContext = null
+    ): ?User {
+        $requireDistinct = (bool) config('alamia-accounts.maker_checker_require_distinct_users', true);
+
+        $approverId = $approval['approver_id'] ?? ($approval['approved_by'] ?? ($actorContext['approver_id'] ?? null));
+
+        if (empty($approverId)) {
+            if ($requireDistinct) {
+                throw new PostingValidationException('Maker-checker policy requires an explicit distinct approver for this transaction.');
+            }
+            return null;
+        }
+
+        // Segregation of duties pre-check: Maker !== Approver
+        if ($makerId !== null && (string)$makerId === (string)$approverId) {
+            throw new PostingValidationException('Self-approval prohibited: maker and approver cannot be the same user for transactions requiring maker-checker approval.');
+        }
+
+        // 1. Resolve user record
+        $approverUser = User::find($approverId);
+        if (!$approverUser || $approverUser->status !== 'active') {
+            throw new PostingValidationException("Approver ID '{$approverId}' does not exist or is not an active user.");
+        }
+
+        // 2. Tenant domain access check
+        if (!$approverUser->canAccessCompany($domain->code)) {
+            throw new PostingValidationException("Approver ID '{$approverId}' is not authorized for company domain '{$domain->code}'.");
+        }
+
+        // 3. Authorized supervisory approver role check
+        $authorizedRoles = config('alamia-accounts.maker_checker_authorized_roles', [
+            'admin',
+            'manager',
+            'cfo',
+            'controller',
+            'lead_accountant',
+            'owner',
+            'super_admin',
+        ]);
+        $approverRole = strtolower((string)($approverUser->role ?? ''));
+        if (!in_array($approverRole, $authorizedRoles, true)) {
+            throw new PostingValidationException("User '{$approverUser->name}' (role: '{$approverRole}') does not have authority to approve high-value transactions.");
+        }
+
+        // 4. Segregation of duties: Maker !== Approver (Self-approval strictly prohibited)
+        if ($makerId !== null && (string)$makerId === (string)$approverUser->id) {
+            throw new PostingValidationException('Self-approval prohibited: maker and approver cannot be the same user for transactions requiring maker-checker approval.');
+        }
+
+        // 5. Trusted authentication proof verification (prevents forged approver IDs)
+        $isVerified = false;
+
+        // 5a. Authenticated supervisory session: request itself is authenticated as the approver
+        $authenticatedUser = auth()->user() ?? ($actorContext['authenticated_user'] ?? null);
+        if ($authenticatedUser && (string)$authenticatedUser->id === (string)$approverUser->id) {
+            $isVerified = true;
+        }
+
+        // 5b. Approver password confirmation
+        $password = $approval['approver_password'] ?? ($approval['password'] ?? null);
+        if (!$isVerified && $password !== null && $password !== '') {
+            if (!Hash::check((string)$password, $approverUser->password)) {
+                throw new PostingValidationException("Approver authentication failed: invalid password confirmation for approver '{$approverUser->name}'.");
+            }
+            $isVerified = true;
+        }
+
+        // 5c. Approver Sanctum token confirmation
+        $token = $approval['approver_token'] ?? ($approval['token'] ?? null);
+        if (!$isVerified && $token !== null && $token !== '') {
+            $tokenModel = class_exists(PersonalAccessToken::class)
+                ? PersonalAccessToken::findToken((string)$token)
+                : null;
+            if (!$tokenModel || (string)$tokenModel->tokenable_id !== (string)$approverUser->id) {
+                throw new PostingValidationException("Approver authentication failed: invalid or expired authorization token for approver '{$approverUser->name}'.");
+            }
+            $isVerified = true;
+        }
+
+        // 5d. Internal verified workflow flag
+        if (!$isVerified && !empty($actorContext['approver_verified']) && $actorContext['approver_verified'] === true) {
+            $isVerified = true;
+        }
+
+        if (!$isVerified) {
+            throw new PostingValidationException("Unverified maker-checker approval: explicit authentication proof (approver password confirmation, verified approver token, or authenticated supervisory session) is required to authorize on behalf of approver '{$approverUser->name}'.");
+        }
+
+        return $approverUser;
     }
 }

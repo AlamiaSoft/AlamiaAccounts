@@ -32,4 +32,17 @@ return [
      * Enforce strict distinct-user separation of duties for maker-checker approvals.
      */
     'maker_checker_require_distinct_users' => (bool) env('ACCOUNTING_MAKER_CHECKER_DISTINCT_USERS', true),
+
+    /*
+     * Roles authorized to approve transactions exceeding the maker-checker threshold.
+     */
+    'maker_checker_authorized_roles' => [
+        'admin',
+        'manager',
+        'cfo',
+        'controller',
+        'lead_accountant',
+        'owner',
+        'super_admin',
+    ],
 ];

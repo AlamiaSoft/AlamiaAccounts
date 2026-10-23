@@ -113,11 +113,12 @@ class VoucherController extends Controller
         $actorContext = [
             'maker_id' => $user ? (string)$user->id : ($request->input('maker_id') ?? null),
             'user_name' => $user ? $user->name : null,
+            'authenticated_user' => $user,
+            'authenticated_user_id' => $user ? (string)$user->id : null,
             'source' => 'api',
             'correlation_id' => $request->header('X-Request-Id', $request->header('X-Correlation-Id', (string)\Illuminate\Support\Str::uuid())),
             'approval' => $request->input('approval'),
             'approver_id' => $request->input('approval.approver_id') ?? $request->input('approver_id'),
-            'require_distinct_approver' => $request->input('approval.require_distinct_approver') ?? $request->input('require_distinct_approver', false),
         ];
 
         try {

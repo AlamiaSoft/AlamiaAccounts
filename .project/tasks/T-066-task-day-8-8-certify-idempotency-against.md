@@ -1,13 +1,13 @@
 ---
 id: "T-066"
 title: "[Task][Day 8][#8] Certify idempotency against the production database engine (Issue #43)"
-status: "in_progress"
+status: "done"
 priority: "critical"
 epic: "EP-08"
 assigned_to: "agent"
 depends_on:
   - "T-065"
-blocks: []
+blocks:
 relevant_files:
   - "AlamiaAccounts-Backend/packages/AlamiaSoft/alamia-accounts/tests/Feature/ProductionDatabaseIdempotencyCertificationTest.php"
   - "docs/architecture/production-db-idempotency-certification.md"
@@ -20,6 +20,9 @@ claimed_by: "agent"
 started_at: "2026-10-23T06:47:57.484Z"
 start_git_commit: "ed3104d"
 start_git_branch: "task/issue-43-certify-idempotency-production-db"
+completed_at: "2026-10-23T07:02:05.880Z"
+completed_git_commit: "43ab9f3"
+verification_evidence: "PR #72 merged into main. CI Run 39914273047 100% green (sqlite, pgsql PostgreSQL 16, syntax/architecture). ProductionDatabaseIdempotencyCertificationTest passing (7 tests, 51 assertions). Epic #8 certified."
 ---
 
 ## Objective

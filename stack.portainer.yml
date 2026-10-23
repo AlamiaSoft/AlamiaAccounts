@@ -51,7 +51,7 @@ services:
     restart: unless-stopped
     ports:
       # Optional host port for direct backend routing via Cloudflare Tunnel
-      - "127.0.0.1:${BACKEND_HOST_PORT:-8001}:8000"
+      - "127.0.0.1:${BACKEND_HOST_PORT:-8101}:8000"
     expose:
       - "8000"
     environment:

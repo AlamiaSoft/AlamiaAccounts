@@ -195,6 +195,25 @@ class AccountService
     }
 
     /**
+     * Get accounts by codes for a specific domain.
+     * Returns an associative array of code => LedgerAccount for validating posting targets.
+     *
+     * @param string $domainUuid
+     * @param array $codes
+     * @return array<string, LedgerAccount>
+     */
+    public function getAccountsByCodesForDomain(string $domainUuid, array $codes): array
+    {
+        $accountUuids = DomainLedgerAccount::getAccountUuidsForDomain($domainUuid);
+        
+        return LedgerAccount::whereIn('code', $codes)
+            ->whereIn('ledgerUuid', $accountUuids)
+            ->get(['ledgerUuid', 'code', 'category'])
+            ->keyBy('code')
+            ->all();
+    }
+
+    /**
      * Get all accounts (including hierarchy) for the current domain.
      */
     public function getAllAccounts(): Collection

@@ -106,6 +106,10 @@ class AccountingIntegrityCheckpointTest extends TestCase
             'description' => 'Owner Capital',
             'date' => Carbon::today()->toDateString(),
             'currency' => 'PKR',
+            'approval' => [
+                'reason' => 'Owner initial capital contribution for company baseline setup',
+                'reentered_amount' => 100000.00,
+            ],
             'entries' => [
                 ['account_code' => '1110', 'amount' => 100000.00, 'type' => 'debit'],
                 ['account_code' => '5100', 'amount' => 100000.00, 'type' => 'credit'],
